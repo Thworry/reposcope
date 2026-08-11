@@ -47,6 +47,7 @@ interface DuplicateCandidate {
 interface PositionRun {
   start: number;
   end: number;
+  step: number;
 }
 
 interface ExactWindowGroup {
@@ -64,6 +65,8 @@ interface GraphFile {
   comparisonPath: string;
   language: ImportingFile["language"];
   relativeImports: readonly string[];
+  relativeImportCandidates: readonly string[];
+  topLevelDefinedNames: readonly string[];
 }
 
 function comparisonPath(path: string): string {
@@ -415,6 +418,140 @@ function uniformFileCandidates(
   return { candidates, skippedPairs };
 }
 
+function minimalPeriod(tokens: readonly string[]): number {
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  const prefix = new Uint32Array(tokens.length);
+  for (let index = 1; index < tokens.length; index += 1) {
+    let matched = prefix[index - 1] ?? 0;
+
+    while (matched > 0 && tokens[index] !== tokens[matched]) {
+      matched = prefix[matched - 1] ?? 0;
+    }
+    if (tokens[index] === tokens[matched]) {
+      matched += 1;
+    }
+    prefix[index] = matched;
+  }
+
+  return tokens.length - (prefix.at(-1) ?? 0);
+}
+
+function compatiblePeriodDeltas(
+  left: readonly string[],
+  right: readonly string[],
+  period: number,
+): number[] {
+  const deltas: number[] = [];
+
+  for (let delta = 0; delta < period; delta += 1) {
+    let compatible = true;
+
+    for (let index = 0; index < period; index += 1) {
+      if (left[index] !== right[(index + delta) % period]) {
+        compatible = false;
+        break;
+      }
+    }
+    if (compatible) {
+      deltas.push(delta);
+    }
+  }
+
+  return deltas;
+}
+
+function firstCongruentAtOrAfter(
+  minimum: number,
+  residue: number,
+  modulus: number,
+): number {
+  const difference = (((residue - minimum) % modulus) + modulus) % modulus;
+
+  return minimum + difference;
+}
+
+function periodicFileCandidates(
+  files: readonly DuplicateFile[],
+  alreadySkipped: ReadonlySet<string>,
+): { candidates: DuplicateCandidate[]; skippedPairs: Set<string> } {
+  const periods = files.map((file) => minimalPeriod(file.tokens));
+  const candidates: DuplicateCandidate[] = [];
+  const skippedPairs = new Set<string>();
+
+  for (
+    let leftFileIndex = 0;
+    leftFileIndex < files.length;
+    leftFileIndex += 1
+  ) {
+    const leftTokens = files[leftFileIndex]?.tokens ?? [];
+    const period = periods[leftFileIndex] ?? 0;
+
+    if (
+      leftTokens.length < DUPLICATE_WINDOW_SIZE ||
+      period === 0 ||
+      period > DUPLICATE_WINDOW_SIZE
+    ) {
+      continue;
+    }
+    for (
+      let rightFileIndex = leftFileIndex + 1;
+      rightFileIndex < files.length;
+      rightFileIndex += 1
+    ) {
+      const pairKey = filePairKey(leftFileIndex, rightFileIndex);
+      const rightTokens = files[rightFileIndex]?.tokens ?? [];
+
+      if (
+        alreadySkipped.has(pairKey) ||
+        periods[rightFileIndex] !== period ||
+        rightTokens.length < DUPLICATE_WINDOW_SIZE
+      ) {
+        continue;
+      }
+      const compatibleDeltas = compatiblePeriodDeltas(
+        leftTokens,
+        rightTokens,
+        period,
+      );
+
+      if (compatibleDeltas.length === 0) {
+        continue;
+      }
+
+      const minimumDelta = -(leftTokens.length - DUPLICATE_WINDOW_SIZE);
+      const maximumDelta = rightTokens.length - DUPLICATE_WINDOW_SIZE;
+
+      for (const residue of compatibleDeltas) {
+        for (
+          let delta = firstCongruentAtOrAfter(minimumDelta, residue, period);
+          delta <= maximumDelta;
+          delta += period
+        ) {
+          const leftStart = Math.max(0, -delta);
+          const rightStart = Math.max(0, delta);
+
+          candidates.push({
+            leftFileIndex,
+            leftStart,
+            rightFileIndex,
+            rightStart,
+            length: Math.min(
+              leftTokens.length - leftStart,
+              rightTokens.length - rightStart,
+            ),
+          });
+        }
+      }
+      skippedPairs.add(pairKey);
+    }
+  }
+
+  return { candidates, skippedPairs };
+}
+
 function hasUnskippedCrossFilePair(
   occurrences: readonly WindowOccurrence[],
   skippedPairs: ReadonlySet<string>,
@@ -484,20 +621,180 @@ function groupExactWindows(
   return groups;
 }
 
-function consecutiveRuns(starts: readonly number[]): PositionRun[] {
+function arithmeticRuns(starts: readonly number[]): PositionRun[] {
   const runs: PositionRun[] = [];
 
-  for (const start of starts) {
-    const previous = runs.at(-1);
+  for (let index = 0; index < starts.length;) {
+    const start = starts[index];
 
-    if (previous !== undefined && start === previous.end + 1) {
-      previous.end = start;
-    } else {
-      runs.push({ start, end: start });
+    if (start === undefined) {
+      break;
     }
+    const next = starts[index + 1];
+
+    if (next === undefined) {
+      runs.push({ start, end: start, step: 0 });
+      break;
+    }
+
+    const step = next - start;
+    let endIndex = index + 1;
+
+    while (
+      starts[endIndex + 1] !== undefined &&
+      (starts[endIndex + 1] ?? 0) - (starts[endIndex] ?? 0) === step
+    ) {
+      endIndex += 1;
+    }
+    runs.push({ start, end: starts[endIndex] ?? next, step });
+    index = endIndex + 1;
   }
 
   return runs;
+}
+
+function greatestCommonDivisor(left: number, right: number): number {
+  let first = Math.abs(left);
+  let second = Math.abs(right);
+
+  while (second !== 0) {
+    [first, second] = [second, first % second];
+  }
+
+  return first;
+}
+
+function extendedGreatestCommonDivisor(
+  left: number,
+  right: number,
+): { divisor: number; leftCoefficient: number; rightCoefficient: number } {
+  let oldRemainder = left;
+  let remainder = right;
+  let oldLeftCoefficient = 1;
+  let leftCoefficient = 0;
+  let oldRightCoefficient = 0;
+  let rightCoefficient = 1;
+
+  while (remainder !== 0) {
+    const quotient = Math.floor(oldRemainder / remainder);
+
+    [oldRemainder, remainder] = [
+      remainder,
+      oldRemainder - quotient * remainder,
+    ];
+    [oldLeftCoefficient, leftCoefficient] = [
+      leftCoefficient,
+      oldLeftCoefficient - quotient * leftCoefficient,
+    ];
+    [oldRightCoefficient, rightCoefficient] = [
+      rightCoefficient,
+      oldRightCoefficient - quotient * rightCoefficient,
+    ];
+  }
+
+  return {
+    divisor: oldRemainder,
+    leftCoefficient: oldLeftCoefficient,
+    rightCoefficient: oldRightCoefficient,
+  };
+}
+
+function runCount(run: PositionRun): number {
+  return run.step === 0 ? 1 : (run.end - run.start) / run.step + 1;
+}
+
+function startsForDelta(
+  leftRun: PositionRun,
+  rightRun: PositionRun,
+  delta: number,
+): { leftStart: number; rightStart: number } | null {
+  if (leftRun.step === 0 && rightRun.step === 0) {
+    return rightRun.start - leftRun.start === delta
+      ? { leftStart: leftRun.start, rightStart: rightRun.start }
+      : null;
+  }
+  if (leftRun.step === 0) {
+    const rightStart = leftRun.start + delta;
+
+    return rightStart >= rightRun.start &&
+      rightStart <= rightRun.end &&
+      (rightStart - rightRun.start) % rightRun.step === 0
+      ? { leftStart: leftRun.start, rightStart }
+      : null;
+  }
+  if (rightRun.step === 0) {
+    const leftStart = rightRun.start - delta;
+
+    return leftStart >= leftRun.start &&
+      leftStart <= leftRun.end &&
+      (leftStart - leftRun.start) % leftRun.step === 0
+      ? { leftStart, rightStart: rightRun.start }
+      : null;
+  }
+
+  const difference = delta - (rightRun.start - leftRun.start);
+  const coefficients = extendedGreatestCommonDivisor(
+    rightRun.step,
+    leftRun.step,
+  );
+
+  if (difference % coefficients.divisor !== 0) {
+    return null;
+  }
+
+  const multiplier = difference / coefficients.divisor;
+  const initialRightIndex = coefficients.leftCoefficient * multiplier;
+  const initialLeftIndex = -coefficients.rightCoefficient * multiplier;
+  const rightIndexStep = leftRun.step / coefficients.divisor;
+  const leftIndexStep = rightRun.step / coefficients.divisor;
+  const minimumShift = Math.max(
+    Math.ceil(-initialRightIndex / rightIndexStep),
+    Math.ceil(-initialLeftIndex / leftIndexStep),
+  );
+  const maximumShift = Math.min(
+    Math.floor((runCount(rightRun) - 1 - initialRightIndex) / rightIndexStep),
+    Math.floor((runCount(leftRun) - 1 - initialLeftIndex) / leftIndexStep),
+  );
+
+  if (minimumShift > maximumShift) {
+    return null;
+  }
+
+  const rightIndex = initialRightIndex + rightIndexStep * minimumShift;
+  const leftIndex = initialLeftIndex + leftIndexStep * minimumShift;
+
+  return {
+    leftStart: leftRun.start + leftIndex * leftRun.step,
+    rightStart: rightRun.start + rightIndex * rightRun.step,
+  };
+}
+
+function forEachRunPairSeed(
+  leftRun: PositionRun,
+  rightRun: PositionRun,
+  visit: (leftStart: number, rightStart: number) => void,
+): void {
+  const minimumDelta = rightRun.start - leftRun.end;
+  const maximumDelta = rightRun.end - leftRun.start;
+  const divisor = greatestCommonDivisor(leftRun.step, rightRun.step);
+
+  if (divisor === 0) {
+    visit(leftRun.start, rightRun.start);
+    return;
+  }
+
+  const residue = rightRun.start - leftRun.start;
+  for (
+    let delta = firstCongruentAtOrAfter(minimumDelta, residue, divisor);
+    delta <= maximumDelta;
+    delta += divisor
+  ) {
+    const starts = startsForDelta(leftRun, rightRun, delta);
+
+    if (starts !== null) {
+      visit(starts.leftStart, starts.rightStart);
+    }
+  }
 }
 
 function isCovered(
@@ -551,11 +848,20 @@ function duplicateCandidates(
 ): DuplicateCandidate[] {
   const identical = identicalFileCandidates(files);
   const uniform = uniformFileCandidates(files, identical.skippedPairs);
+  const periodic = periodicFileCandidates(
+    files,
+    new Set([...identical.skippedPairs, ...uniform.skippedPairs]),
+  );
   const skippedPairs = new Set([
     ...identical.skippedPairs,
     ...uniform.skippedPairs,
+    ...periodic.skippedPairs,
   ]);
-  const candidates = [...identical.candidates, ...uniform.candidates];
+  const candidates = [
+    ...identical.candidates,
+    ...uniform.candidates,
+    ...periodic.candidates,
+  ];
   const candidateKeys = new Set(candidates.map(candidateKey));
   const coverage = new Map<string, CoveredInterval[]>();
 
@@ -601,10 +907,10 @@ function duplicateCandidates(
             continue;
           }
 
-          const leftRuns = consecutiveRuns(
+          const leftRuns = arithmeticRuns(
             startsByFile.get(leftFileIndex) ?? [],
           );
-          const rightRuns = consecutiveRuns(
+          const rightRuns = arithmeticRuns(
             startsByFile.get(rightFileIndex) ?? [],
           );
 
@@ -613,37 +919,17 @@ function duplicateCandidates(
           // each maximal match only once without changing the candidate set.
           for (const leftRun of leftRuns) {
             for (const rightRun of rightRuns) {
-              const minimumDelta = rightRun.start - leftRun.end;
-              const maximumDelta = rightRun.end - leftRun.start;
-
-              for (
-                let delta = minimumDelta;
-                delta <= maximumDelta;
-                delta += 1
-              ) {
-                const leftStart = Math.max(
-                  leftRun.start,
-                  rightRun.start - delta,
-                );
-                const maximumLeftStart = Math.min(
-                  leftRun.end,
-                  rightRun.end - delta,
-                );
-
-                if (leftStart > maximumLeftStart) {
-                  continue;
-                }
-
+              forEachRunPairSeed(leftRun, rightRun, (leftStart, rightStart) => {
                 const seed: DuplicateCandidate = {
                   leftFileIndex,
                   leftStart,
                   rightFileIndex,
-                  rightStart: leftStart + delta,
+                  rightStart,
                   length: DUPLICATE_WINDOW_SIZE,
                 };
 
                 if (isCovered(coverage, seed)) {
-                  continue;
+                  return;
                 }
                 const candidate = extendMatch(
                   files,
@@ -658,7 +944,7 @@ function duplicateCandidates(
                 );
 
                 if (candidate === null) {
-                  continue;
+                  return;
                 }
                 recordCoverage(coverage, candidate);
 
@@ -667,7 +953,7 @@ function duplicateCandidates(
                   candidateKeys.add(key);
                   candidates.push(candidate);
                 }
-              }
+              });
             }
           }
         }
@@ -936,6 +1222,35 @@ function resolvePythonImport(
   return resolveCandidate(candidates, filesByPath, "python");
 }
 
+function resolvePythonImportCandidate(
+  file: GraphFile,
+  specifier: string,
+  filesByPath: ReadonlyMap<string, GraphFile>,
+): GraphFile | null {
+  const candidate = /^(\.+)([^.]+)$/u.exec(specifier);
+
+  if (candidate === null) {
+    return null;
+  }
+  const packageBase = pythonImportBase(file, candidate[1] ?? "");
+  const importedName = candidate[2];
+
+  if (packageBase === null || importedName === undefined) {
+    return null;
+  }
+  const packageFile = resolveCandidate(
+    PYTHON_PACKAGE_FILES.map((fileName) => `${packageBase}/${fileName}`),
+    filesByPath,
+    "python",
+  );
+
+  if (packageFile?.topLevelDefinedNames.includes(importedName) === true) {
+    return null;
+  }
+
+  return resolvePythonImport(file, specifier, filesByPath);
+}
+
 function buildGraph(input: readonly ImportingFile[]): Map<string, string[]> {
   const ordered = input
     .map((file) => ({
@@ -943,6 +1258,8 @@ function buildGraph(input: readonly ImportingFile[]): Map<string, string[]> {
       comparisonPath: comparisonPath(file.path),
       language: file.language,
       relativeImports: file.relativeImports,
+      relativeImportCandidates: file.relativeImportCandidates ?? [],
+      topLevelDefinedNames: file.topLevelDefinedNames ?? [],
     }))
     .sort((left, right) => comparePathValues(left.path, right.path));
   const filesByPath = new Map<string, GraphFile>();
@@ -968,6 +1285,23 @@ function buildGraph(input: readonly ImportingFile[]): Map<string, string[]> {
 
       if (target !== null && target.comparisonPath !== file.comparisonPath) {
         edges.add(target.path);
+      }
+    }
+    if (file.language === "python") {
+      const candidates = [...file.relativeImportCandidates].sort(
+        (left, right) => left.localeCompare(right, "en-US"),
+      );
+
+      for (const specifier of candidates) {
+        const target = resolvePythonImportCandidate(
+          file,
+          specifier,
+          filesByPath,
+        );
+
+        if (target !== null && target.comparisonPath !== file.comparisonPath) {
+          edges.add(target.path);
+        }
       }
     }
     graph.set(file.path, [...edges].sort(comparePathValues));

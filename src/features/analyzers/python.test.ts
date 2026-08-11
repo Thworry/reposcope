@@ -67,9 +67,9 @@ describe("Python analyzer", () => {
     expect(result.files[0]?.relativeImports).toEqual([
       "..",
       "...core.tools",
-      "..sibling",
       ".helper",
     ]);
+    expect(result.files[0]?.relativeImportCandidates).toEqual(["..sibling"]);
     expect(result.exportedDeclarations).toBe(3);
     expect(result.documentedExports).toBe(2);
   });
@@ -430,6 +430,8 @@ enabled = count and True  # hidden`,
         isTest: false,
         normalizedTokens: [],
         relativeImports: [],
+        relativeImportCandidates: [],
+        topLevelDefinedNames: ["choose"],
       },
     ]);
     expect(result.functions).toEqual([]);
@@ -455,6 +457,8 @@ def choose(value: Model) -> Shared: ...`,
       isTest: false,
       normalizedTokens: [],
       relativeImports: ["..shared", ".model"],
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["External", "Model", "Shared", "choose"],
     });
     expect(result.parsedBytes).toBe(0);
     expect(result.identifierOccurrences).toBe(0);
@@ -612,9 +616,8 @@ if TYPE_CHECKING:
       ),
     ]);
 
-    expect(result.files[0]?.relativeImports).toEqual([
-      ".",
-      "..",
+    expect(result.files[0]?.relativeImports).toEqual([".", ".."]);
+    expect(result.files[0]?.relativeImportCandidates).toEqual([
       "..parent_module",
       ".Thing",
       ".b",

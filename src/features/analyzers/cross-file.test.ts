@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { ImportingFile, TokenizedFile } from "../analysis/model";
+import type {
+  DuplicateMetrics,
+  ImportingFile,
+  TokenizedFile,
+} from "../analysis/model";
 import {
   declarationImportSource,
   sourceFile,
@@ -36,6 +40,177 @@ function importingFile(
   relativeImports: readonly string[],
 ): ImportingFile {
   return { path, language, relativeImports };
+}
+
+interface BruteForceCandidate {
+  leftFile: number;
+  leftStart: number;
+  rightFile: number;
+  rightStart: number;
+  length: number;
+}
+
+function bruteForceDuplicateRatio(
+  input: readonly TokenizedFile[],
+): DuplicateMetrics {
+  const files = input
+    .filter((file) => !file.isTest)
+    .map((file) => ({ path: file.path, tokens: file.normalizedTokens }))
+    .sort((left, right) => left.path.localeCompare(right.path, "en-US"));
+  const candidates: BruteForceCandidate[] = [];
+  const keys = new Set<string>();
+
+  for (let leftFile = 0; leftFile < files.length; leftFile += 1) {
+    for (
+      let rightFile = leftFile + 1;
+      rightFile < files.length;
+      rightFile += 1
+    ) {
+      const leftTokens = files[leftFile]?.tokens ?? [];
+      const rightTokens = files[rightFile]?.tokens ?? [];
+
+      for (
+        let leftWindow = 0;
+        leftWindow <= leftTokens.length - WINDOW_SIZE;
+        leftWindow += 1
+      ) {
+        for (
+          let rightWindow = 0;
+          rightWindow <= rightTokens.length - WINDOW_SIZE;
+          rightWindow += 1
+        ) {
+          let equal = true;
+          for (let offset = 0; offset < WINDOW_SIZE; offset += 1) {
+            if (
+              leftTokens[leftWindow + offset] !==
+              rightTokens[rightWindow + offset]
+            ) {
+              equal = false;
+              break;
+            }
+          }
+          if (!equal) {
+            continue;
+          }
+
+          let leftStart = leftWindow;
+          let rightStart = rightWindow;
+          while (
+            leftStart > 0 &&
+            rightStart > 0 &&
+            leftTokens[leftStart - 1] === rightTokens[rightStart - 1]
+          ) {
+            leftStart -= 1;
+            rightStart -= 1;
+          }
+          let length = WINDOW_SIZE;
+          while (
+            leftStart + length < leftTokens.length &&
+            rightStart + length < rightTokens.length &&
+            leftTokens[leftStart + length] === rightTokens[rightStart + length]
+          ) {
+            length += 1;
+          }
+
+          const key = [leftFile, leftStart, rightFile, rightStart, length].join(
+            ":",
+          );
+          if (!keys.has(key)) {
+            keys.add(key);
+            candidates.push({
+              leftFile,
+              leftStart,
+              rightFile,
+              rightStart,
+              length,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  candidates.sort(
+    (left, right) =>
+      right.length - left.length ||
+      (files[left.leftFile]?.path ?? "").localeCompare(
+        files[right.leftFile]?.path ?? "",
+        "en-US",
+      ) ||
+      (files[left.rightFile]?.path ?? "").localeCompare(
+        files[right.rightFile]?.path ?? "",
+        "en-US",
+      ) ||
+      left.leftStart - right.leftStart ||
+      left.rightStart - right.rightStart,
+  );
+
+  const occupied = files.map((file) =>
+    Array.from({ length: file.tokens.length }, () => false),
+  );
+  const accepted: BruteForceCandidate[] = [];
+  for (const candidate of candidates) {
+    const leftOccupied = occupied[candidate.leftFile] ?? [];
+    const rightOccupied = occupied[candidate.rightFile] ?? [];
+    const overlaps = Array.from(
+      { length: candidate.length },
+      (_, offset) => offset,
+    ).some(
+      (offset) =>
+        leftOccupied[candidate.leftStart + offset] === true ||
+        rightOccupied[candidate.rightStart + offset] === true,
+    );
+
+    if (overlaps) {
+      continue;
+    }
+    for (let offset = 0; offset < candidate.length; offset += 1) {
+      leftOccupied[candidate.leftStart + offset] = true;
+      rightOccupied[candidate.rightStart + offset] = true;
+    }
+    accepted.push(candidate);
+  }
+
+  const evidence = new Map<
+    string,
+    { leftPath: string; rightPath: string; tokenCount: number }
+  >();
+  for (const candidate of accepted) {
+    const leftPath = files[candidate.leftFile]?.path ?? "";
+    const rightPath = files[candidate.rightFile]?.path ?? "";
+    const key = `${leftPath}\0${rightPath}`;
+    const previous = evidence.get(key);
+
+    evidence.set(key, {
+      leftPath,
+      rightPath,
+      tokenCount: (previous?.tokenCount ?? 0) + candidate.length,
+    });
+  }
+
+  const totalEligibleTokens = files.reduce(
+    (total, file) => total + file.tokens.length,
+    0,
+  );
+  const duplicatedTokens = occupied.reduce(
+    (total, file) =>
+      total + file.reduce((count, duplicate) => count + Number(duplicate), 0),
+    0,
+  );
+
+  return {
+    totalEligibleTokens,
+    duplicatedTokens,
+    ratio:
+      totalEligibleTokens === 0 ? 0 : duplicatedTokens / totalEligibleTokens,
+    evidence: [...evidence.values()]
+      .sort(
+        (left, right) =>
+          left.leftPath.localeCompare(right.leftPath, "en-US") ||
+          left.rightPath.localeCompare(right.rightPath, "en-US"),
+      )
+      .slice(0, 20),
+  };
 }
 
 describe("cross-file duplicate metrics", () => {
@@ -252,6 +427,100 @@ describe("cross-file duplicate metrics", () => {
     });
     expect(indexedReads).toBeLessThanOrEqual(100_000);
   });
+
+  it(
+    "keeps periodic duplicate matching within the task analysis budget",
+    { timeout: 1500 },
+    () => {
+      const periodicTokens = (count: number): string[] =>
+        Array.from({ length: count }, (_, index) =>
+          index % 2 === 0 ? "identifier" : ";",
+        );
+
+      expect(
+        computeDuplicateRatio([
+          tokenizedFile("src/a.ts", periodicTokens(20_000)),
+          tokenizedFile("src/b.ts", periodicTokens(20_001)),
+        ]),
+      ).toEqual({
+        totalEligibleTokens: 40_001,
+        duplicatedTokens: 40_000,
+        ratio: 40_000 / 40_001,
+        evidence: [
+          {
+            leftPath: "src/a.ts",
+            rightPath: "src/b.ts",
+            tokenCount: 20_000,
+          },
+        ],
+      });
+    },
+  );
+
+  it.each([
+    [
+      "period seven",
+      [
+        tokenizedFile(
+          "src/a.ts",
+          Array.from({ length: 91 }, (_, index) => `p${String(index % 7)}`),
+        ),
+        tokenizedFile(
+          "src/b.ts",
+          Array.from({ length: 95 }, (_, index) => `p${String(index % 7)}`),
+        ),
+      ],
+    ],
+    [
+      "two maximal spans around a mismatch",
+      (() => {
+        const left = Array.from(
+          { length: 130 },
+          (_, index) => `p${String(index % 3)}`,
+        );
+        const right = [...left];
+
+        left[64] = "left-break";
+        right[64] = "right-break";
+        return [
+          tokenizedFile("src/a.ts", left),
+          tokenizedFile("src/b.ts", right),
+        ];
+      })(),
+    ],
+    [
+      "different arithmetic repetition steps",
+      (() => {
+        const shared = sequence("shared", WINDOW_SIZE);
+
+        return [
+          tokenizedFile("src/a.ts", [
+            ...shared,
+            "left-one",
+            ...shared,
+            "left-two",
+            ...shared,
+          ]),
+          tokenizedFile("src/b.ts", [
+            ...shared,
+            "right-one",
+            "right-two",
+            ...shared,
+            "right-three",
+            "right-four",
+            ...shared,
+          ]),
+        ];
+      })(),
+    ],
+  ] as const)(
+    "matches the brute-force greedy reference for %s",
+    (_label, files) => {
+      expect(computeDuplicateRatio(files)).toEqual(
+        bruteForceDuplicateRatio(files),
+      );
+    },
+  );
 });
 
 describe("relative import graph metrics", () => {
@@ -316,6 +585,22 @@ describe("relative import graph metrics", () => {
     });
   });
 
+  it("does not infer a submodule edge when package __init__ shadows the imported name", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile("pkg/__init__.py", "b = object()"),
+      pythonSourceFile("pkg/a.py", "from . import b\nvalue = b"),
+      pythonSourceFile("pkg/b.py", "from .a import value"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({ topLevelDefinedNames: ["b"] });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [],
+      largestComponentSize: 0,
+    });
+  });
+
   it("keeps .d.ts and .pyi imports resolution-only while finding their cycles", () => {
     const js = analyzeJavaScriptTypeScript([
       sourceFile("src/types.d.ts", declarationImportSource),
@@ -354,6 +639,7 @@ describe("relative import graph metrics", () => {
       logicalLines: 0,
       normalizedTokens: [],
       relativeImports: [".model", ".runtime"],
+      relativeImportCandidates: [],
     });
   });
 

@@ -187,6 +187,8 @@ export interface AnalyzedSourceFile {
   isTest: boolean;
   normalizedTokens: string[];
   relativeImports: string[];
+  relativeImportCandidates?: string[];
+  topLevelDefinedNames?: string[];
 }
 
 export interface LanguageAnalysis {
@@ -214,6 +216,8 @@ export interface ImportingFile {
   path: string;
   language: "javascript" | "typescript" | "python";
   relativeImports: readonly string[];
+  relativeImportCandidates?: readonly string[];
+  topLevelDefinedNames?: readonly string[];
 }
 
 export interface DuplicatePathPairEvidence {
