@@ -167,9 +167,20 @@ export function parseShareSearch(search: string): RepoRef | null {
     return null;
   }
 
+  const separator = value.indexOf("/");
+
+  if (separator <= 0 || separator !== value.lastIndexOf("/")) {
+    return null;
+  }
+
+  const ref: RepoRef = {
+    owner: value.slice(0, separator),
+    repo: value.slice(separator + 1),
+  };
+
   try {
-    const ref = parseRepositoryUrl(`https://github.com/${value}`);
-    return `${ref.owner}/${ref.repo}` === value ? ref : null;
+    assertRepoRef(ref);
+    return ref;
   } catch (error) {
     if (error instanceof RepoUrlError) {
       return null;

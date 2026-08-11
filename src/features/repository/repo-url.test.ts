@@ -108,6 +108,17 @@ describe("repository URL serialization", () => {
     expect(parseShareSearch(toShareSearch(parsed))).toEqual(parsed);
   });
 
+  it.each([
+    "https://github.com/own%25er/repo%25",
+    "https://github.com/own%3Fer/re%3Fpo",
+    "https://github.com/own%23er/re%23po",
+    "https://github.com/own%252Fteam/repo%252Fissues",
+  ])("keeps once-decoded URL characters closed through shares: %s", (url) => {
+    const parsed = parseRepositoryUrl(url);
+
+    expect(parseShareSearch(toShareSearch(parsed))).toEqual(parsed);
+  });
+
   it("keeps a normalized literal .git suffix closed under both serializers", () => {
     const parsed = parseRepositoryUrl("https://github.com/owner/repo.git");
 
@@ -134,8 +145,15 @@ describe("parseShareSearch", () => {
     "?repo=",
     "?repo=%20",
     "?repo=owner",
+    "?repo=%2Frepo",
+    "?repo=owner%2F",
+    "?repo=.%2Frepo",
+    "?repo=owner%2F.",
+    "?repo=owner%2F..",
     "?repo=owner%2Frepo%2Fissues",
+    "?repo=owner/repo/extra",
     "?repo=owner%5Crepo",
+    "?repo=owner%2Fre%20po",
     "?repo=owner%2Fre%C2%85po",
     "?repo=owner%2Fre\u0085po",
     "?repo=owner%2Frepo%ED%A0%80",
