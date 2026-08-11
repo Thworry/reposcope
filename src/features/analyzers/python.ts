@@ -1433,18 +1433,23 @@ function interpretTryStatement(
     }
   }
 
-  let normal =
+  const tryFlow =
     tryBody === null
-      ? cloneBindingState(input)
-      : interpretBindingBlock(context, tryBody, input);
+      ? { normal: cloneBindingState(input), exceptionalEntry: null }
+      : interpretTryBindingBlock(context, tryBody, input);
+  let normal = tryFlow.normal;
 
   if (elseBody !== null) {
     normal = interpretBindingBlock(context, elseBody, normal);
   }
   const continuing = [normal];
 
-  for (const handler of handlers) {
-    continuing.push(interpretBindingBlock(context, handler, input));
+  if (tryFlow.exceptionalEntry !== null) {
+    for (const handler of handlers) {
+      continuing.push(
+        interpretBindingBlock(context, handler, tryFlow.exceptionalEntry),
+      );
+    }
   }
   let state = intersectBindingStates(continuing);
 
@@ -1453,6 +1458,58 @@ function interpretTryStatement(
   }
 
   return state;
+}
+
+function bindingStatementMayThrow(
+  context: BindingFlowContext,
+  index: number,
+  state: ReadonlySet<string>,
+): boolean {
+  const node = context.nodes[index];
+
+  if (node === undefined || node.type === ":" || node.type === ";") {
+    return false;
+  }
+  if (node.type === "PassStatement") {
+    return false;
+  }
+  if (node.type === "DeleteStatement") {
+    const targets = node.children.filter(
+      (child) => context.nodes[child]?.type === "VariableName",
+    );
+    const names = targets.map((target) =>
+      nodeTextAt(context.nodes, target, context.text),
+    );
+
+    return (
+      targets.length === 0 ||
+      new Set(names).size !== names.length ||
+      names.some((name) => !state.has(name))
+    );
+  }
+
+  return node.type.endsWith("Statement") || node.type.endsWith("Definition");
+}
+
+function interpretTryBindingBlock(
+  context: BindingFlowContext,
+  blockIndex: number,
+  input: ReadonlySet<string>,
+): { normal: Set<string>; exceptionalEntry: Set<string> | null } {
+  let normal = cloneBindingState(input);
+  let exceptionalEntry: Set<string> | null = null;
+
+  for (const child of context.nodes[blockIndex]?.children ?? []) {
+    if (bindingStatementMayThrow(context, child, normal)) {
+      exceptionalEntry =
+        exceptionalEntry === null
+          ? cloneBindingState(normal)
+          : intersectBindingStates([exceptionalEntry, normal]);
+    }
+    normal = interpretBindingStatement(context, child, normal);
+  }
+
+  return { normal, exceptionalEntry };
 }
 
 function interpretConditionalBody(
@@ -1510,6 +1567,10 @@ function interpretBindingStatement(
       node.children.filter((child) => context.nodes[child]?.type !== "Body"),
       state,
     );
+    const bindings = new Set<number>();
+
+    collectAsBindings(context.nodes, index, bindings);
+    addBindingIndices(context, state, bindings);
     const body = node.children.find(
       (child) => context.nodes[child]?.type === "Body",
     );

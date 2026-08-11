@@ -902,6 +902,88 @@ describe("relative import graph metrics", () => {
     });
   });
 
+  it.each([
+    [
+      "single item",
+      "with nullcontext(object()) as b:\n    pass\nfrom . import b",
+      ["b"],
+    ],
+    [
+      "multiple items",
+      "with first() as b, second() as c:\n    pass\nfrom . import b, c",
+      ["b", "c"],
+    ],
+    [
+      "nested items",
+      "with first() as b:\n    with second() as c:\n        pass\nfrom . import b, c",
+      ["b", "c"],
+    ],
+  ] as const)(
+    "treats %s with-as targets as definite package bindings",
+    (_, source, topLevelDefinedNames) => {
+      const analyzed = analyzePython([
+        pythonSourceFile("pkg/__init__.py", source),
+        pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+      ]);
+
+      expect(analyzed.files[0]).toMatchObject({
+        relativeImportCandidates: [],
+        topLevelDefinedNames,
+      });
+      expect(findCircularImports(analyzed.files)).toEqual({
+        components: [],
+        largestComponentSize: 0,
+      });
+    },
+  );
+
+  it("uses mutations before a possible throw for handler import provenance", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\ntry:\n    del b\n    risky()\nexcept Exception:\n    from . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(analyzed.files[0]).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
+  it("joins caught exceptional prefixes before a later normal restoration", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\ntry:\n    del b\n    risky()\n    b = object()\nexcept Exception:\n    pass\nfrom . import b",
+      ),
+    ]);
+
+    expect(analyzed.files[0]).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
+    });
+  });
+
+  it("applies else only to normal try completion and finally to every continuing path", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\ntry:\n    del b\n    risky()\nexcept Exception:\n    pass\nelse:\n    b = object()\nfinally:\n    marker = object()\nfrom . import b, marker",
+      ),
+    ]);
+
+    expect(analyzed.files[0]).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: ["marker"],
+    });
+  });
+
   it("normalizes POSIX candidates and compares paths case-insensitively", () => {
     const result = findCircularImports([
       importingFile("Src/A.ts", "typescript", ["./nested/../B"]),
