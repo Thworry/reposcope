@@ -339,10 +339,35 @@ function stripTrailingCodeComment(value: string): string {
   return value.trimEnd();
 }
 
+function isStandalonePythonLine(code: string): boolean {
+  const expression =
+    /^(?:[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?:\((?:[^()\n]|\([^()\n]*\))*\))?|\d+(?:\.\d+)?|["'][\s\S]*["'])$/u;
+  const raiseOrYield = /^(?:raise|yield(?:\s+from)?)\s+(.+?)\s*;?$/u.exec(code);
+  const assertion = /^assert\s+(.+?)\s*;?$/u.exec(code);
+
+  if (
+    (raiseOrYield?.[1] !== undefined && expression.test(raiseOrYield[1])) ||
+    (assertion?.[1] !== undefined && expression.test(assertion[1]))
+  ) {
+    return true;
+  }
+
+  return (
+    /^(?:async\s+)?def\s+[A-Za-z_]\w*\s*\([^\n]*\)\s*(?:->\s*.+?)?\s*:\s*$/u.test(
+      code,
+    ) ||
+    /^class\s+[A-Za-z_]\w*(?:\s*\([^\n]*\))?\s*:\s*$/u.test(code) ||
+    /^(?:(?:if|elif|while|match)\s+.+|(?:async\s+)?for\s+.+\s+in\s+.+|(?:async\s+)?with\s+.+|except(?:\s+.+)?|case\s+.+|else|try|finally)\s*:\s*$/u.test(
+      code,
+    )
+  );
+}
+
 function isStandaloneCodeLine(value: string): boolean {
   const code = stripTrailingCodeComment(value);
 
   return (
+    isStandalonePythonLine(code) ||
     /^import\s+(?:[\w$*{},\s]+\s+from\s+)?["'][^"'\n]+["']/u.test(code) ||
     /^import\s+[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*(?:,|;|$))/u.test(
       code,
