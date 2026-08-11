@@ -1,0 +1,284 @@
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  perfectGeneralMetrics,
+  perfectRepository,
+} from "../../test/fixtures/metrics";
+import type {
+  LanguageAnalysis,
+  RepoRef,
+  SelectedFile,
+} from "../analysis/model";
+import { GitHubApiError } from "../github/github-client";
+import { executeAnalysis, type AnalysisDependencies } from "./analysis.worker";
+import type { WorkerEvent } from "./protocol";
+
+const sha = "a".repeat(40);
+const ref: RepoRef = { owner: "example", repo: "project" };
+
+function emptyLanguage(): LanguageAnalysis {
+  return {
+    files: [],
+    functions: [],
+    identifierOccurrences: 0,
+    ambiguousIdentifierOccurrences: 0,
+    exportedDeclarations: 0,
+    documentedExports: 0,
+    parsedBytes: 0,
+    parseFailures: [],
+  };
+}
+
+function selectedFiles(
+  count: number,
+  language: "typescript" | "python" = "typescript",
+  size = 10,
+): SelectedFile[] {
+  const extension = language === "python" ? "py" : "ts";
+
+  return Array.from({ length: count }, (_, index) => ({
+    path: `src/file-${String(index)}.${extension}`,
+    sha,
+    size,
+    mode: "100644",
+    eligible: true,
+    language,
+    category: "source",
+    deep: true,
+    isTest: false,
+    priority: 5,
+    topLevelArea: "src",
+  }));
+}
+
+function dependenciesFor(
+  selected: SelectedFile[],
+  fetchFile: AnalysisDependencies["fetchFile"],
+): AnalysisDependencies & {
+  fetchSnapshot: ReturnType<typeof vi.fn>;
+  fetchFile: ReturnType<typeof vi.fn>;
+  loadJavaScriptTypeScript: ReturnType<typeof vi.fn>;
+  loadPython: ReturnType<typeof vi.fn>;
+} {
+  const selectedBytes = selected.reduce((sum, file) => sum + file.size, 0);
+
+  return {
+    fetchSnapshot: vi.fn().mockResolvedValue({
+      repository: perfectRepository,
+      commitSha: sha,
+      treeSha: sha,
+      entries: [],
+      treeComplete: true,
+      rateLimit: { remaining: 57, resetAt: null },
+    }),
+    normalize: vi
+      .fn()
+      .mockReturnValue({ files: [], complete: true, skippedEntries: [] }),
+    select: vi.fn().mockReturnValue({
+      treeComplete: true,
+      selected,
+      eligibleFiles: selected.length,
+      eligibleBytes: selectedBytes,
+      eligibleSourceBytes: selectedBytes,
+      unsupportedFiles: 0,
+      unsupportedBytes: 0,
+      selectedFiles: selected.length,
+      selectedBytes,
+      limitReached: false,
+      skipped: [],
+      skipCounts: {
+        excluded: 0,
+        binary: 0,
+        oversized: 0,
+        unsupported: 0,
+        budget: 0,
+        "invalid-entry": 0,
+      },
+    }),
+    fetchFile: vi.fn(fetchFile),
+    analyzeGeneral: vi.fn().mockReturnValue(perfectGeneralMetrics),
+    loadJavaScriptTypeScript: vi
+      .fn()
+      .mockResolvedValue({ analyzeJavaScriptTypeScript: emptyLanguage }),
+    loadPython: vi.fn().mockResolvedValue({ analyzePython: emptyLanguage }),
+    duplicate: vi.fn().mockReturnValue({
+      totalEligibleTokens: 0,
+      duplicatedTokens: 0,
+      ratio: 0,
+      evidence: [],
+    }),
+    cycles: vi
+      .fn()
+      .mockReturnValue({ components: [], largestComponentSize: 0 }),
+    score: vi.fn().mockReturnValue({
+      rules: [],
+      dimensions: [],
+      overall: {
+        score: 0,
+        label: "limited",
+        generalOnly: true,
+        preliminary: true,
+      },
+      confidence: { percent: 0, label: "low" },
+    }),
+    findings: vi.fn().mockReturnValue({ strengths: [], weaknesses: [] }),
+    now: vi.fn(() => Date.parse("2026-08-11T12:00:00.000Z")),
+  };
+}
+
+function eventCollector(): {
+  events: WorkerEvent[];
+  emit: (event: WorkerEvent) => void;
+} {
+  const events: WorkerEvent[] = [];
+
+  return {
+    events,
+    emit: (event) => {
+      events.push(event);
+    },
+  };
+}
+
+function completedReport(events: readonly WorkerEvent[]) {
+  const complete = events.find((event) => event.type === "complete");
+
+  expect(complete?.type).toBe("complete");
+  if (complete?.type !== "complete") throw new Error("Missing completion");
+
+  return complete.report;
+}
+
+describe("executeAnalysis", () => {
+  it("emits ordered progress, bounds concurrency, and lazy loads detected parsers", async () => {
+    let active = 0;
+    let maximum = 0;
+    const selected = selectedFiles(9);
+    const dependencies = dependenciesFor(selected, async ({ path }) => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await Promise.resolve();
+      active -= 1;
+      return { path, text: "export const value = 1", bytes: 10 };
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 7, ref },
+      dependencies,
+      emit,
+    );
+
+    expect(maximum).toBe(6);
+    expect(dependencies.fetchSnapshot).toHaveBeenCalledOnce();
+    expect(dependencies.fetchFile).toHaveBeenCalledTimes(9);
+    expect(dependencies.loadJavaScriptTypeScript).toHaveBeenCalledOnce();
+    expect(dependencies.loadPython).not.toHaveBeenCalled();
+    const phases = events
+      .filter((event) => event.type === "progress")
+      .map((event) => event.progress.phase);
+    expect(
+      phases.filter((phase, index) => phases.indexOf(phase) === index),
+    ).toEqual([
+      "validating",
+      "repository",
+      "selecting",
+      "fetching",
+      "analyzing",
+    ]);
+    expect(JSON.stringify(events)).not.toContain("export const value");
+  });
+
+  it("caps attempts and decoded bytes while retaining a partial completion", async () => {
+    const size = 64 * 1024;
+    const selected = selectedFiles(205, "typescript", size);
+    const dependencies = dependenciesFor(selected, ({ path }) => {
+      if (path.endsWith("file-0.ts")) {
+        return Promise.reject(new GitHubApiError("invalid-text"));
+      }
+
+      return Promise.resolve({ path, text: "source", bytes: size });
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 8, ref },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(dependencies.fetchFile.mock.calls.length).toBeLessThanOrEqual(200);
+    expect(report.coverage.fetchedBytes).toBeLessThanOrEqual(10 * 1024 * 1024);
+    expect(report.coverage.limitReached).toBe(true);
+    expect(report.coverage.failures).toContainEqual({
+      path: "src/file-0.ts",
+      stage: "fetch",
+      reason: "invalid-text",
+    });
+    expect(JSON.stringify(report)).not.toContain("source");
+  });
+
+  it("loads only the Python analyzer when Python is selected", async () => {
+    const dependencies = dependenciesFor(
+      selectedFiles(1, "python"),
+      ({ path }) => Promise.resolve({ path, text: "value = 1", bytes: 9 }),
+    );
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 9, ref },
+      dependencies,
+      emit,
+    );
+
+    expect(events.some((event) => event.type === "complete")).toBe(true);
+    expect(dependencies.loadPython).toHaveBeenCalledOnce();
+    expect(dependencies.loadJavaScriptTypeScript).not.toHaveBeenCalled();
+  });
+
+  it("aborts the source phase at 90 seconds and completes with timeout evidence", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-11T12:00:00.000Z"));
+    try {
+      const dependencies = dependenciesFor(
+        selectedFiles(1),
+        (_input, signal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                reject(
+                  new DOMException("source phase timed out", "TimeoutError"),
+                );
+              },
+              { once: true },
+            );
+          }),
+      );
+      dependencies.now = Date.now;
+      const { events, emit } = eventCollector();
+      const execution = executeAnalysis(
+        { type: "start", requestId: 10, ref },
+        dependencies,
+        emit,
+      );
+      await Promise.resolve();
+      expect(dependencies.fetchFile).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(90_000);
+      await execution;
+
+      const report = completedReport(events);
+      expect(report.coverage.limitReached).toBe(true);
+      expect(report.coverage.failures).toEqual([
+        {
+          path: "src/file-0.ts",
+          stage: "fetch",
+          reason: "timeout",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

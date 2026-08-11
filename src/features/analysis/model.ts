@@ -254,6 +254,22 @@ export interface CoverageSummary {
   failedFiles: number;
   unsupportedFiles: number;
   limitReached: boolean;
+  skipped?: Array<{ path: string; reason: FileSkipReason }>;
+  failures?: Array<{
+    path: string;
+    stage: "fetch" | "parse";
+    reason:
+      | "not-found"
+      | "rate-limit"
+      | "network"
+      | "api"
+      | "invalid-response"
+      | "file-limit"
+      | "invalid-text"
+      | "timeout"
+      | "budget"
+      | "syntax";
+  }>;
 }
 
 export type MessageArgument = string | number | boolean;
