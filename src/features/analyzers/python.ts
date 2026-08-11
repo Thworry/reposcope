@@ -1186,60 +1186,6 @@ function collectRelativeImports(
   };
 }
 
-function hasModuleScope(nodes: readonly PythonNode[], index: number): boolean {
-  let current = nodes[index]?.parent ?? null;
-
-  while (current !== null) {
-    const type = nodes[current]?.type;
-
-    if (type === "Script") {
-      return true;
-    }
-    if (
-      type === "FunctionDefinition" ||
-      type === "LambdaExpression" ||
-      type === "ClassDefinition" ||
-      COMPREHENSION_CONTAINERS.has(type ?? "")
-    ) {
-      return false;
-    }
-    current = nodes[current]?.parent ?? null;
-  }
-
-  return false;
-}
-
-function hasDefiniteModuleExecution(
-  nodes: readonly PythonNode[],
-  index: number,
-): boolean {
-  if (!hasModuleScope(nodes, index)) {
-    return false;
-  }
-
-  let current = index;
-  while (current !== 0) {
-    const parent = nodes[current]?.parent ?? null;
-
-    if (parent === null) {
-      return false;
-    }
-    if (nodes[parent]?.type === "Body") {
-      const owner = nodes[parent].parent;
-
-      if (owner !== null && nodes[owner]?.type !== "Script") {
-        return false;
-      }
-    }
-    if (nodes[parent]?.type === "Script") {
-      return true;
-    }
-    current = parent;
-  }
-
-  return true;
-}
-
 function normalizedCondition(
   nodes: readonly PythonNode[],
   keywordIndex: number,
@@ -1268,203 +1214,391 @@ function conditionTruth(value: string): boolean | null {
   return null;
 }
 
-function isReachableIfBody(
-  nodes: readonly PythonNode[],
-  ifIndex: number,
-  bodyIndex: number,
-  text: string,
-): boolean {
-  const children = nodes[ifIndex]?.children ?? [];
-  let keywordIndex: number | null = null;
-  let previousBranchDefinitelyTrue = false;
-
-  for (const child of children) {
-    const type = nodes[child]?.type;
-
-    if (type === "if" || type === "elif" || type === "else") {
-      keywordIndex = child;
-      continue;
-    }
-    if (type !== "Body" || keywordIndex === null) {
-      continue;
-    }
-    const keywordType = nodes[keywordIndex]?.type;
-    const truth =
-      keywordType === "else"
-        ? true
-        : conditionTruth(normalizedCondition(nodes, keywordIndex, child, text));
-
-    if (child === bodyIndex) {
-      return !previousBranchDefinitelyTrue && truth !== false;
-    }
-    if (truth === true) {
-      previousBranchDefinitelyTrue = true;
-    }
-    keywordIndex = null;
-  }
-
-  return true;
-}
-
-function hasReachableModuleExecution(
-  nodes: readonly PythonNode[],
-  index: number,
-  text: string,
-): boolean {
-  if (!hasModuleScope(nodes, index)) {
-    return false;
-  }
-
-  let current = index;
-  while (current !== 0) {
-    const parent = nodes[current]?.parent ?? null;
-
-    if (parent === null) {
-      return false;
-    }
-    if (nodes[parent]?.type === "Body") {
-      const owner = nodes[parent].parent;
-
-      if (
-        owner !== null &&
-        nodes[owner]?.type === "IfStatement" &&
-        !isReachableIfBody(nodes, owner, parent, text)
-      ) {
-        return false;
-      }
-    }
-    if (nodes[parent]?.type === "Script") {
-      return true;
-    }
-    current = parent;
-  }
-
-  return true;
-}
-
-interface ModuleBindingEvent {
-  offset: number;
-  kind: "set" | "delete" | "import";
-  names: readonly string[];
-}
-
 interface TopLevelBindingMetadata {
   finalNames: string[];
   namesBeforeImport: ReadonlyMap<number, ReadonlySet<string>>;
+}
+
+interface BindingFlowContext {
+  nodes: readonly PythonNode[];
+  text: string;
+  namesBeforeImport: Map<number, ReadonlySet<string>>;
+}
+
+function cloneBindingState(state: ReadonlySet<string>): Set<string> {
+  return new Set(state);
+}
+
+function intersectBindingStates(
+  states: readonly ReadonlySet<string>[],
+): Set<string> {
+  const first = states[0];
+
+  if (first === undefined) {
+    return new Set();
+  }
+  const result = new Set(first);
+
+  for (const name of result) {
+    if (states.some((state) => !state.has(name))) {
+      result.delete(name);
+    }
+  }
+
+  return result;
+}
+
+function addBindingIndices(
+  context: BindingFlowContext,
+  state: Set<string>,
+  indices: ReadonlySet<number>,
+): void {
+  for (const index of indices) {
+    const name = nodeTextAt(context.nodes, index, context.text);
+
+    if (name.length > 0) {
+      state.add(name);
+    }
+  }
+}
+
+function applyNamedExpressions(
+  context: BindingFlowContext,
+  rootIndices: readonly number[],
+  state: Set<string>,
+): void {
+  const pending = [...rootIndices].reverse();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (current === undefined) {
+      break;
+    }
+    const node = context.nodes[current];
+
+    if (node === undefined) {
+      continue;
+    }
+    if (
+      node.type === "FunctionDefinition" ||
+      node.type === "ClassDefinition" ||
+      node.type === "LambdaExpression" ||
+      node.type === "Body" ||
+      COMPREHENSION_CONTAINERS.has(node.type)
+    ) {
+      continue;
+    }
+    if (node.type === "NamedExpression") {
+      const bindings = new Set<number>();
+
+      collectAssignmentBindings(context.nodes, current, bindings);
+      addBindingIndices(context, state, bindings);
+    }
+    for (
+      let position = node.children.length - 1;
+      position >= 0;
+      position -= 1
+    ) {
+      const child = node.children[position];
+
+      if (child !== undefined) {
+        pending.push(child);
+      }
+    }
+  }
+}
+
+function recordImportState(
+  context: BindingFlowContext,
+  offset: number,
+  state: ReadonlySet<string>,
+): void {
+  const existing = context.namesBeforeImport.get(offset);
+
+  context.namesBeforeImport.set(
+    offset,
+    existing === undefined
+      ? cloneBindingState(state)
+      : intersectBindingStates([existing, state]),
+  );
+}
+
+function interpretBindingBlock(
+  context: BindingFlowContext,
+  blockIndex: number,
+  input: ReadonlySet<string>,
+): Set<string> {
+  let state = cloneBindingState(input);
+
+  for (const child of context.nodes[blockIndex]?.children ?? []) {
+    state = interpretBindingStatement(context, child, state);
+  }
+
+  return state;
+}
+
+function interpretIfStatement(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+): Set<string> {
+  const children = context.nodes[index]?.children ?? [];
+  const outcomes: Set<string>[] = [];
+  const remaining = cloneBindingState(input);
+  let remainingPossible = true;
+  let keywordIndex: number | null = null;
+  let conditionChildren: number[] = [];
+
+  for (const child of children) {
+    const type = context.nodes[child]?.type;
+
+    if (type === "if" || type === "elif" || type === "else") {
+      keywordIndex = child;
+      conditionChildren = [];
+      continue;
+    }
+    if (type !== "Body") {
+      if (keywordIndex !== null) {
+        conditionChildren.push(child);
+      }
+      continue;
+    }
+    if (keywordIndex === null || !remainingPossible) {
+      continue;
+    }
+    const keywordType = context.nodes[keywordIndex]?.type;
+
+    if (keywordType === "else") {
+      outcomes.push(interpretBindingBlock(context, child, remaining));
+      remainingPossible = false;
+      continue;
+    }
+
+    applyNamedExpressions(context, conditionChildren, remaining);
+    const truth = conditionTruth(
+      normalizedCondition(context.nodes, keywordIndex, child, context.text),
+    );
+
+    if (truth !== false) {
+      outcomes.push(interpretBindingBlock(context, child, remaining));
+    }
+    if (truth === true) {
+      remainingPossible = false;
+    }
+  }
+
+  if (remainingPossible) {
+    outcomes.push(remaining);
+  }
+
+  return intersectBindingStates(outcomes);
+}
+
+function interpretTryStatement(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+): Set<string> {
+  const children = context.nodes[index]?.children ?? [];
+  const handlers: number[] = [];
+  let clause: "try" | "except" | "else" | "finally" | null = null;
+  let tryBody: number | null = null;
+  let elseBody: number | null = null;
+  let finallyBody: number | null = null;
+
+  for (const child of children) {
+    const type = context.nodes[child]?.type;
+
+    if (
+      type === "try" ||
+      type === "except" ||
+      type === "else" ||
+      type === "finally"
+    ) {
+      clause = type;
+      continue;
+    }
+    if (type !== "Body") {
+      continue;
+    }
+    if (clause === "try") {
+      tryBody = child;
+    } else if (clause === "except") {
+      handlers.push(child);
+    } else if (clause === "else") {
+      elseBody = child;
+    } else if (clause === "finally") {
+      finallyBody = child;
+    }
+  }
+
+  let normal =
+    tryBody === null
+      ? cloneBindingState(input)
+      : interpretBindingBlock(context, tryBody, input);
+
+  if (elseBody !== null) {
+    normal = interpretBindingBlock(context, elseBody, normal);
+  }
+  const continuing = [normal];
+
+  for (const handler of handlers) {
+    continuing.push(interpretBindingBlock(context, handler, input));
+  }
+  let state = intersectBindingStates(continuing);
+
+  if (finallyBody !== null) {
+    state = interpretBindingBlock(context, finallyBody, state);
+  }
+
+  return state;
+}
+
+function interpretConditionalBody(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+): Set<string> {
+  const children = context.nodes[index]?.children ?? [];
+  const bodies = children.filter(
+    (child) => context.nodes[child]?.type === "Body",
+  );
+  const conditionState = cloneBindingState(input);
+
+  applyNamedExpressions(
+    context,
+    children.filter((child) => context.nodes[child]?.type !== "Body"),
+    conditionState,
+  );
+  const outcomes = [conditionState];
+
+  for (const body of bodies) {
+    outcomes.push(interpretBindingBlock(context, body, conditionState));
+  }
+
+  return intersectBindingStates(outcomes);
+}
+
+function interpretBindingStatement(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+): Set<string> {
+  const node = context.nodes[index];
+  const state = cloneBindingState(input);
+
+  if (node === undefined) {
+    return state;
+  }
+  if (node.type === "IfStatement") {
+    return interpretIfStatement(context, index, state);
+  }
+  if (node.type === "TryStatement") {
+    return interpretTryStatement(context, index, state);
+  }
+  if (
+    node.type === "ForStatement" ||
+    node.type === "WhileStatement" ||
+    node.type === "MatchStatement"
+  ) {
+    return interpretConditionalBody(context, index, state);
+  }
+  if (node.type === "WithStatement") {
+    applyNamedExpressions(
+      context,
+      node.children.filter((child) => context.nodes[child]?.type !== "Body"),
+      state,
+    );
+    const body = node.children.find(
+      (child) => context.nodes[child]?.type === "Body",
+    );
+
+    return body === undefined
+      ? state
+      : interpretBindingBlock(context, body, state);
+  }
+  if (node.type === "DecoratedStatement") {
+    const definition = node.children.find((child) => {
+      const type = context.nodes[child]?.type;
+
+      return type === "FunctionDefinition" || type === "ClassDefinition";
+    });
+
+    return definition === undefined
+      ? state
+      : interpretBindingStatement(context, definition, state);
+  }
+  if (node.type === "FunctionDefinition" || node.type === "ClassDefinition") {
+    const name = firstDirectVariable(context.nodes, index);
+
+    if (name !== null) {
+      state.add(nodeTextAt(context.nodes, name, context.text));
+    }
+    return state;
+  }
+  if (
+    node.type === "AssignStatement" &&
+    node.children.some((child) => context.nodes[child]?.type === "AssignOp")
+  ) {
+    const bindings = new Set<number>();
+
+    collectAssignmentBindings(context.nodes, index, bindings);
+    addBindingIndices(context, state, bindings);
+    applyNamedExpressions(context, node.children, state);
+    return state;
+  }
+  if (node.type === "UpdateStatement") {
+    const binding = node.children.find(
+      (child) => context.nodes[child]?.type === "VariableName",
+    );
+
+    if (binding !== undefined) {
+      state.add(nodeTextAt(context.nodes, binding, context.text));
+    }
+    return state;
+  }
+  if (node.type === "ImportStatement") {
+    if (isTypeCheckingOnlyImport(context.nodes, index, context.text)) {
+      return state;
+    }
+    const relative = relativePythonImports(context.nodes, index, context.text);
+
+    if (relative.candidates.length > 0) {
+      recordImportState(context, node.from, state);
+      return state;
+    }
+    const bindings = new Set<number>();
+
+    collectImportBindings(context.nodes, index, context.text, bindings);
+    addBindingIndices(context, state, bindings);
+    return state;
+  }
+  if (node.type === "DeleteStatement") {
+    for (const child of node.children) {
+      if (context.nodes[child]?.type === "VariableName") {
+        state.delete(nodeTextAt(context.nodes, child, context.text));
+      }
+    }
+    return state;
+  }
+
+  applyNamedExpressions(context, [index], state);
+  return state;
 }
 
 function topLevelBindingMetadata(
   nodes: readonly PythonNode[],
   text: string,
 ): TopLevelBindingMetadata {
-  const events: ModuleBindingEvent[] = [];
-  const addSetEvent = (
-    offset: number,
-    candidates: ReadonlySet<number>,
-  ): void => {
-    const names: string[] = [];
-
-    for (const candidate of candidates) {
-      if (
-        hasDefiniteModuleExecution(nodes, candidate) &&
-        !isTypeCheckingOnlyImport(nodes, candidate, text)
-      ) {
-        names.push(nodeTextAt(nodes, candidate, text));
-      }
-    }
-    if (names.length > 0) {
-      events.push({ offset, kind: "set", names });
-    }
-  };
-
-  for (let index = 0; index < nodes.length; index += 1) {
-    const node = nodes[index];
-
-    if (node === undefined) {
-      continue;
-    }
-    if (
-      (node.type === "FunctionDefinition" || node.type === "ClassDefinition") &&
-      hasDefiniteModuleExecution(nodes, index) &&
-      !isTypeCheckingOnlyImport(nodes, index, text)
-    ) {
-      const name = firstDirectVariable(nodes, index);
-
-      if (name !== null) {
-        events.push({
-          offset: node.from,
-          kind: "set",
-          names: [nodeTextAt(nodes, name, text)],
-        });
-      }
-    } else if (
-      node.type === "AssignStatement" &&
-      node.children.some((child) => nodes[child]?.type === "AssignOp")
-    ) {
-      const bindings = new Set<number>();
-
-      collectAssignmentBindings(nodes, index, bindings);
-      addSetEvent(node.from, bindings);
-    } else if (node.type === "NamedExpression") {
-      const bindings = new Set<number>();
-
-      collectAssignmentBindings(nodes, index, bindings);
-      addSetEvent(node.from, bindings);
-    } else if (node.type === "UpdateStatement") {
-      const binding = node.children.find(
-        (child) => nodes[child]?.type === "VariableName",
-      );
-
-      if (binding !== undefined) {
-        addSetEvent(node.from, new Set([binding]));
-      }
-    } else if (node.type === "ImportStatement") {
-      if (isTypeCheckingOnlyImport(nodes, index, text)) {
-        continue;
-      }
-      const relative = relativePythonImports(nodes, index, text);
-
-      if (relative.candidates.length > 0) {
-        events.push({ offset: node.from, kind: "import", names: [] });
-        continue;
-      }
-      const bindings = new Set<number>();
-
-      collectImportBindings(nodes, index, text, bindings);
-      addSetEvent(node.from, bindings);
-    } else if (
-      node.type === "DeleteStatement" &&
-      hasReachableModuleExecution(nodes, index, text)
-    ) {
-      const names = node.children
-        .filter((child) => nodes[child]?.type === "VariableName")
-        .map((child) => nodeTextAt(nodes, child, text));
-
-      if (names.length > 0) {
-        events.push({ offset: node.from, kind: "delete", names });
-      }
-    }
-  }
-
-  events.sort(
-    (left, right) =>
-      left.offset - right.offset ||
-      left.kind.localeCompare(right.kind, "en-US"),
-  );
-  const present = new Set<string>();
   const namesBeforeImport = new Map<number, ReadonlySet<string>>();
+  const context: BindingFlowContext = { nodes, text, namesBeforeImport };
+  const script = nodes.findIndex((node) => node.type === "Script");
+  let present = new Set<string>();
 
-  for (const event of events) {
-    if (event.kind === "import") {
-      namesBeforeImport.set(event.offset, new Set(present));
-    } else if (event.kind === "set") {
-      for (const name of event.names) {
-        present.add(name);
-      }
-    } else {
-      for (const name of event.names) {
-        present.delete(name);
-      }
+  if (script !== -1) {
+    for (const child of nodes[script]?.children ?? []) {
+      present = interpretBindingStatement(context, child, present);
     }
   }
 

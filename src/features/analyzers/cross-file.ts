@@ -63,6 +63,30 @@ interface PreparedWindowGroup {
   startsByFile: ReadonlyMap<number, readonly number[]>;
 }
 
+interface RankedGroupOccurrence extends WindowOccurrence {
+  rank: number;
+}
+
+interface RadixEdge {
+  representative: RankedGroupOccurrence;
+  child: MatchRadixNode;
+}
+
+interface RankPartition {
+  start: number;
+  end: number;
+}
+
+interface MatchRadixNode {
+  depth: number;
+  terminals: RankedGroupOccurrence[];
+  children: Map<string, RadixEdge>;
+  rangeStart: number;
+  rangeEnd: number;
+  partitions: RankPartition[];
+  fileIndices: readonly number[];
+}
+
 /** @internal Test-only structural telemetry; it does not affect analysis. */
 export interface DuplicateRatioInstrumentation {
   onCandidateSourcesPrepared?: (count: number) => void;
@@ -177,67 +201,6 @@ function equalWindow(
   }
 
   return true;
-}
-
-function extendMatch(
-  files: readonly DuplicateFile[],
-  leftOccurrence: WindowOccurrence,
-  rightOccurrence: WindowOccurrence,
-  windowVerified = false,
-  startVerified = false,
-): DuplicateCandidate | null {
-  let leftFileIndex = leftOccurrence.fileIndex;
-  let leftStart = leftOccurrence.start;
-  let rightFileIndex = rightOccurrence.fileIndex;
-  let rightStart = rightOccurrence.start;
-
-  if (leftFileIndex === rightFileIndex) {
-    return null;
-  }
-  if (leftFileIndex > rightFileIndex) {
-    [leftFileIndex, rightFileIndex] = [rightFileIndex, leftFileIndex];
-    [leftStart, rightStart] = [rightStart, leftStart];
-  }
-
-  const leftTokens = files[leftFileIndex]?.tokens;
-  const rightTokens = files[rightFileIndex]?.tokens;
-
-  if (
-    leftTokens === undefined ||
-    rightTokens === undefined ||
-    (!windowVerified &&
-      !equalWindow(
-        leftTokens,
-        leftStart,
-        rightTokens,
-        rightStart,
-        DUPLICATE_WINDOW_SIZE,
-      ))
-  ) {
-    return null;
-  }
-
-  if (!startVerified) {
-    while (
-      leftStart > 0 &&
-      rightStart > 0 &&
-      leftTokens[leftStart - 1] === rightTokens[rightStart - 1]
-    ) {
-      leftStart -= 1;
-      rightStart -= 1;
-    }
-  }
-
-  let length = DUPLICATE_WINDOW_SIZE;
-  while (
-    leftStart + length < leftTokens.length &&
-    rightStart + length < rightTokens.length &&
-    leftTokens[leftStart + length] === rightTokens[rightStart + length]
-  ) {
-    length += 1;
-  }
-
-  return { leftFileIndex, leftStart, rightFileIndex, rightStart, length };
 }
 
 function filePairKey(leftFileIndex: number, rightFileIndex: number): string {
@@ -680,194 +643,491 @@ function prepareGeneralGroups(
   return groups;
 }
 
+function groupOccurrences(group: PreparedWindowGroup): {
+  occurrences: RankedGroupOccurrence[];
+  occurrencesByFile: ReadonlyMap<number, readonly RankedGroupOccurrence[]>;
+  fileIndices: number[];
+} {
+  const fileIndices = [...group.startsByFile.keys()].sort(
+    (left, right) => left - right,
+  );
+  const occurrences: RankedGroupOccurrence[] = [];
+  const occurrencesByFile = new Map<number, RankedGroupOccurrence[]>();
+
+  for (const fileIndex of fileIndices) {
+    const perFile = (group.startsByFile.get(fileIndex) ?? []).map((start) => ({
+      fileIndex,
+      start,
+      rank: -1,
+    }));
+
+    occurrences.push(...perFile);
+    occurrencesByFile.set(fileIndex, perFile);
+  }
+
+  return { occurrences, occurrencesByFile, fileIndices };
+}
+
+function hasCanonicalPair(
+  files: readonly DuplicateFile[],
+  occurrencesByFile: ReadonlyMap<number, readonly RankedGroupOccurrence[]>,
+  fileIndices: readonly number[],
+  skippedPairs: ReadonlySet<string>,
+): boolean {
+  const previousTokens = new Map<number, Set<string | null>>();
+
+  for (const fileIndex of fileIndices) {
+    const tokens = files[fileIndex]?.tokens ?? [];
+    const values = new Set<string | null>();
+
+    for (const occurrence of occurrencesByFile.get(fileIndex) ?? []) {
+      values.add(
+        occurrence.start === 0 ? null : (tokens[occurrence.start - 1] ?? null),
+      );
+    }
+    previousTokens.set(fileIndex, values);
+  }
+
+  for (let left = 0; left < fileIndices.length; left += 1) {
+    const leftFileIndex = fileIndices[left];
+
+    if (leftFileIndex === undefined) {
+      continue;
+    }
+    for (let right = left + 1; right < fileIndices.length; right += 1) {
+      const rightFileIndex = fileIndices[right];
+
+      if (
+        rightFileIndex === undefined ||
+        skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex))
+      ) {
+        continue;
+      }
+      for (const leftPrevious of previousTokens.get(leftFileIndex) ?? []) {
+        for (const rightPrevious of previousTokens.get(rightFileIndex) ?? []) {
+          if (
+            leftPrevious === null ||
+            rightPrevious === null ||
+            leftPrevious !== rightPrevious
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+function createRadixNode(depth: number): MatchRadixNode {
+  return {
+    depth,
+    terminals: [],
+    children: new Map(),
+    rangeStart: 0,
+    rangeEnd: 0,
+    partitions: [],
+    fileIndices: [],
+  };
+}
+
+function extensionToken(
+  files: readonly DuplicateFile[],
+  occurrence: RankedGroupOccurrence,
+  depth: number,
+): string | undefined {
+  return files[occurrence.fileIndex]?.tokens[
+    occurrence.start + DUPLICATE_WINDOW_SIZE + depth
+  ];
+}
+
+function extensionLength(
+  files: readonly DuplicateFile[],
+  occurrence: RankedGroupOccurrence,
+): number {
+  return Math.max(
+    0,
+    (files[occurrence.fileIndex]?.tokens.length ?? 0) -
+      occurrence.start -
+      DUPLICATE_WINDOW_SIZE,
+  );
+}
+
+function insertRadixOccurrence(
+  root: MatchRadixNode,
+  files: readonly DuplicateFile[],
+  occurrence: RankedGroupOccurrence,
+): void {
+  const finalDepth = extensionLength(files, occurrence);
+  let node = root;
+
+  for (;;) {
+    if (node.depth === finalDepth) {
+      node.terminals.push(occurrence);
+      return;
+    }
+    const token = extensionToken(files, occurrence, node.depth);
+
+    if (token === undefined) {
+      node.terminals.push(occurrence);
+      return;
+    }
+    const edge = node.children.get(token);
+
+    if (edge === undefined) {
+      const leaf = createRadixNode(finalDepth);
+
+      leaf.terminals.push(occurrence);
+      node.children.set(token, { representative: occurrence, child: leaf });
+      return;
+    }
+
+    const comparisonEnd = Math.min(edge.child.depth, finalDepth);
+    let matchedDepth = node.depth;
+
+    while (
+      matchedDepth < comparisonEnd &&
+      extensionToken(files, edge.representative, matchedDepth) ===
+        extensionToken(files, occurrence, matchedDepth)
+    ) {
+      matchedDepth += 1;
+    }
+    if (matchedDepth === edge.child.depth) {
+      node = edge.child;
+      continue;
+    }
+
+    const middle = createRadixNode(matchedDepth);
+    const existingToken = extensionToken(
+      files,
+      edge.representative,
+      matchedDepth,
+    );
+
+    node.children.set(token, {
+      representative: edge.representative,
+      child: middle,
+    });
+    if (existingToken !== undefined) {
+      middle.children.set(existingToken, edge);
+    } else {
+      middle.terminals.push(edge.representative);
+    }
+
+    if (matchedDepth === finalDepth) {
+      middle.terminals.push(occurrence);
+    } else {
+      const newToken = extensionToken(files, occurrence, matchedDepth);
+
+      if (newToken === undefined) {
+        middle.terminals.push(occurrence);
+      } else {
+        const leaf = createRadixNode(finalDepth);
+
+        leaf.terminals.push(occurrence);
+        middle.children.set(newToken, {
+          representative: occurrence,
+          child: leaf,
+        });
+      }
+    }
+    return;
+  }
+}
+
+interface RadixRankFrame {
+  node: MatchRadixNode;
+  edges: RadixEdge[];
+  nextChild: number;
+  files: Set<number>;
+  partitions: RankPartition[];
+}
+
+function createRadixRankFrame(
+  node: MatchRadixNode,
+  ranked: RankedGroupOccurrence[],
+): RadixRankFrame {
+  node.rangeStart = ranked.length;
+  const files = new Set<number>();
+  const partitions: RankPartition[] = [];
+
+  for (const terminal of node.terminals) {
+    const start = ranked.length;
+
+    terminal.rank = start;
+    ranked.push(terminal);
+    files.add(terminal.fileIndex);
+    partitions.push({ start, end: ranked.length });
+  }
+
+  return {
+    node,
+    edges: [...node.children.values()],
+    nextChild: 0,
+    files,
+    partitions,
+  };
+}
+
+function rankRadixTree(
+  root: MatchRadixNode,
+  ranked: RankedGroupOccurrence[],
+  candidateNodes: MatchRadixNode[],
+): void {
+  const stack = [createRadixRankFrame(root, ranked)];
+
+  while (stack.length > 0) {
+    const frame = stack.at(-1);
+
+    if (frame === undefined) {
+      break;
+    }
+    const edge = frame.edges[frame.nextChild];
+
+    if (edge !== undefined) {
+      frame.nextChild += 1;
+      stack.push(createRadixRankFrame(edge.child, ranked));
+      continue;
+    }
+
+    frame.node.rangeEnd = ranked.length;
+    frame.node.partitions = frame.partitions;
+    frame.node.fileIndices = [...frame.files].sort(
+      (left, right) => left - right,
+    );
+    if (frame.partitions.length > 1 && frame.files.size > 1) {
+      candidateNodes.push(frame.node);
+    }
+    stack.pop();
+
+    const parent = stack.at(-1);
+
+    if (parent !== undefined) {
+      for (const fileIndex of frame.files) {
+        parent.files.add(fileIndex);
+      }
+      parent.partitions.push({
+        start: frame.node.rangeStart,
+        end: frame.node.rangeEnd,
+      });
+    }
+  }
+}
+
+function partitionAtRank(node: MatchRadixNode, rank: number): number {
+  let low = 0;
+  let high = node.partitions.length;
+
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const partition = node.partitions[middle];
+
+    if (partition === undefined || rank < partition.start) {
+      high = middle;
+    } else if (rank >= partition.end) {
+      low = middle + 1;
+    } else {
+      return middle;
+    }
+  }
+
+  return -1;
+}
+
+function radixNodeCandidateSource(
+  node: MatchRadixNode,
+  files: readonly DuplicateFile[],
+  occurrencesByFile: ReadonlyMap<number, readonly RankedGroupOccurrence[]>,
+  skippedPairs: ReadonlySet<string>,
+  occupied: readonly (readonly boolean[])[],
+  fileCanMatch: readonly boolean[],
+): CandidateSource {
+  let leftFileCursor = 0;
+  let rightFileCursor = 1;
+  let leftOccurrenceCursor = 0;
+  let rightOccurrenceCursor = 0;
+  const length = DUPLICATE_WINDOW_SIZE + node.depth;
+
+  return {
+    fileIndices: node.fileIndices,
+    next: () => {
+      while (leftFileCursor < node.fileIndices.length - 1) {
+        if (rightFileCursor >= node.fileIndices.length) {
+          leftFileCursor += 1;
+          rightFileCursor = leftFileCursor + 1;
+          leftOccurrenceCursor = 0;
+          rightOccurrenceCursor = 0;
+          continue;
+        }
+        const leftFileIndex = node.fileIndices[leftFileCursor];
+        const rightFileIndex = node.fileIndices[rightFileCursor];
+
+        if (
+          leftFileIndex === undefined ||
+          rightFileIndex === undefined ||
+          fileCanMatch[leftFileIndex] !== true ||
+          fileCanMatch[rightFileIndex] !== true ||
+          skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex))
+        ) {
+          rightFileCursor += 1;
+          leftOccurrenceCursor = 0;
+          rightOccurrenceCursor = 0;
+          continue;
+        }
+        const leftOccurrences = occurrencesByFile.get(leftFileIndex) ?? [];
+        const rightOccurrences = occurrencesByFile.get(rightFileIndex) ?? [];
+
+        while (leftOccurrenceCursor < leftOccurrences.length) {
+          const leftOccurrence = leftOccurrences[leftOccurrenceCursor];
+
+          if (
+            leftOccurrence === undefined ||
+            leftOccurrence.rank < node.rangeStart ||
+            leftOccurrence.rank >= node.rangeEnd ||
+            !rangeIsFree(
+              occupied[leftFileIndex] ?? [],
+              leftOccurrence.start,
+              length,
+            )
+          ) {
+            leftOccurrenceCursor += 1;
+            rightOccurrenceCursor = 0;
+            continue;
+          }
+
+          while (rightOccurrenceCursor < rightOccurrences.length) {
+            const rightOccurrence = rightOccurrences[rightOccurrenceCursor];
+
+            rightOccurrenceCursor += 1;
+            if (
+              rightOccurrence === undefined ||
+              rightOccurrence.rank < node.rangeStart ||
+              rightOccurrence.rank >= node.rangeEnd ||
+              !rangeIsFree(
+                occupied[rightFileIndex] ?? [],
+                rightOccurrence.start,
+                length,
+              ) ||
+              partitionAtRank(node, leftOccurrence.rank) ===
+                partitionAtRank(node, rightOccurrence.rank)
+            ) {
+              continue;
+            }
+            const leftTokens = files[leftFileIndex]?.tokens ?? [];
+            const rightTokens = files[rightFileIndex]?.tokens ?? [];
+
+            if (
+              leftOccurrence.start > 0 &&
+              rightOccurrence.start > 0 &&
+              leftTokens[leftOccurrence.start - 1] ===
+                rightTokens[rightOccurrence.start - 1]
+            ) {
+              continue;
+            }
+
+            return {
+              leftFileIndex,
+              leftStart: leftOccurrence.start,
+              rightFileIndex,
+              rightStart: rightOccurrence.start,
+              length,
+            };
+          }
+          leftOccurrenceCursor += 1;
+          rightOccurrenceCursor = 0;
+        }
+        rightFileCursor += 1;
+        leftOccurrenceCursor = 0;
+        rightOccurrenceCursor = 0;
+      }
+
+      return null;
+    },
+  };
+}
+
 function generalGroupCandidateSource(
   files: readonly DuplicateFile[],
   group: PreparedWindowGroup,
   skippedPairs: ReadonlySet<string>,
   occupied: readonly (readonly boolean[])[],
+  fileCanMatch: readonly boolean[],
 ): CandidateSource {
-  const fileIndices = [...group.startsByFile.keys()].sort(
-    (left, right) => left - right,
-  );
-  let currentLength: number | null = null;
-  let leftFileCursor = 0;
-  let rightFileCursor = 1;
-  let leftStartCursor = 0;
-  let rightStartCursor = 0;
+  const { occurrences, occurrencesByFile, fileIndices } =
+    groupOccurrences(group);
+  let initialized = false;
+  let pendingSource: CandidateSource | null = null;
+  const heap: CandidateHeapEntry[] = [];
+  const compare = candidateComparator(files);
 
-  // Exact-window grouping proves the first 50 tokens match. Emitting only a
-  // maximal match's first window makes that candidate canonical, so later
-  // windows cannot duplicate it across groups.
-  const candidateIsFree = (candidate: DuplicateCandidate): boolean =>
-    rangeIsFree(
-      occupied[candidate.leftFileIndex] ?? [],
-      candidate.leftStart,
-      candidate.length,
-    ) &&
-    rangeIsFree(
-      occupied[candidate.rightFileIndex] ?? [],
-      candidate.rightStart,
-      candidate.length,
-    );
-  const candidateAt = (
-    leftFileIndex: number,
-    leftStart: number,
-    rightFileIndex: number,
-    rightStart: number,
-  ): DuplicateCandidate | null => {
-    const leftTokens = files[leftFileIndex]?.tokens ?? [];
-    const rightTokens = files[rightFileIndex]?.tokens ?? [];
-
+  const initialize = (): void => {
+    initialized = true;
     if (
-      skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex)) ||
-      !rangeIsFree(
-        occupied[leftFileIndex] ?? [],
-        leftStart,
-        DUPLICATE_WINDOW_SIZE,
-      ) ||
-      !rangeIsFree(
-        occupied[rightFileIndex] ?? [],
-        rightStart,
-        DUPLICATE_WINDOW_SIZE,
-      ) ||
-      (leftStart > 0 &&
-        rightStart > 0 &&
-        leftTokens[leftStart - 1] === rightTokens[rightStart - 1])
+      !hasCanonicalPair(files, occurrencesByFile, fileIndices, skippedPairs)
     ) {
-      return null;
-    }
-    const candidate = extendMatch(
-      files,
-      { fileIndex: leftFileIndex, start: leftStart },
-      { fileIndex: rightFileIndex, start: rightStart },
-      true,
-      true,
-    );
-
-    if (
-      candidate === null ||
-      candidate.leftStart !== leftStart ||
-      candidate.rightStart !== rightStart ||
-      !candidateIsFree(candidate)
-    ) {
-      return null;
+      return;
     }
 
-    return candidate;
-  };
-  const maximumFreeLength = (): number => {
-    let maximum = 0;
+    const root = createRadixNode(0);
 
-    for (let left = 0; left < fileIndices.length; left += 1) {
-      const leftFileIndex = fileIndices[left];
+    for (const occurrence of occurrences) {
+      insertRadixOccurrence(root, files, occurrence);
+    }
+    const ranked: RankedGroupOccurrence[] = [];
+    const candidateNodes: MatchRadixNode[] = [];
 
-      if (leftFileIndex === undefined) {
+    rankRadixTree(root, ranked, candidateNodes);
+    for (const node of candidateNodes) {
+      const source = radixNodeCandidateSource(
+        node,
+        files,
+        occurrencesByFile,
+        skippedPairs,
+        occupied,
+        fileCanMatch,
+      );
+
+      if (!sourceCanContinue(source, fileCanMatch)) {
         continue;
       }
-      const leftStarts = group.startsByFile.get(leftFileIndex) ?? [];
+      const candidate = source.next();
 
-      for (let right = left + 1; right < fileIndices.length; right += 1) {
-        const rightFileIndex = fileIndices[right];
-
-        if (rightFileIndex === undefined) {
-          continue;
-        }
-        const rightStarts = group.startsByFile.get(rightFileIndex) ?? [];
-
-        for (const leftStart of leftStarts) {
-          for (const rightStart of rightStarts) {
-            maximum = Math.max(
-              maximum,
-              candidateAt(leftFileIndex, leftStart, rightFileIndex, rightStart)
-                ?.length ?? 0,
-            );
-          }
-        }
+      if (candidate !== null) {
+        pushCandidateHeap(heap, { candidate, source }, compare);
       }
     }
-
-    return maximum;
-  };
-  const resetCursors = (): void => {
-    leftFileCursor = 0;
-    rightFileCursor = 1;
-    leftStartCursor = 0;
-    rightStartCursor = 0;
-  };
-  const nextCandidateAtCurrentLength = (): DuplicateCandidate | null => {
-    while (leftFileCursor < fileIndices.length - 1) {
-      if (rightFileCursor >= fileIndices.length) {
-        leftFileCursor += 1;
-        rightFileCursor = leftFileCursor + 1;
-        leftStartCursor = 0;
-        rightStartCursor = 0;
-        continue;
-      }
-      const leftFileIndex = fileIndices[leftFileCursor];
-      const rightFileIndex = fileIndices[rightFileCursor];
-
-      if (leftFileIndex === undefined || rightFileIndex === undefined) {
-        rightFileCursor += 1;
-        leftStartCursor = 0;
-        rightStartCursor = 0;
-        continue;
-      }
-      const leftStarts = group.startsByFile.get(leftFileIndex) ?? [];
-      const rightStarts = group.startsByFile.get(rightFileIndex) ?? [];
-
-      while (leftStartCursor < leftStarts.length) {
-        const leftStart = leftStarts[leftStartCursor];
-        const rightStart = rightStarts[rightStartCursor];
-
-        rightStartCursor += 1;
-        if (rightStartCursor >= rightStarts.length) {
-          leftStartCursor += 1;
-          rightStartCursor = 0;
-        }
-        if (leftStart === undefined || rightStart === undefined) {
-          continue;
-        }
-        const candidate = candidateAt(
-          leftFileIndex,
-          leftStart,
-          rightFileIndex,
-          rightStart,
-        );
-
-        if (candidate?.length === currentLength) {
-          return candidate;
-        }
-      }
-      rightFileCursor += 1;
-      leftStartCursor = 0;
-      rightStartCursor = 0;
-    }
-
-    return null;
   };
 
   return {
     fileIndices,
     next: () => {
-      while (currentLength !== null || fileIndices.length > 1) {
-        if (currentLength === null) {
-          // Re-scan for the next occupied-aware length tier instead of storing
-          // or sorting the potentially quadratic occurrence cross product.
-          const maximum = maximumFreeLength();
-
-          if (maximum < DUPLICATE_WINDOW_SIZE) {
-            return null;
-          }
-          currentLength = maximum;
-          resetCursors();
-        }
-
-        const candidate = nextCandidateAtCurrentLength();
+      if (!initialized) {
+        initialize();
+      }
+      if (
+        pendingSource !== null &&
+        sourceCanContinue(pendingSource, fileCanMatch)
+      ) {
+        const candidate = pendingSource.next();
 
         if (candidate !== null) {
-          return candidate;
+          pushCandidateHeap(
+            heap,
+            { candidate, source: pendingSource },
+            compare,
+          );
         }
-        currentLength = null;
+      }
+      pendingSource = null;
+
+      while (heap.length > 0) {
+        const entry = popCandidateHeap(heap, compare);
+
+        if (entry !== null && sourceCanContinue(entry.source, fileCanMatch)) {
+          pendingSource = entry.source;
+          return entry.candidate;
+        }
       }
 
       return null;
@@ -965,6 +1225,7 @@ function popCandidateHeap(
 function duplicateCandidateSources(
   files: readonly DuplicateFile[],
   occupied: readonly (readonly boolean[])[],
+  fileCanMatch: readonly boolean[],
   instrumentation?: DuplicateRatioInstrumentation,
 ): CandidateSource[] {
   const identical = identicalFileCandidates(files);
@@ -981,7 +1242,13 @@ function duplicateCandidateSources(
   }
   for (const group of general) {
     sources.push(
-      generalGroupCandidateSource(files, group, skippedPairs, occupied),
+      generalGroupCandidateSource(
+        files,
+        group,
+        skippedPairs,
+        occupied,
+        fileCanMatch,
+      ),
     );
   }
   instrumentation?.onCandidateSourcesPrepared?.(sources.length);
@@ -1096,7 +1363,7 @@ function chooseNonOverlapping(
   const fileCanMatch = occupied.map(hasFreeDuplicateWindow);
   const candidates = orderedCandidates(
     files,
-    duplicateCandidateSources(files, occupied, instrumentation),
+    duplicateCandidateSources(files, occupied, fileCanMatch, instrumentation),
     fileCanMatch,
   );
   const accepted: DuplicateCandidate[] = [];

@@ -691,6 +691,52 @@ describe("cross-file duplicate metrics", () => {
   );
 
   it(
+    "indexes high-fanout irregular groups within a fixed operation budget",
+    { timeout: 5000 },
+    () => {
+      let indexedReads = 0;
+      const shared = sequence("high-fanout", WINDOW_SIZE);
+      const files = Array.from({ length: 35 }, (_, fileIndex) => {
+        const tokens: string[] = [];
+
+        for (let copy = 0; copy < 200; copy += 1) {
+          tokens.push(...shared);
+          tokens.push(
+            ...sequence(
+              `gap-${String(fileIndex)}-${String(copy)}`,
+              1 + ((copy * 13 + fileIndex * 7) % 17),
+            ),
+          );
+        }
+
+        return tokenizedFile(
+          `src/fanout-${String(fileIndex).padStart(2, "0")}.ts`,
+          new Proxy(tokens, {
+            get(target, property, receiver) {
+              if (typeof property === "string" && /^\d+$/u.test(property)) {
+                indexedReads += 1;
+                if (indexedReads > 5_000_000) {
+                  throw new Error(
+                    "high-fanout duplicate index exceeded its read budget",
+                  );
+                }
+              }
+
+              return Reflect.get(target, property, receiver) as unknown;
+            },
+          }),
+        );
+      });
+
+      const result = computeDuplicateRatio(files);
+
+      expect(result.duplicatedTokens).toBe(340_000);
+      expect(result.evidence).toHaveLength(17);
+      expect(indexedReads).toBeLessThanOrEqual(5_000_000);
+    },
+  );
+
+  it(
     "stops draining periodic pair sources once no 50-token range remains",
     { timeout: 5000 },
     () => {
@@ -818,6 +864,41 @@ describe("relative import graph metrics", () => {
         ],
       ],
       largestComponentSize: 4,
+    });
+  });
+
+  it.each([
+    ["true", "True", [], ["b"]],
+    ["false", "False", [".b"], []],
+    ["unknown", "condition", [".b"], []],
+  ] as const)(
+    "joins an if %s assignment into definite package state",
+    (_, condition, relativeImportCandidates, topLevelDefinedNames) => {
+      const analyzed = analyzePython([
+        pythonSourceFile(
+          "pkg/__init__.py",
+          `if ${condition}:\n    b = object()\nfrom . import b`,
+        ),
+      ]);
+
+      expect(analyzed.files[0]).toMatchObject({
+        relativeImportCandidates,
+        topLevelDefinedNames,
+      });
+    },
+  );
+
+  it("restores a definite package shadow in an always-run finally body", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\ntry:\n    del b\nfinally:\n    b = object()\nfrom . import b",
+      ),
+    ]);
+
+    expect(analyzed.files[0]).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
     });
   });
 
