@@ -45,8 +45,43 @@ describe("Markdown evidence", () => {
     });
     expect(
       findMarkdownEvidence("## Usage\nThis section describes use."),
-    ).toMatchObject({ usageHeading: true, usageCommandOrExample: false });
+    ).toMatchObject({
+      usageHeading: true,
+      usageProseDescription: true,
+      usageCommandOrExample: false,
+    });
   });
+
+  it.each([
+    ["heading only", "## Usage", false],
+    ["bare command", "## Usage\nnpm start", false],
+    ["code fence", "## Usage\n```sh\nnpm start\n```", false],
+    ["inline code only", "## Usage\n`npm start`", false],
+    ["image only", "## Usage\n![Run diagram](run.png)", false],
+    [
+      "hidden HTML comment",
+      "## Usage\n<!--\nThis hidden text describes how to run the project.\n-->",
+      false,
+    ],
+    [
+      "English explanation",
+      "## Usage\nRun the scanner against a public repository URL.",
+      true,
+    ],
+    ["Chinese explanation", "## 使用\n输入公开仓库地址即可开始分析。", true],
+    [
+      "prose after the section",
+      "## Usage\n\n## License\nThis text describes licensing only.",
+      false,
+    ],
+  ] as const)(
+    "detects actual Usage prose: %s",
+    (_label, markdown, expected) => {
+      expect(findMarkdownEvidence(markdown).usageProseDescription).toBe(
+        expected,
+      );
+    },
+  );
 
   it("matches whole normalized phrases after NFKC and marker stripping", () => {
     const evidence = findMarkdownEvidence(

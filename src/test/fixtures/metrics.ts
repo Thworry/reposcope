@@ -33,6 +33,7 @@ export const perfectGeneralMetrics: GeneralMetrics = {
   usageCommand: true,
   usageConcreteExample: true,
   usageCommandOrExample: true,
+  usageProseDescription: true,
   hasContributing: true,
   hasLicenseFile: true,
   apiLicenseDetected: true,

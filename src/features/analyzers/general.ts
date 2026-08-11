@@ -787,6 +787,7 @@ export function analyzeGeneralRepository(
     usageCommand: markdown.usageCommand,
     usageConcreteExample: markdown.usageConcreteExample,
     usageCommandOrExample: markdown.usageCommandOrExample,
+    usageProseDescription: markdown.usageProseDescription,
     hasContributing: paths.some(isContribution),
     hasLicenseFile: paths.some(isLicense),
     apiLicenseDetected:

@@ -11,6 +11,7 @@ export interface MarkdownEvidence {
   usageCommand: boolean;
   usageConcreteExample: boolean;
   usageCommandOrExample: boolean;
+  usageProseDescription: boolean;
   architectureHeading: boolean;
   configurationHeading: boolean;
   invocations: string[][];
@@ -318,6 +319,45 @@ function activeSections(stack: readonly HeadingContext[]): MarkdownSection[] {
   return [];
 }
 
+function isExplanatoryUsageProse(line: string): boolean {
+  if (
+    line.trim().length === 0 ||
+    /^\s*\[[^\]]+\]:/u.test(line) ||
+    /^\s*<!--/u.test(line)
+  ) {
+    return false;
+  }
+
+  const withoutImages = line.replace(
+    /!\[[^\]]*\](?:\([^\n)]*\)|\[[^\]]*\])/gu,
+    " ",
+  );
+  const withoutInlineCode = withoutImages.replace(/`+[^`\n]*`+/gu, " ");
+  const visible = visibleMarkdownText(withoutInlineCode)
+    .replace(/^\s*(?:(?:[-*+] |\d+[.)] )|>\s*)/u, "")
+    .normalize("NFKC")
+    .trim();
+
+  if (visible.length === 0) {
+    return false;
+  }
+
+  const commandTokens = stripPrompt(visible).match(/[^\s]+/gu) ?? [];
+  const executable = commandTokens[0];
+
+  if (
+    executable !== undefined &&
+    COMMAND_SET.has(commandName(executable.replace(/[,:;]$/u, "")))
+  ) {
+    return false;
+  }
+
+  const hanCharacters = visible.match(/\p{Script=Han}/gu)?.length ?? 0;
+  const words = visible.match(/[\p{L}\p{N}]+/gu) ?? [];
+
+  return hanCharacters >= 4 || words.length >= 2;
+}
+
 export function findMarkdownEvidence(text: string): MarkdownEvidence {
   const evidence: MarkdownEvidence = {
     installHeading: false,
@@ -326,6 +366,7 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
     usageCommand: false,
     usageConcreteExample: false,
     usageCommandOrExample: false,
+    usageProseDescription: false,
     architectureHeading: false,
     configurationHeading: false,
     invocations: [],
@@ -336,8 +377,11 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
   let fenceLanguage = "";
   let fenceSections: MarkdownSection[] = [];
   let fenceLines: string[] = [];
+  let htmlCommentOpen = false;
 
-  for (const line of text.split(/\r?\n/u)) {
+  for (const rawLine of text.split(/\r?\n/u)) {
+    let line = rawLine;
+
     if (fenceMarker !== null) {
       const closePattern = new RegExp(
         `^\\s{0,3}${fenceMarker === "`" ? "`" : "~"}{${String(fenceLength)},}\\s*$`,
@@ -369,6 +413,34 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
       continue;
     }
 
+    if (htmlCommentOpen) {
+      const close = line.indexOf("-->");
+
+      if (close === -1) {
+        continue;
+      }
+      htmlCommentOpen = false;
+      line = line.slice(close + 3);
+    }
+
+    let commentStart = line.indexOf("<!--");
+
+    while (commentStart !== -1) {
+      const commentEnd = line.indexOf("-->", commentStart + 4);
+
+      if (commentEnd === -1) {
+        htmlCommentOpen = true;
+        line = line.slice(0, commentStart);
+        break;
+      }
+      line = `${line.slice(0, commentStart)}${line.slice(commentEnd + 3)}`;
+      commentStart = line.indexOf("<!--");
+    }
+
+    if (line.trim().length === 0) {
+      continue;
+    }
+
     const fence = /^\s{0,3}(`{3,}|~{3,})/u.exec(line);
 
     if (fence?.[1] !== undefined) {
@@ -387,6 +459,12 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
     const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(line);
 
     if (heading?.[1] === undefined || heading[2] === undefined) {
+      if (
+        activeSections(stack).includes("usage") &&
+        isExplanatoryUsageProse(line)
+      ) {
+        evidence.usageProseDescription = true;
+      }
       continue;
     }
 

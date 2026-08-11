@@ -433,7 +433,78 @@ describe("ruleset 1.0.0", () => {
     expect(
       Object.values(DIMENSION_WEIGHTS).reduce((sum, value) => sum + value, 0),
     ).toBe(100);
+    expect(Object.isFrozen(RULE_IDS)).toBe(true);
+    expect(Object.isFrozen(DIMENSION_WEIGHTS)).toBe(true);
+    expect(() =>
+      (RULE_IDS as unknown as string[]).push("hostile.mutation"),
+    ).toThrow();
+    expect(() => {
+      (DIMENSION_WEIGHTS as unknown as Record<string, number>)[
+        "documentation"
+      ] = 0;
+    }).toThrow();
   });
+
+  it.each([
+    {
+      id: "readability.median-function-length",
+      metrics: { median: Number.NaN },
+    },
+    {
+      id: "readability.median-function-length",
+      metrics: { median: Number.POSITIVE_INFINITY },
+    },
+    { id: "readability.median-function-length", metrics: { median: -1 } },
+    { id: "readability.median-function-length", metrics: {} },
+    { id: "readability.p90-function-length", metrics: { p90: -1 } },
+    { id: "readability.large-file-ratio", metrics: { count: -1, total: 10 } },
+    {
+      id: "readability.large-file-ratio",
+      metrics: { count: 0, total: Number.NaN },
+    },
+    {
+      id: "readability.large-file-ratio",
+      metrics: { count: 11, total: 10 },
+    },
+    { id: "readability.median-nesting", metrics: { median: -1 } },
+    {
+      id: "readability.ambiguous-identifiers",
+      metrics: { count: -1, total: 10 },
+    },
+    { id: "complexity.median-cyclomatic", metrics: { median: -1 } },
+    {
+      id: "complexity.p90-cyclomatic",
+      metrics: { p90: Number.POSITIVE_INFINITY },
+    },
+    { id: "complexity.max-nesting", metrics: { max: -1 } },
+    { id: "complexity.very-large-files", metrics: { count: -1, total: 10 } },
+    { id: "complexity.duplication", metrics: { ratio: -1 } },
+    { id: "complexity.duplication", metrics: { ratio: Number.NaN } },
+    { id: "complexity.duplication", metrics: { ratio: 1.01 } },
+    {
+      id: "complexity.duplication",
+      metrics: { ratio: 0, count: 5, total: 10 },
+    },
+    {
+      id: "complexity.circular-imports",
+      metrics: { components: -1, largest: 0 },
+    },
+    { id: "testing.test-files", metrics: { count: -1, configuration: true } },
+    { id: "testing.test-source-ratio", metrics: { count: -1, total: 10 } },
+    {
+      id: "maintenance.activity",
+      metrics: { archived: false, elapsedDays: -1 },
+    },
+    { id: "maintenance.generated-directories", metrics: { count: -1 } },
+  ] as const)(
+    "never rewards malformed lower-is-better metrics for $id",
+    ({ id, metrics }) => {
+      expect(scoreRule(id, metrics)).toMatchObject({
+        state: "failed",
+        earned: 0,
+      });
+    },
+  );
 
   it.each(boundaryRows)(
     "scores $id at a frozen boundary",
@@ -446,6 +517,18 @@ describe("ruleset 1.0.0", () => {
       });
     },
   );
+
+  it("scores a directly supplied deep metric unless explicitly inapplicable", () => {
+    expect(
+      scoreRule("readability.median-function-length", { median: 40 }),
+    ).toMatchObject({ state: "passed", earned: 4, available: 4 });
+    expect(
+      scoreRule("readability.median-function-length", {
+        applicable: false,
+        median: 40,
+      }),
+    ).toMatchObject({ state: "not-applicable", earned: 0, available: 0 });
+  });
 
   it("rejects unknown rule IDs", () => {
     expect(() => scoreRule("unknown", {})).toThrow("unknown");
@@ -569,5 +652,100 @@ describe("project scoring", () => {
   it("does not use the displayed rounded score as the label threshold", () => {
     expect(Math.round(84.6)).toBe(85);
     expect(overallLabel(84.6)).toBe("solid");
+  });
+
+  it("does not turn an empty Usage heading into prose-only example credit", () => {
+    const headingOnly = scoreProject({
+      ...input,
+      general: {
+        ...perfectGeneralMetrics,
+        hasExample: false,
+        usageHeading: true,
+        usageProseDescription: false,
+      },
+    });
+    const prose = scoreProject({
+      ...input,
+      general: {
+        ...perfectGeneralMetrics,
+        hasExample: false,
+        usageHeading: true,
+        usageProseDescription: true,
+      },
+    });
+
+    expect(
+      headingOnly.rules.find((rule) => rule.id === "operability.example"),
+    ).toMatchObject({ state: "failed", earned: 0 });
+    expect(
+      prose.rules.find((rule) => rule.id === "operability.example"),
+    ).toMatchObject({ state: "partial", earned: 1 });
+  });
+
+  it("fails hostile analyzer numerics instead of converting them into favorable zeros", () => {
+    const hostile = scoreProject({
+      ...input,
+      repository: {
+        ...perfectRepository,
+        pushedAt: "2026-08-12T12:00:00Z",
+      },
+      general: {
+        ...perfectGeneralMetrics,
+        testFileCount: -1,
+        supportedSourceFileCount: -1,
+        committedGeneratedDirectoryCount: -1,
+      },
+      language: {
+        ...perfectLanguageAnalysis,
+        files: perfectLanguageAnalysis.files.map((file) => ({
+          ...file,
+          logicalLines: -1,
+        })),
+        functions: perfectLanguageAnalysis.functions.map((metric) => ({
+          ...metric,
+          logicalLines: Number.NaN,
+          cyclomatic: -1,
+          maxNesting: Number.POSITIVE_INFINITY,
+        })),
+        identifierOccurrences: -1,
+        ambiguousIdentifierOccurrences: -1,
+        exportedDeclarations: -1,
+        documentedExports: -1,
+      },
+      duplicates: {
+        ...perfectDuplicates,
+        totalEligibleTokens: -1,
+        duplicatedTokens: -1,
+        ratio: Number.NaN,
+      },
+      cycles: {
+        components: [["src/a.ts", "src/b.ts"]],
+        largestComponentSize: -1,
+      },
+    });
+    const hostileRuleIds = [
+      "readability.median-function-length",
+      "readability.p90-function-length",
+      "readability.large-file-ratio",
+      "readability.median-nesting",
+      "readability.ambiguous-identifiers",
+      "readability.documented-exports",
+      "complexity.median-cyclomatic",
+      "complexity.p90-cyclomatic",
+      "complexity.max-nesting",
+      "complexity.very-large-files",
+      "complexity.duplication",
+      "complexity.circular-imports",
+      "testing.test-files",
+      "testing.test-source-ratio",
+      "maintenance.activity",
+      "maintenance.generated-directories",
+    ];
+
+    expect(
+      hostile.rules
+        .filter((rule) => hostileRuleIds.includes(rule.id))
+        .every((rule) => rule.state === "failed" && rule.earned === 0),
+    ).toBe(true);
   });
 });

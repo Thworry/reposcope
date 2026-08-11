@@ -241,6 +241,7 @@ describe("general repository evidence", () => {
       usageCommand: false,
       usageConcreteExample: true,
       usageCommandOrExample: true,
+      usageProseDescription: false,
       hasContributing: true,
       hasLicenseFile: true,
       apiLicenseDetected: true,
@@ -359,6 +360,27 @@ describe("general repository evidence", () => {
 
     expect(metrics.usageCommandOrExample).toBe(true);
     expect(metrics.hasExample).toBe(false);
+  });
+
+  it("distinguishes an empty Usage heading from explanatory Usage prose", () => {
+    const headingOnly = analyzeGeneralRepository({
+      repository,
+      tree: tree("README.md"),
+      files: [fetchedTextFile("README.md", "## Usage")],
+    });
+    const prose = analyzeGeneralRepository({
+      repository,
+      tree: tree("README.md"),
+      files: [
+        fetchedTextFile(
+          "README.md",
+          "## Usage\nRun the scanner against a public repository URL.",
+        ),
+      ],
+    });
+
+    expect(headingOnly.usageProseDescription).toBe(false);
+    expect(prose.usageProseDescription).toBe(true);
   });
 
   it("ignores every positive fact below excluded generated/dependency paths", () => {

@@ -134,6 +134,7 @@ export interface GeneralMetrics {
   usageCommand: boolean;
   usageConcreteExample: boolean;
   usageCommandOrExample: boolean;
+  usageProseDescription: boolean;
   hasContributing: boolean;
   hasLicenseFile: boolean;
   apiLicenseDetected: boolean;

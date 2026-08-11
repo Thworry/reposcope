@@ -21,16 +21,16 @@ export type { ScoredProject } from "../analysis/model";
 
 export const RULESET_VERSION = "1.0.0" as const;
 
-export const DIMENSION_WEIGHTS = {
+export const DIMENSION_WEIGHTS = Object.freeze({
   documentation: 15,
   operability: 20,
   readability: 20,
   complexity: 20,
   testing: 15,
   maintenance: 10,
-} as const satisfies Record<DimensionKey, number>;
+} as const) satisfies Readonly<Record<DimensionKey, number>>;
 
-export const RULE_IDS = [
+export const RULE_IDS = Object.freeze([
   "documentation.readme",
   "documentation.installation",
   "documentation.usage",
@@ -70,7 +70,7 @@ export const RULE_IDS = [
   "maintenance.code-of-conduct",
   "maintenance.version-history",
   "maintenance.generated-directories",
-] as const;
+] as const);
 
 export type RuleId = (typeof RULE_IDS)[number];
 type RuleMetrics = Readonly<Record<string, number | boolean | string | null>>;
@@ -97,7 +97,7 @@ function booleanMetric(metrics: RuleMetrics, key: string): boolean {
 }
 
 function applicable(metrics: RuleMetrics): boolean {
-  return booleanMetric(metrics, "applicable");
+  return metrics["applicable"] !== false;
 }
 
 function result(state: RuleState, earned: number): Evaluation {
@@ -117,6 +117,119 @@ function safeRatio(count: number, total: number): number {
   const denominator = Number.isFinite(total) && total > 0 ? total : 0;
 
   return denominator === 0 ? 0 : Math.min(1, numerator / denominator);
+}
+
+function validNonNegativeNumber(metrics: RuleMetrics, key: string): boolean {
+  const value = metrics[key];
+
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function validCount(metrics: RuleMetrics, key: string): boolean {
+  const value = metrics[key];
+
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validCountPair(metrics: RuleMetrics): boolean {
+  if (!validCount(metrics, "count") || !validCount(metrics, "total")) {
+    return false;
+  }
+  const count = numberMetric(metrics, "count");
+  const total = numberMetric(metrics, "total");
+
+  return total > 0 && count <= total;
+}
+
+function validOptionalDuplicateCounts(
+  metrics: RuleMetrics,
+  ratio: number,
+): boolean {
+  const hasCount = Object.prototype.hasOwnProperty.call(metrics, "count");
+  const hasTotal = Object.prototype.hasOwnProperty.call(metrics, "total");
+
+  if (!hasCount && !hasTotal) {
+    return true;
+  }
+  if (!hasCount || !hasTotal || !validCountPair(metrics)) {
+    return false;
+  }
+  const count = numberMetric(metrics, "count");
+  const total = numberMetric(metrics, "total");
+  const expected = count / total;
+
+  return (
+    Math.abs(ratio - expected) <= Number.EPSILON * Math.max(1, expected) * 4
+  );
+}
+
+function validNumericMetrics(ruleId: RuleId, metrics: RuleMetrics): boolean {
+  if (metrics["valid"] === false) {
+    return false;
+  }
+
+  const explicitlyUnavailable = metrics["applicable"] === false;
+
+  switch (ruleId) {
+    case "documentation.architecture":
+      return validCount(metrics, "areaCount");
+    case "operability.error-handling":
+    case "readability.large-file-ratio":
+    case "readability.ambiguous-identifiers":
+    case "readability.documented-exports":
+    case "complexity.very-large-files":
+    case "testing.test-source-ratio":
+      return explicitlyUnavailable
+        ? validCount(metrics, "count") && validCount(metrics, "total")
+        : validCountPair(metrics);
+    case "readability.median-function-length":
+    case "readability.median-nesting":
+    case "complexity.median-cyclomatic":
+      return explicitlyUnavailable
+        ? true
+        : validNonNegativeNumber(metrics, "median");
+    case "readability.p90-function-length":
+    case "complexity.p90-cyclomatic":
+      return explicitlyUnavailable
+        ? true
+        : validNonNegativeNumber(metrics, "p90");
+    case "complexity.max-nesting":
+      return explicitlyUnavailable
+        ? true
+        : validNonNegativeNumber(metrics, "max");
+    case "complexity.duplication": {
+      const ratio = metrics["ratio"];
+
+      return (
+        explicitlyUnavailable ||
+        (typeof ratio === "number" &&
+          Number.isFinite(ratio) &&
+          ratio >= 0 &&
+          ratio <= 1 &&
+          validOptionalDuplicateCounts(metrics, ratio))
+      );
+    }
+    case "complexity.circular-imports": {
+      if (explicitlyUnavailable) return true;
+      if (
+        !validCount(metrics, "components") ||
+        !validCount(metrics, "largest")
+      ) {
+        return false;
+      }
+      const components = numberMetric(metrics, "components");
+      const largest = numberMetric(metrics, "largest");
+
+      return components === 0 ? largest === 0 : largest >= 2;
+    }
+    case "testing.test-files":
+    case "maintenance.generated-directories":
+      return validCount(metrics, "count");
+    case "maintenance.activity":
+      return validNonNegativeNumber(metrics, "elapsedDays");
+    default:
+      return true;
+  }
 }
 
 const RULE_DEFINITIONS = {
@@ -529,6 +642,11 @@ const RULE_DEFINITIONS = {
   },
 } as const satisfies Record<RuleId, RuleDefinition>;
 
+for (const definition of Object.values(RULE_DEFINITIONS)) {
+  Object.freeze(definition);
+}
+Object.freeze(RULE_DEFINITIONS);
+
 function assertRuleset(): void {
   const definitionIds = Object.keys(RULE_DEFINITIONS);
 
@@ -584,7 +702,9 @@ export function scoreRule(ruleId: string, metrics: RuleMetrics): RuleResult {
     throw new Error(ruleId);
   }
   const definition = RULE_DEFINITIONS[ruleId];
-  const evaluation = definition.evaluate(metrics);
+  const evaluation = validNumericMetrics(ruleId, metrics)
+    ? definition.evaluate(metrics)
+    : result("failed", 0);
   const args = descriptorArgs(metrics);
 
   return {
@@ -655,6 +775,53 @@ function isDeclarationOnly(path: string): boolean {
   return /(?:\.d\.ts|\.pyi)$/iu.test(path);
 }
 
+function validAnalysisCount(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function validOccurrenceCounts(count: number, total: number): boolean {
+  return (
+    validAnalysisCount(count) && validAnalysisCount(total) && count <= total
+  );
+}
+
+function validDuplicateMetrics(metrics: DuplicateMetrics): boolean {
+  if (
+    !validOccurrenceCounts(
+      metrics.duplicatedTokens,
+      metrics.totalEligibleTokens,
+    ) ||
+    !Number.isFinite(metrics.ratio) ||
+    metrics.ratio < 0 ||
+    metrics.ratio > 1
+  ) {
+    return false;
+  }
+
+  const expectedRatio =
+    metrics.totalEligibleTokens === 0
+      ? 0
+      : metrics.duplicatedTokens / metrics.totalEligibleTokens;
+
+  return (
+    Math.abs(metrics.ratio - expectedRatio) <=
+    Number.EPSILON * Math.max(1, expectedRatio) * 4
+  );
+}
+
+function validCycleMetrics(metrics: ImportCycleMetrics): boolean {
+  const expectedLargest = metrics.components.reduce(
+    (largest, component) => Math.max(largest, component.length),
+    0,
+  );
+
+  return (
+    validAnalysisCount(metrics.largestComponentSize) &&
+    metrics.components.every((component) => component.length >= 2) &&
+    metrics.largestComponentSize === expectedLargest
+  );
+}
+
 function referenceForFunction(metric: FunctionMetric): FileReference {
   return {
     path: metric.path,
@@ -686,10 +853,12 @@ function projectRuleMetrics(input: ScoreProjectInput): {
   const sourceFiles = language.files.filter(
     (file) => !isDeclarationOnly(file.path),
   );
-  const parsedLines = sourceFiles.reduce(
-    (sum, file) => sum + Math.max(0, file.logicalLines),
-    0,
+  const sourceLogicalLinesValid = sourceFiles.every((file) =>
+    validAnalysisCount(file.logicalLines),
   );
+  const parsedLines = sourceLogicalLinesValid
+    ? sourceFiles.reduce((sum, file) => sum + file.logicalLines, 0)
+    : 0;
   const deepApplicable = sourceFiles.length >= 5 || parsedLines >= 2_000;
   const nonTestFunctions = language.functions.filter(
     (metric) => !metric.isTest,
@@ -698,6 +867,23 @@ function projectRuleMetrics(input: ScoreProjectInput): {
   const functionLengths = nonTestFunctions.map((metric) => metric.logicalLines);
   const nestingDepths = nonTestFunctions.map((metric) => metric.maxNesting);
   const cyclomaticValues = nonTestFunctions.map((metric) => metric.cyclomatic);
+  const functionLengthsValid = functionLengths.every(validAnalysisCount);
+  const nestingDepthsValid = nestingDepths.every(validAnalysisCount);
+  const cyclomaticValuesValid = cyclomaticValues.every(validAnalysisCount);
+  const identifierCountsValid = validOccurrenceCounts(
+    language.ambiguousIdentifierOccurrences,
+    language.identifierOccurrences,
+  );
+  const exportCountsValid = validOccurrenceCounts(
+    language.documentedExports,
+    language.exportedDeclarations,
+  );
+  const duplicateMetricsValid = validDuplicateMetrics(duplicates);
+  const cycleMetricsValid = validCycleMetrics(cycles);
+  const testFileCountValid = validAnalysisCount(general.testFileCount);
+  const sourceFileCountValid = validAnalysisCount(
+    general.supportedSourceFileCount,
+  );
   const over500 = sourceFiles.filter((file) => file.logicalLines > 500);
   const over1000 = sourceFiles.filter((file) => file.logicalLines > 1_000);
   const handledFunctions = nonTestFunctions.filter(
@@ -733,7 +919,7 @@ function projectRuleMetrics(input: ScoreProjectInput): {
     "operability.run-build": { run, build },
     "operability.example": {
       concrete: general.hasExample,
-      prose: general.usageHeading,
+      prose: general.usageProseDescription,
     },
     "operability.error-handling": {
       applicable: functionApplicable,
@@ -749,65 +935,85 @@ function projectRuleMetrics(input: ScoreProjectInput): {
     },
     "readability.median-function-length": {
       applicable: functionApplicable,
-      median: median(functionLengths) ?? 0,
+      valid: functionLengthsValid,
+      median: median(functionLengths),
     },
     "readability.p90-function-length": {
       applicable: functionApplicable,
-      p90: p90(functionLengths) ?? 0,
+      valid: functionLengthsValid,
+      p90: p90(functionLengths),
     },
     "readability.large-file-ratio": {
       applicable: deepApplicable,
+      valid: sourceLogicalLinesValid,
       count: over500.length,
       total: sourceFiles.length,
     },
     "readability.median-nesting": {
       applicable: functionApplicable,
-      median: median(nestingDepths) ?? 0,
+      valid: nestingDepthsValid,
+      median: median(nestingDepths),
     },
     "readability.ambiguous-identifiers": {
-      applicable: deepApplicable && language.identifierOccurrences > 0,
+      applicable:
+        deepApplicable &&
+        (language.identifierOccurrences > 0 || !identifierCountsValid),
+      valid: identifierCountsValid,
       count: language.ambiguousIdentifierOccurrences,
       total: language.identifierOccurrences,
     },
     "readability.documented-exports": {
-      applicable: deepApplicable && language.exportedDeclarations > 0,
+      applicable:
+        deepApplicable &&
+        (language.exportedDeclarations > 0 || !exportCountsValid),
+      valid: exportCountsValid,
       count: language.documentedExports,
       total: language.exportedDeclarations,
     },
     "complexity.median-cyclomatic": {
       applicable: functionApplicable,
-      median: median(cyclomaticValues) ?? 0,
+      valid: cyclomaticValuesValid,
+      median: median(cyclomaticValues),
     },
     "complexity.p90-cyclomatic": {
       applicable: functionApplicable,
-      p90: p90(cyclomaticValues) ?? 0,
+      valid: cyclomaticValuesValid,
+      p90: p90(cyclomaticValues),
     },
     "complexity.max-nesting": {
       applicable: functionApplicable,
-      max: maximum(nestingDepths) ?? 0,
+      valid: nestingDepthsValid,
+      max: maximum(nestingDepths),
     },
     "complexity.very-large-files": {
       applicable: deepApplicable,
+      valid: sourceLogicalLinesValid,
       count: over1000.length,
       total: sourceFiles.length,
     },
     "complexity.duplication": {
-      applicable: deepApplicable && duplicates.totalEligibleTokens > 0,
+      applicable:
+        deepApplicable &&
+        (duplicates.totalEligibleTokens > 0 || !duplicateMetricsValid),
+      valid: duplicateMetricsValid,
       ratio: duplicates.ratio,
       count: duplicates.duplicatedTokens,
       total: duplicates.totalEligibleTokens,
     },
     "complexity.circular-imports": {
       applicable: deepApplicable,
+      valid: cycleMetricsValid,
       components: cycles.components.length,
       largest: cycles.largestComponentSize,
     },
     "testing.test-files": {
+      valid: testFileCountValid,
       count: general.testFileCount,
       configuration: general.hasTestConfiguration,
     },
     "testing.test-source-ratio": {
-      applicable: general.supportedSourceFileCount > 0,
+      applicable: general.supportedSourceFileCount > 0 || !sourceFileCountValid,
+      valid: testFileCountValid && sourceFileCountValid,
       count: general.testFileCount,
       total: general.supportedSourceFileCount,
     },
@@ -834,6 +1040,7 @@ function projectRuleMetrics(input: ScoreProjectInput): {
     "maintenance.code-of-conduct": { exists: general.hasCodeOfConduct },
     "maintenance.version-history": { exists: general.hasVersionHistory },
     "maintenance.generated-directories": {
+      valid: validAnalysisCount(general.committedGeneratedDirectoryCount),
       count: general.committedGeneratedDirectoryCount,
     },
   };
