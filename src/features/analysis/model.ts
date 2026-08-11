@@ -168,6 +168,42 @@ export interface GeneralMetrics {
   parseFailures: Array<{ path: string; reason: "json" | "toml" }>;
 }
 
+export interface FunctionMetric {
+  path: string;
+  name: string;
+  startLine: number;
+  endLine: number;
+  logicalLines: number;
+  cyclomatic: number;
+  maxNesting: number;
+  hasErrorHandling: boolean;
+  isTest: boolean;
+}
+
+export interface AnalyzedSourceFile {
+  path: string;
+  language: "javascript" | "typescript" | "python";
+  logicalLines: number;
+  isTest: boolean;
+  normalizedTokens: string[];
+  relativeImports: string[];
+}
+
+export interface LanguageAnalysis {
+  files: AnalyzedSourceFile[];
+  functions: FunctionMetric[];
+  identifierOccurrences: number;
+  ambiguousIdentifierOccurrences: number;
+  exportedDeclarations: number;
+  documentedExports: number;
+  parsedBytes: number;
+  parseFailures: Array<{
+    path: string;
+    language: "javascript" | "typescript" | "python";
+    reason: "syntax";
+  }>;
+}
+
 export interface CoverageSummary {
   treeComplete: boolean;
   eligibleFiles: number;
