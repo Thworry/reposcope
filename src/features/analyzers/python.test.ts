@@ -67,6 +67,7 @@ describe("Python analyzer", () => {
     expect(result.files[0]?.relativeImports).toEqual([
       "..",
       "...core.tools",
+      "..sibling",
       ".helper",
     ]);
     expect(result.exportedDeclarations).toBe(3);
@@ -598,6 +599,27 @@ if flag:
       ".runtime",
     ]);
     expect(result.identifierOccurrences).toBe(6);
+  });
+
+  it("retains package bases and imported submodule candidates from relative import lists", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/imports.py",
+        `from . import b, c as see, Thing
+from .. import parent_module as parent_alias
+if TYPE_CHECKING:
+    from . import type_only`,
+      ),
+    ]);
+
+    expect(result.files[0]?.relativeImports).toEqual([
+      ".",
+      "..",
+      "..parent_module",
+      ".Thing",
+      ".b",
+      ".c",
+    ]);
   });
 
   it("sorts paths case-insensitively after POSIX normalization with a raw tie-break", () => {

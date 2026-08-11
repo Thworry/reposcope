@@ -1007,25 +1007,55 @@ function hasDocstring(
   return sawString;
 }
 
-function relativePythonImport(
+function relativePythonImports(
   nodes: readonly PythonNode[],
   index: number,
   text: string,
-): string | null {
+): string[] {
   const leaves = leafIndices(nodes, index);
   const values = leaves.map((leaf) => nodeTextAt(nodes, leaf, text));
 
   if (values[0] !== "from") {
-    return null;
+    return [];
   }
   const importPosition = values.indexOf("import", 1);
 
   if (importPosition === -1) {
-    return null;
+    return [];
   }
   const module = values.slice(1, importPosition).join("");
 
-  return module.startsWith(".") ? module : null;
+  if (!module.startsWith(".")) {
+    return [];
+  }
+
+  const imports = [module];
+
+  if (!/^\.+$/u.test(module)) {
+    return imports;
+  }
+
+  let skipAlias = false;
+  for (
+    let position = importPosition + 1;
+    position < leaves.length;
+    position += 1
+  ) {
+    const leaf = leaves[position];
+    const value = values[position];
+
+    if (value === "as") {
+      skipAlias = true;
+    } else if (leaf !== undefined && nodes[leaf]?.type === "VariableName") {
+      if (skipAlias) {
+        skipAlias = false;
+      } else if (value !== undefined) {
+        imports.push(`${module}${value}`);
+      }
+    }
+  }
+
+  return imports;
 }
 
 function stripOuterParentheses(value: string): string {
@@ -1127,9 +1157,7 @@ function collectRelativeImports(
     ) {
       continue;
     }
-    const relative = relativePythonImport(nodes, index, text);
-
-    if (relative !== null) {
+    for (const relative of relativePythonImports(nodes, index, text)) {
       imports.add(relative);
     }
   }

@@ -211,6 +211,47 @@ describe("cross-file duplicate metrics", () => {
 
     expect(files).toEqual(snapshot);
   });
+
+  it("keeps adversarial repeated-token matching within a deterministic read budget", () => {
+    let indexedReads = 0;
+    const budgetedTokens = (count: number): readonly string[] =>
+      new Proxy(
+        Array.from({ length: count }, () => "same"),
+        {
+          get(target, property, receiver) {
+            if (typeof property === "string" && /^\d+$/u.test(property)) {
+              indexedReads += 1;
+              if (indexedReads > 100_000) {
+                throw new Error(
+                  "duplicate matcher exceeded its token-read budget",
+                );
+              }
+            }
+
+            return Reflect.get(target, property, receiver) as unknown;
+          },
+        },
+      );
+
+    expect(
+      computeDuplicateRatio([
+        tokenizedFile("src/a.ts", budgetedTokens(2000)),
+        tokenizedFile("src/b.ts", budgetedTokens(2001)),
+      ]),
+    ).toEqual({
+      totalEligibleTokens: 4001,
+      duplicatedTokens: 4000,
+      ratio: 4000 / 4001,
+      evidence: [
+        {
+          leftPath: "src/a.ts",
+          rightPath: "src/b.ts",
+          tokenCount: 2000,
+        },
+      ],
+    });
+    expect(indexedReads).toBeLessThanOrEqual(100_000);
+  });
 });
 
 describe("relative import graph metrics", () => {
@@ -259,6 +300,19 @@ describe("relative import graph metrics", () => {
     expect(result).toEqual({
       components: [["pkg/a.py", "pkg/b.py", "pkg/sub/__init__.py"]],
       largestComponentSize: 3,
+    });
+  });
+
+  it("resolves submodules named by Python from-dot import lists", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile("pkg/__init__.py", "PACKAGE = True"),
+      pythonSourceFile("pkg/a.py", "from . import b"),
+      pythonSourceFile("pkg/b.py", "from . import a"),
+    ]);
+
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/a.py", "pkg/b.py"]],
+      largestComponentSize: 2,
     });
   });
 

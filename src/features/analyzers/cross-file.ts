@@ -44,6 +44,21 @@ interface DuplicateCandidate {
   length: number;
 }
 
+interface PositionRun {
+  start: number;
+  end: number;
+}
+
+interface ExactWindowGroup {
+  representative: WindowOccurrence;
+  occurrences: WindowOccurrence[];
+}
+
+interface CoveredInterval {
+  start: number;
+  end: number;
+}
+
 interface GraphFile {
   path: string;
   comparisonPath: string;
@@ -219,6 +234,301 @@ function candidateKey(candidate: DuplicateCandidate): string {
   ].join(":");
 }
 
+function filePairKey(leftFileIndex: number, rightFileIndex: number): string {
+  return `${String(leftFileIndex)}:${String(rightFileIndex)}`;
+}
+
+function diagonalKey(candidate: DuplicateCandidate): string {
+  return `${filePairKey(candidate.leftFileIndex, candidate.rightFileIndex)}:${String(candidate.rightStart - candidate.leftStart)}`;
+}
+
+function equalTokenArrays(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length && equalWindow(left, 0, right, 0, left.length)
+  );
+}
+
+function wholeFileHash(tokens: readonly string[]): number {
+  let hash = 0;
+
+  for (const token of tokens) {
+    hash = (Math.imul(hash, HASH_BASE) + tokenHash(token)) >>> 0;
+  }
+
+  return hash;
+}
+
+function identicalFileCandidates(files: readonly DuplicateFile[]): {
+  candidates: DuplicateCandidate[];
+  skippedPairs: Set<string>;
+} {
+  const fingerprintBuckets = new Map<string, number[]>();
+
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+    const tokens = files[fileIndex]?.tokens ?? [];
+
+    if (tokens.length < DUPLICATE_WINDOW_SIZE) {
+      continue;
+    }
+    const fingerprint = `${String(tokens.length)}:${String(wholeFileHash(tokens))}`;
+    const bucket = fingerprintBuckets.get(fingerprint) ?? [];
+
+    bucket.push(fileIndex);
+    fingerprintBuckets.set(fingerprint, bucket);
+  }
+
+  const candidates: DuplicateCandidate[] = [];
+  const skippedPairs = new Set<string>();
+
+  for (const bucket of fingerprintBuckets.values()) {
+    const identicalGroups: number[][] = [];
+
+    for (const fileIndex of bucket) {
+      const tokens = files[fileIndex]?.tokens ?? [];
+      const group = identicalGroups.find((candidateGroup) => {
+        const representative = candidateGroup[0];
+
+        return (
+          representative !== undefined &&
+          equalTokenArrays(files[representative]?.tokens ?? [], tokens)
+        );
+      });
+
+      if (group === undefined) {
+        identicalGroups.push([fileIndex]);
+      } else {
+        group.push(fileIndex);
+      }
+    }
+
+    for (const group of identicalGroups) {
+      // A whole-file match sorts before every shifted match for this pair. If
+      // rejected, an earlier equal-length candidate already occupies an entire
+      // file, so no shifted match for the pair could later be accepted.
+      for (let left = 0; left < group.length; left += 1) {
+        const leftFileIndex = group[left];
+
+        if (leftFileIndex === undefined) {
+          continue;
+        }
+        for (let right = left + 1; right < group.length; right += 1) {
+          const rightFileIndex = group[right];
+
+          if (rightFileIndex === undefined) {
+            continue;
+          }
+          candidates.push({
+            leftFileIndex,
+            leftStart: 0,
+            rightFileIndex,
+            rightStart: 0,
+            length: files[leftFileIndex]?.tokens.length ?? 0,
+          });
+          skippedPairs.add(filePairKey(leftFileIndex, rightFileIndex));
+        }
+      }
+    }
+  }
+
+  return { candidates, skippedPairs };
+}
+
+function uniformToken(tokens: readonly string[]): string | null {
+  const first = tokens[0];
+
+  if (first === undefined) {
+    return null;
+  }
+  for (let index = 1; index < tokens.length; index += 1) {
+    if (tokens[index] !== first) {
+      return null;
+    }
+  }
+
+  return first;
+}
+
+function uniformFileCandidates(
+  files: readonly DuplicateFile[],
+  alreadySkipped: ReadonlySet<string>,
+): { candidates: DuplicateCandidate[]; skippedPairs: Set<string> } {
+  const uniformTokens = files.map((file) => uniformToken(file.tokens));
+  const candidates: DuplicateCandidate[] = [];
+  const skippedPairs = new Set<string>();
+
+  for (
+    let leftFileIndex = 0;
+    leftFileIndex < files.length;
+    leftFileIndex += 1
+  ) {
+    const leftTokens = files[leftFileIndex]?.tokens ?? [];
+    const leftUniformToken = uniformTokens[leftFileIndex];
+
+    if (
+      leftUniformToken === null ||
+      leftTokens.length < DUPLICATE_WINDOW_SIZE
+    ) {
+      continue;
+    }
+    for (
+      let rightFileIndex = leftFileIndex + 1;
+      rightFileIndex < files.length;
+      rightFileIndex += 1
+    ) {
+      const pairKey = filePairKey(leftFileIndex, rightFileIndex);
+      const rightTokens = files[rightFileIndex]?.tokens ?? [];
+
+      if (
+        alreadySkipped.has(pairKey) ||
+        rightTokens.length < DUPLICATE_WINDOW_SIZE ||
+        uniformTokens[rightFileIndex] !== leftUniformToken
+      ) {
+        continue;
+      }
+
+      const minimumDelta = -(leftTokens.length - DUPLICATE_WINDOW_SIZE);
+      const maximumDelta = rightTokens.length - DUPLICATE_WINDOW_SIZE;
+
+      for (let delta = minimumDelta; delta <= maximumDelta; delta += 1) {
+        const leftStart = Math.max(0, -delta);
+        const rightStart = Math.max(0, delta);
+        const length = Math.min(
+          leftTokens.length - leftStart,
+          rightTokens.length - rightStart,
+        );
+
+        candidates.push({
+          leftFileIndex,
+          leftStart,
+          rightFileIndex,
+          rightStart,
+          length,
+        });
+      }
+      skippedPairs.add(pairKey);
+    }
+  }
+
+  return { candidates, skippedPairs };
+}
+
+function hasUnskippedCrossFilePair(
+  occurrences: readonly WindowOccurrence[],
+  skippedPairs: ReadonlySet<string>,
+): boolean {
+  const fileIndices = [
+    ...new Set(occurrences.map(({ fileIndex }) => fileIndex)),
+  ];
+
+  for (let left = 0; left < fileIndices.length; left += 1) {
+    const leftFileIndex = fileIndices[left];
+
+    if (leftFileIndex === undefined) {
+      continue;
+    }
+    for (let right = left + 1; right < fileIndices.length; right += 1) {
+      const rightFileIndex = fileIndices[right];
+
+      if (
+        rightFileIndex !== undefined &&
+        !skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex))
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function groupExactWindows(
+  files: readonly DuplicateFile[],
+  occurrences: readonly WindowOccurrence[],
+): ExactWindowGroup[] {
+  const groups: ExactWindowGroup[] = [];
+
+  // The rolling hash is only an index. Exact token comparison keeps collisions
+  // from creating candidate matches.
+  for (const occurrence of occurrences) {
+    const tokens = files[occurrence.fileIndex]?.tokens;
+
+    if (tokens === undefined) {
+      continue;
+    }
+    const group = groups.find((candidateGroup) => {
+      const representative = candidateGroup.representative;
+      const representativeTokens = files[representative.fileIndex]?.tokens;
+
+      return (
+        representativeTokens !== undefined &&
+        equalWindow(
+          representativeTokens,
+          representative.start,
+          tokens,
+          occurrence.start,
+          DUPLICATE_WINDOW_SIZE,
+        )
+      );
+    });
+
+    if (group === undefined) {
+      groups.push({ representative: occurrence, occurrences: [occurrence] });
+    } else {
+      group.occurrences.push(occurrence);
+    }
+  }
+
+  return groups;
+}
+
+function consecutiveRuns(starts: readonly number[]): PositionRun[] {
+  const runs: PositionRun[] = [];
+
+  for (const start of starts) {
+    const previous = runs.at(-1);
+
+    if (previous !== undefined && start === previous.end + 1) {
+      previous.end = start;
+    } else {
+      runs.push({ start, end: start });
+    }
+  }
+
+  return runs;
+}
+
+function isCovered(
+  coverage: ReadonlyMap<string, readonly CoveredInterval[]>,
+  candidate: DuplicateCandidate,
+): boolean {
+  return (
+    coverage
+      .get(diagonalKey(candidate))
+      ?.some(
+        (interval) =>
+          candidate.leftStart >= interval.start &&
+          candidate.leftStart <= interval.end,
+      ) === true
+  );
+}
+
+function recordCoverage(
+  coverage: Map<string, CoveredInterval[]>,
+  candidate: DuplicateCandidate,
+): void {
+  const key = diagonalKey(candidate);
+  const intervals = coverage.get(key) ?? [];
+
+  intervals.push({
+    start: candidate.leftStart,
+    end: candidate.leftStart + candidate.length - DUPLICATE_WINDOW_SIZE,
+  });
+  coverage.set(key, intervals);
+}
+
 function candidateComparator(
   files: readonly DuplicateFile[],
 ): (left: DuplicateCandidate, right: DuplicateCandidate) => number {
@@ -239,40 +549,127 @@ function candidateComparator(
 function duplicateCandidates(
   files: readonly DuplicateFile[],
 ): DuplicateCandidate[] {
-  const candidates: DuplicateCandidate[] = [];
-  const candidateKeys = new Set<string>();
+  const identical = identicalFileCandidates(files);
+  const uniform = uniformFileCandidates(files, identical.skippedPairs);
+  const skippedPairs = new Set([
+    ...identical.skippedPairs,
+    ...uniform.skippedPairs,
+  ]);
+  const candidates = [...identical.candidates, ...uniform.candidates];
+  const candidateKeys = new Set(candidates.map(candidateKey));
+  const coverage = new Map<string, CoveredInterval[]>();
+
+  for (const candidate of candidates) {
+    recordCoverage(coverage, candidate);
+  }
   const buckets = indexWindows(files, DUPLICATE_WINDOW_SIZE);
   const orderedHashes = [...buckets.keys()].sort((left, right) => left - right);
 
   for (const hash of orderedHashes) {
     const occurrences = buckets.get(hash) ?? [];
 
-    for (let leftIndex = 0; leftIndex < occurrences.length; leftIndex += 1) {
-      const left = occurrences[leftIndex];
+    if (!hasUnskippedCrossFilePair(occurrences, skippedPairs)) {
+      continue;
+    }
 
-      if (left === undefined) {
-        continue;
+    for (const exactGroup of groupExactWindows(files, occurrences)) {
+      const startsByFile = new Map<number, number[]>();
+
+      for (const occurrence of exactGroup.occurrences) {
+        const starts = startsByFile.get(occurrence.fileIndex) ?? [];
+
+        starts.push(occurrence.start);
+        startsByFile.set(occurrence.fileIndex, starts);
       }
-      for (
-        let rightIndex = leftIndex + 1;
-        rightIndex < occurrences.length;
-        rightIndex += 1
-      ) {
-        const right = occurrences[rightIndex];
 
-        if (right === undefined || left.fileIndex === right.fileIndex) {
+      const fileIndices = [...startsByFile.keys()].sort(
+        (left, right) => left - right,
+      );
+      for (let left = 0; left < fileIndices.length; left += 1) {
+        const leftFileIndex = fileIndices[left];
+
+        if (leftFileIndex === undefined) {
           continue;
         }
-        const candidate = extendMatch(files, left, right);
+        for (let right = left + 1; right < fileIndices.length; right += 1) {
+          const rightFileIndex = fileIndices[right];
 
-        if (candidate === null) {
-          continue;
-        }
-        const key = candidateKey(candidate);
+          if (
+            rightFileIndex === undefined ||
+            skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex))
+          ) {
+            continue;
+          }
 
-        if (!candidateKeys.has(key)) {
-          candidateKeys.add(key);
-          candidates.push(candidate);
+          const leftRuns = consecutiveRuns(
+            startsByFile.get(leftFileIndex) ?? [],
+          );
+          const rightRuns = consecutiveRuns(
+            startsByFile.get(rightFileIndex) ?? [],
+          );
+
+          // A Cartesian product of repeated windows is cubic once each seed is
+          // extended. Runs represent it by diagonals; coverage then extends
+          // each maximal match only once without changing the candidate set.
+          for (const leftRun of leftRuns) {
+            for (const rightRun of rightRuns) {
+              const minimumDelta = rightRun.start - leftRun.end;
+              const maximumDelta = rightRun.end - leftRun.start;
+
+              for (
+                let delta = minimumDelta;
+                delta <= maximumDelta;
+                delta += 1
+              ) {
+                const leftStart = Math.max(
+                  leftRun.start,
+                  rightRun.start - delta,
+                );
+                const maximumLeftStart = Math.min(
+                  leftRun.end,
+                  rightRun.end - delta,
+                );
+
+                if (leftStart > maximumLeftStart) {
+                  continue;
+                }
+
+                const seed: DuplicateCandidate = {
+                  leftFileIndex,
+                  leftStart,
+                  rightFileIndex,
+                  rightStart: leftStart + delta,
+                  length: DUPLICATE_WINDOW_SIZE,
+                };
+
+                if (isCovered(coverage, seed)) {
+                  continue;
+                }
+                const candidate = extendMatch(
+                  files,
+                  {
+                    fileIndex: leftFileIndex,
+                    start: seed.leftStart,
+                  },
+                  {
+                    fileIndex: rightFileIndex,
+                    start: seed.rightStart,
+                  },
+                );
+
+                if (candidate === null) {
+                  continue;
+                }
+                recordCoverage(coverage, candidate);
+
+                const key = candidateKey(candidate);
+                if (!candidateKeys.has(key)) {
+                  candidateKeys.add(key);
+                  candidates.push(candidate);
+                }
+              }
+            }
+          }
         }
       }
     }
