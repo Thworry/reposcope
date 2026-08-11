@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo",
     "target": "ES2023",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["node"],
+    "types": ["node", "@playwright/test"],
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -19,10 +19,6 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": [
-    "vite.config.ts",
-    "playwright.config.ts",
-    "eslint.config.js",
-    "scripts/**/*.mjs"
-  ]
+  "files": ["node_modules/@playwright/test/index.d.ts"],
+  "include": ["e2e/**/*.ts"]
 }
