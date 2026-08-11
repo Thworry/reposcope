@@ -832,6 +832,159 @@ from . import b`,
     });
   });
 
+  it.each([
+    [
+      "for loop",
+      `for item in rows:
+    pass
+else:
+    b = None
+from . import b`,
+    ],
+    [
+      "while loop",
+      `while condition:
+    pass
+else:
+    b = None
+from . import b`,
+    ],
+  ] as const)("applies %s else on every normal completion", (_, source) => {
+    const result = analyzePython([pythonSourceFile("pkg/__init__.py", source)]);
+
+    expect(result.files[0]).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+  });
+
+  it("keeps an inner-loop break scoped to the inner loop", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `for item in rows:
+    for nested in items:
+        break
+else:
+    b = None
+from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+  });
+
+  it("runs finally before a break leaves the loop", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `for item in rows:
+    try:
+        break
+    finally:
+        b = None
+else:
+    b = None
+from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+  });
+
+  it.each([
+    ["unreachable break", "False", []],
+    ["reachable break", "True", [".b"]],
+  ] as const)(
+    "respects an %s in a loop branch",
+    (_, condition, relativeImportCandidates) => {
+      const result = analyzePython([
+        pythonSourceFile(
+          "pkg/__init__.py",
+          `for item in rows:
+    if ${condition}:
+        break
+else:
+    b = None
+from . import b`,
+        ),
+      ]);
+
+      expect(result.files[0]?.relativeImportCandidates).toEqual(
+        relativeImportCandidates,
+      );
+    },
+  );
+
+  it("does not let continue skip loop else", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `for item in rows:
+    continue
+else:
+    b = None
+from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+  });
+
+  it.each([
+    ["raise", "raise RuntimeError()"],
+    ["return", "return None"],
+  ] as const)("ignores a break made unreachable by %s", (_, abrupt) => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `for item in rows:
+    ${abrupt}
+    break
+else:
+    b = None
+from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]?.relativeImportCandidates).toEqual([]);
+  });
+
+  it.each([
+    ["return", "return None", []],
+    ["raise", "raise RuntimeError()", [".b"]],
+  ] as const)(
+    "routes %s through the matching try completion",
+    (_, abrupt, relativeImportCandidates) => {
+      const result = analyzePython([
+        pythonSourceFile(
+          "pkg/__init__.py",
+          `for item in rows:
+    try:
+        ${abrupt}
+    except Exception:
+        break
+else:
+    b = None
+from . import b`,
+        ),
+      ]);
+
+      expect(result.files[0]?.relativeImportCandidates).toEqual(
+        relativeImportCandidates,
+      );
+    },
+  );
+
   it("keeps bindings definite for an import reached inside loop else", () => {
     const result = analyzePython([
       pythonSourceFile(

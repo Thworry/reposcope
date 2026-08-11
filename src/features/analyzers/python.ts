@@ -1228,6 +1228,9 @@ interface BindingFlowContext {
 interface BindingFlowResult {
   normal: Set<string>;
   exceptional: Set<string> | null;
+  breaks?: Set<string> | null;
+  continues?: Set<string> | null;
+  normalReachable?: boolean;
 }
 
 const MAX_BINDING_FLOW_DEPTH = 128;
@@ -1331,14 +1334,18 @@ function recordImportState(
   );
 }
 
-function mergeExceptionalBindingStates(
-  states: readonly (ReadonlySet<string> | null)[],
+function mergeBindingCompletionStates(
+  states: readonly (ReadonlySet<string> | null | undefined)[],
 ): Set<string> | null {
   const reachable = states.filter(
-    (state): state is ReadonlySet<string> => state !== null,
+    (state): state is ReadonlySet<string> => state != null,
   );
 
   return reachable.length === 0 ? null : intersectBindingStates(reachable);
+}
+
+function normalBindingFlowIsReachable(flow: BindingFlowResult): boolean {
+  return flow.normalReachable !== false;
 }
 
 function conservativeBindingFlow(): BindingFlowResult {
@@ -1357,18 +1364,24 @@ function interpretBindingBlockFlow(
 
   let normal = cloneBindingState(input);
   let exceptional: Set<string> | null = null;
+  let breaks: Set<string> | null = null;
+  let continues: Set<string> | null = null;
+  let normalReachable = true;
 
   for (const child of context.nodes[blockIndex]?.children ?? []) {
+    if (!normalReachable) {
+      break;
+    }
     const flow = interpretBindingStatementFlow(context, child, normal, depth);
 
-    exceptional = mergeExceptionalBindingStates([
-      exceptional,
-      flow.exceptional,
-    ]);
+    exceptional = mergeBindingCompletionStates([exceptional, flow.exceptional]);
+    breaks = mergeBindingCompletionStates([breaks, flow.breaks]);
+    continues = mergeBindingCompletionStates([continues, flow.continues]);
     normal = flow.normal;
+    normalReachable = normalBindingFlowIsReachable(flow);
   }
 
-  return { normal, exceptional };
+  return { normal, exceptional, breaks, continues, normalReachable };
 }
 
 function interpretIfStatementFlow(
@@ -1381,6 +1394,8 @@ function interpretIfStatementFlow(
   const outcomes: Set<string>[] = [];
   const remaining = cloneBindingState(input);
   let exceptional: Set<string> | null = null;
+  let breaks: Set<string> | null = null;
+  let continues: Set<string> | null = null;
   let remainingPossible = true;
   let keywordIndex: number | null = null;
   let conditionChildren: number[] = [];
@@ -1412,11 +1427,15 @@ function interpretIfStatementFlow(
         depth + 1,
       );
 
-      outcomes.push(flow.normal);
-      exceptional = mergeExceptionalBindingStates([
+      if (normalBindingFlowIsReachable(flow)) {
+        outcomes.push(flow.normal);
+      }
+      exceptional = mergeBindingCompletionStates([
         exceptional,
         flow.exceptional,
       ]);
+      breaks = mergeBindingCompletionStates([breaks, flow.breaks]);
+      continues = mergeBindingCompletionStates([continues, flow.continues]);
       remainingPossible = false;
       continue;
     }
@@ -1429,7 +1448,7 @@ function interpretIfStatementFlow(
     );
 
     if (truth === null) {
-      exceptional = mergeExceptionalBindingStates([
+      exceptional = mergeBindingCompletionStates([
         exceptional,
         intersectBindingStates([beforeCondition, remaining]),
       ]);
@@ -1442,11 +1461,15 @@ function interpretIfStatementFlow(
         depth + 1,
       );
 
-      outcomes.push(flow.normal);
-      exceptional = mergeExceptionalBindingStates([
+      if (normalBindingFlowIsReachable(flow)) {
+        outcomes.push(flow.normal);
+      }
+      exceptional = mergeBindingCompletionStates([
         exceptional,
         flow.exceptional,
       ]);
+      breaks = mergeBindingCompletionStates([breaks, flow.breaks]);
+      continues = mergeBindingCompletionStates([continues, flow.continues]);
     }
     if (truth === true) {
       remainingPossible = false;
@@ -1457,7 +1480,13 @@ function interpretIfStatementFlow(
     outcomes.push(remaining);
   }
 
-  return { normal: intersectBindingStates(outcomes), exceptional };
+  return {
+    normal: intersectBindingStates(outcomes),
+    exceptional,
+    breaks,
+    continues,
+    normalReachable: outcomes.length > 0,
+  };
 }
 
 function interpretTryStatementFlow(
@@ -1520,9 +1549,12 @@ function interpretTryStatementFlow(
       ? { normal: cloneBindingState(input), exceptional: null }
       : interpretBindingBlockFlow(context, tryBody, input, depth + 1);
   let normal = tryFlow.normal;
+  let normalReachable = normalBindingFlowIsReachable(tryFlow);
   let exceptional = tryFlow.exceptional;
+  let breaks = tryFlow.breaks ?? null;
+  let continues = tryFlow.continues ?? null;
 
-  if (elseBody !== null) {
+  if (elseBody !== null && normalReachable) {
     const elseFlow = interpretBindingBlockFlow(
       context,
       elseBody,
@@ -1531,12 +1563,15 @@ function interpretTryStatementFlow(
     );
 
     normal = elseFlow.normal;
-    exceptional = mergeExceptionalBindingStates([
+    normalReachable = normalBindingFlowIsReachable(elseFlow);
+    exceptional = mergeBindingCompletionStates([
       exceptional,
       elseFlow.exceptional,
     ]);
+    breaks = mergeBindingCompletionStates([breaks, elseFlow.breaks]);
+    continues = mergeBindingCompletionStates([continues, elseFlow.continues]);
   }
-  const continuing = [normal];
+  const continuing = normalReachable ? [normal] : [];
 
   if (tryFlow.exceptional !== null) {
     for (const handler of handlers) {
@@ -1557,48 +1592,116 @@ function interpretTryStatementFlow(
         rawHandlerFlow.exceptional === null
           ? null
           : cloneBindingState(rawHandlerFlow.exceptional);
+      const handlerBreaks =
+        rawHandlerFlow.breaks == null
+          ? null
+          : cloneBindingState(rawHandlerFlow.breaks);
+      const handlerContinues =
+        rawHandlerFlow.continues == null
+          ? null
+          : cloneBindingState(rawHandlerFlow.continues);
 
       for (const name of handlerNames) {
         handlerNormal.delete(name);
         handlerExceptional?.delete(name);
+        handlerBreaks?.delete(name);
+        handlerContinues?.delete(name);
       }
-      continuing.push(handlerNormal);
-      exceptional = mergeExceptionalBindingStates([
+      if (normalBindingFlowIsReachable(rawHandlerFlow)) {
+        continuing.push(handlerNormal);
+      }
+      exceptional = mergeBindingCompletionStates([
         exceptional,
         handlerExceptional,
       ]);
+      breaks = mergeBindingCompletionStates([breaks, handlerBreaks]);
+      continues = mergeBindingCompletionStates([continues, handlerContinues]);
     }
   }
-  let state = intersectBindingStates(continuing);
+  normal = intersectBindingStates(continuing);
+  normalReachable = continuing.length > 0;
 
   if (finallyBody !== null) {
-    const normalFinally = interpretBindingBlockFlow(
-      context,
-      finallyBody,
-      state,
-      depth + 1,
-    );
-    let finalExceptional = normalFinally.exceptional;
+    const completions: {
+      kind: "normal" | "exceptional" | "break" | "continue";
+      state: ReadonlySet<string>;
+    }[] = [];
 
-    state = normalFinally.normal;
+    if (normalReachable) {
+      completions.push({ kind: "normal", state: normal });
+    }
     if (exceptional !== null) {
-      const exceptionalFinally = interpretBindingBlockFlow(
+      completions.push({ kind: "exceptional", state: exceptional });
+    }
+    if (breaks !== null) {
+      completions.push({ kind: "break", state: breaks });
+    }
+    if (continues !== null) {
+      completions.push({ kind: "continue", state: continues });
+    }
+
+    const finalNormal: Set<string>[] = [];
+    let finalExceptional: Set<string> | null = null;
+    let finalBreaks: Set<string> | null = null;
+    let finalContinues: Set<string> | null = null;
+
+    for (const completion of completions) {
+      const finalFlow = interpretBindingBlockFlow(
         context,
         finallyBody,
-        exceptional,
+        completion.state,
         depth + 1,
       );
 
-      finalExceptional = mergeExceptionalBindingStates([
+      finalExceptional = mergeBindingCompletionStates([
         finalExceptional,
-        exceptionalFinally.exceptional,
-        exceptionalFinally.normal,
+        finalFlow.exceptional,
       ]);
+      finalBreaks = mergeBindingCompletionStates([
+        finalBreaks,
+        finalFlow.breaks,
+      ]);
+      finalContinues = mergeBindingCompletionStates([
+        finalContinues,
+        finalFlow.continues,
+      ]);
+      if (!normalBindingFlowIsReachable(finalFlow)) {
+        continue;
+      }
+      if (completion.kind === "normal") {
+        finalNormal.push(finalFlow.normal);
+      } else if (completion.kind === "exceptional") {
+        finalExceptional = mergeBindingCompletionStates([
+          finalExceptional,
+          finalFlow.normal,
+        ]);
+      } else if (completion.kind === "break") {
+        finalBreaks = mergeBindingCompletionStates([
+          finalBreaks,
+          finalFlow.normal,
+        ]);
+      } else {
+        finalContinues = mergeBindingCompletionStates([
+          finalContinues,
+          finalFlow.normal,
+        ]);
+      }
     }
+
+    normal = intersectBindingStates(finalNormal);
+    normalReachable = finalNormal.length > 0;
     exceptional = finalExceptional;
+    breaks = finalBreaks;
+    continues = finalContinues;
   }
 
-  return { normal: state, exceptional };
+  return {
+    normal,
+    exceptional,
+    breaks,
+    continues,
+    normalReachable,
+  };
 }
 
 function bindingStatementMayThrow(
@@ -1661,7 +1764,7 @@ function interpretDeleteStatementFlow(
       const name = nodeTextAt(context.nodes, child, context.text);
 
       if (!normal.has(name)) {
-        exceptional = mergeExceptionalBindingStates([exceptional, normal]);
+        exceptional = mergeBindingCompletionStates([exceptional, normal]);
       }
       normal.delete(name);
     } else if (type !== undefined && TARGET_CONTAINERS.has(type)) {
@@ -1684,7 +1787,7 @@ function interpretDeleteStatementFlow(
       type !== "[" &&
       type !== "]"
     ) {
-      exceptional = mergeExceptionalBindingStates([exceptional, normal]);
+      exceptional = mergeBindingCompletionStates([exceptional, normal]);
     }
   }
 
@@ -1795,7 +1898,7 @@ function applyAssignmentTargets(
         !hasStar && values !== null && values.length === rawTargets.length;
 
       if (!exactlyMatched) {
-        exceptional = mergeExceptionalBindingStates([exceptional, state]);
+        exceptional = mergeBindingCompletionStates([exceptional, state]);
       }
       for (let position = rawTargets.length - 1; position >= 0; position -= 1) {
         const index = rawTargets[position];
@@ -1814,7 +1917,7 @@ function applyAssignmentTargets(
     const node = context.nodes[task.index];
 
     if (node === undefined) {
-      exceptional = mergeExceptionalBindingStates([exceptional, state]);
+      exceptional = mergeBindingCompletionStates([exceptional, state]);
     } else if (node.type === "VariableName") {
       const name = nodeTextAt(context.nodes, task.index, context.text);
 
@@ -1843,7 +1946,7 @@ function applyAssignmentTargets(
         value: task.value,
       });
     } else if (!isAssignmentPunctuation(node.type)) {
-      exceptional = mergeExceptionalBindingStates([exceptional, state]);
+      exceptional = mergeBindingCompletionStates([exceptional, state]);
     }
   }
 
@@ -1947,31 +2050,56 @@ function interpretLoopStatementFlow(
     loopBody === undefined
       ? { normal: bodyInput, exceptional: null }
       : interpretBindingBlockFlow(context, loopBody, bodyInput, depth + 1);
-  let normal = intersectBindingStates([headerState, bodyFlow.normal]);
-  let exceptional = mergeExceptionalBindingStates([
+  const exhaustionStates: ReadonlySet<string>[] = [headerState];
+
+  if (normalBindingFlowIsReachable(bodyFlow)) {
+    exhaustionStates.push(bodyFlow.normal);
+  }
+  if (bodyFlow.continues !== null && bodyFlow.continues !== undefined) {
+    exhaustionStates.push(bodyFlow.continues);
+  }
+  const exhaustionState = intersectBindingStates(exhaustionStates);
+  let exceptional = mergeBindingCompletionStates([
     intersectBindingStates([input, headerState]),
     bodyFlow.exceptional,
-    bodyFlow.normal,
+    normalBindingFlowIsReachable(bodyFlow) ? bodyFlow.normal : null,
+    bodyFlow.continues,
   ]);
+  const normalOutcomes: ReadonlySet<string>[] = [];
+  let breaks: Set<string> | null = null;
+  let continues: Set<string> | null = null;
 
   if (elseBody !== undefined) {
-    const withoutElse = cloneBindingState(normal);
     const elseFlow = interpretBindingBlockFlow(
       context,
       elseBody,
-      normal,
+      exhaustionState,
       depth + 1,
     );
 
-    normal = elseFlow.normal;
-    exceptional = mergeExceptionalBindingStates([
+    if (normalBindingFlowIsReachable(elseFlow)) {
+      normalOutcomes.push(elseFlow.normal);
+    }
+    exceptional = mergeBindingCompletionStates([
       exceptional,
       elseFlow.exceptional,
     ]);
-    normal = intersectBindingStates([withoutElse, normal]);
+    breaks = mergeBindingCompletionStates([breaks, elseFlow.breaks]);
+    continues = mergeBindingCompletionStates([continues, elseFlow.continues]);
+  } else {
+    normalOutcomes.push(exhaustionState);
+  }
+  if (bodyFlow.breaks !== null && bodyFlow.breaks !== undefined) {
+    normalOutcomes.push(bodyFlow.breaks);
   }
 
-  return { normal, exceptional };
+  return {
+    normal: intersectBindingStates(normalOutcomes),
+    exceptional,
+    breaks,
+    continues,
+    normalReachable: normalOutcomes.length > 0,
+  };
 }
 
 function addMatchClauseBindings(
@@ -2040,6 +2168,8 @@ function interpretMatchStatementFlow(
     input,
     headerState,
   ]);
+  let breaks: Set<string> | null = null;
+  let continues: Set<string> | null = null;
 
   for (const clause of context.nodes[matchBody ?? -1]?.children ?? []) {
     const clauseNode = context.nodes[clause];
@@ -2069,14 +2199,23 @@ function interpretMatchStatementFlow(
       depth + 1,
     );
 
-    outcomes.push(bodyFlow.normal);
-    exceptional = mergeExceptionalBindingStates([
+    if (normalBindingFlowIsReachable(bodyFlow)) {
+      outcomes.push(bodyFlow.normal);
+    }
+    exceptional = mergeBindingCompletionStates([
       exceptional,
       bodyFlow.exceptional,
     ]);
+    breaks = mergeBindingCompletionStates([breaks, bodyFlow.breaks]);
+    continues = mergeBindingCompletionStates([continues, bodyFlow.continues]);
   }
 
-  return { normal: intersectBindingStates(outcomes), exceptional };
+  return {
+    normal: intersectBindingStates(outcomes),
+    exceptional,
+    breaks,
+    continues,
+  };
 }
 
 function interpretWithStatementFlow(
@@ -2110,11 +2249,16 @@ function interpretWithStatementFlow(
 
   return {
     normal: bodyFlow.normal,
-    exceptional: mergeExceptionalBindingStates([
+    exceptional: mergeBindingCompletionStates([
       cloneBindingState(input),
       bodyFlow.exceptional,
-      bodyFlow.normal,
+      normalBindingFlowIsReachable(bodyFlow) ? bodyFlow.normal : null,
+      bodyFlow.breaks,
+      bodyFlow.continues,
     ]),
+    breaks: bodyFlow.breaks ?? null,
+    continues: bodyFlow.continues ?? null,
+    normalReachable: normalBindingFlowIsReachable(bodyFlow),
   };
 }
 
@@ -2167,10 +2311,13 @@ function interpretBindingStatementFlow(
 
     return {
       normal: flow.normal,
-      exceptional: mergeExceptionalBindingStates([
+      exceptional: mergeBindingCompletionStates([
         cloneBindingState(input),
         flow.exceptional,
       ]),
+      breaks: flow.breaks ?? null,
+      continues: flow.continues ?? null,
+      normalReachable: normalBindingFlowIsReachable(flow),
     };
   }
   if (node.type === "FunctionDefinition" || node.type === "ClassDefinition") {
@@ -2216,6 +2363,41 @@ function interpretBindingStatementFlow(
   if (node.type === "DeleteStatement") {
     return interpretDeleteStatementFlow(context, index, state);
   }
+  if (node.type === "BreakStatement") {
+    return {
+      normal: state,
+      exceptional: null,
+      breaks: state,
+      normalReachable: false,
+    };
+  }
+  if (node.type === "ContinueStatement") {
+    return {
+      normal: state,
+      exceptional: null,
+      continues: state,
+      normalReachable: false,
+    };
+  }
+  if (node.type === "ReturnStatement" || node.type === "RaiseStatement") {
+    applyNamedExpressions(context, [index], state);
+    const returnValue = node.children.find(
+      (child) =>
+        !["return", ",", "Comment"].includes(context.nodes[child]?.type ?? ""),
+    );
+
+    return {
+      normal: state,
+      exceptional:
+        node.type === "RaiseStatement"
+          ? intersectBindingStates([input, state])
+          : returnValue !== undefined &&
+              !isDefinitelyNonThrowingAssignmentValue(context, returnValue)
+            ? intersectBindingStates([input, state])
+            : null,
+      normalReachable: false,
+    };
+  }
 
   applyNamedExpressions(context, [index], state);
   return {
@@ -2230,8 +2412,8 @@ function interpretBindingStatement(
   context: BindingFlowContext,
   index: number,
   input: ReadonlySet<string>,
-): Set<string> {
-  return interpretBindingStatementFlow(context, index, input, 0).normal;
+): BindingFlowResult {
+  return interpretBindingStatementFlow(context, index, input, 0);
 }
 
 function topLevelBindingMetadata(
@@ -2245,7 +2427,12 @@ function topLevelBindingMetadata(
 
   if (script !== -1) {
     for (const child of nodes[script]?.children ?? []) {
-      present = interpretBindingStatement(context, child, present);
+      const flow = interpretBindingStatement(context, child, present);
+
+      present = flow.normal;
+      if (!normalBindingFlowIsReachable(flow)) {
+        break;
+      }
     }
   }
 
