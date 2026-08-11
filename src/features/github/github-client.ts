@@ -69,7 +69,6 @@ const API_HEADERS = {
 const MAX_RAW_BYTES = 262_144;
 const RAW_TIMEOUT_MS = 15_000;
 const SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
-const MODE_PATTERN = /^[0-7]{6}$/u;
 const TIMESTAMP_PATTERN =
   /^(?<seconds>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(?<fraction>\d{1,3}))?Z$/u;
 
@@ -81,15 +80,26 @@ function invalidResponse(): never {
   throw new GitHubApiError("invalid-response");
 }
 
-function hasControlOrLoneSurrogate(value: string): boolean {
+function hasControlOrMalformedUtf16(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const codeUnit = value.charCodeAt(index);
 
-    if (
-      codeUnit <= 31 ||
-      (codeUnit >= 127 && codeUnit <= 159) ||
-      (codeUnit >= 0xd800 && codeUnit <= 0xdfff)
-    ) {
+    if (codeUnit <= 31 || (codeUnit >= 127 && codeUnit <= 159)) {
+      return true;
+    }
+
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+
+      if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) {
+        return true;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
       return true;
     }
   }
@@ -97,17 +107,25 @@ function hasControlOrLoneSurrogate(value: string): boolean {
   return false;
 }
 
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function readString(
   record: Record<string, unknown>,
   key: string,
   allowEmpty = false,
 ): string {
+  if (!hasOwn(record, key)) {
+    return invalidResponse();
+  }
+
   const value = record[key];
 
   if (
     typeof value !== "string" ||
     (!allowEmpty && value.length === 0) ||
-    hasControlOrLoneSurrogate(value)
+    hasControlOrMalformedUtf16(value)
   ) {
     return invalidResponse();
   }
@@ -119,13 +137,17 @@ function readNullableString(
   record: Record<string, unknown>,
   key: string,
 ): string | null {
+  if (!hasOwn(record, key)) {
+    return invalidResponse();
+  }
+
   const value = record[key];
 
   if (value === null) {
     return null;
   }
 
-  if (typeof value !== "string" || hasControlOrLoneSurrogate(value)) {
+  if (typeof value !== "string" || hasControlOrMalformedUtf16(value)) {
     return invalidResponse();
   }
 
@@ -133,6 +155,10 @@ function readNullableString(
 }
 
 function readBoolean(record: Record<string, unknown>, key: string): boolean {
+  if (!hasOwn(record, key)) {
+    return invalidResponse();
+  }
+
   const value = record[key];
 
   if (typeof value !== "boolean") {
@@ -146,6 +172,10 @@ function readNonNegativeInteger(
   record: Record<string, unknown>,
   key: string,
 ): number {
+  if (!hasOwn(record, key)) {
+    return invalidResponse();
+  }
+
   const value = record[key];
 
   if (
@@ -193,7 +223,7 @@ function assertComponent(value: string): string {
     value.includes("/") ||
     value.includes("\\") ||
     /\s/u.test(value) ||
-    hasControlOrLoneSurrogate(value)
+    hasControlOrMalformedUtf16(value)
   ) {
     throw new GitHubApiError("invalid-response");
   }
@@ -205,7 +235,7 @@ function assertRawPath(path: string): string {
   if (
     path.length === 0 ||
     path.startsWith("/") ||
-    hasControlOrLoneSurrogate(path)
+    hasControlOrMalformedUtf16(path)
   ) {
     throw new GitHubApiError("invalid-response");
   }
@@ -246,6 +276,11 @@ function guardRepository(
   const pushedAt = assertTimestamp(readString(value, "pushed_at"));
   const size = readNonNegativeInteger(value, "size");
   const openIssuesCount = readNonNegativeInteger(value, "open_issues_count");
+
+  if (!hasOwn(value, "topics")) {
+    return invalidResponse();
+  }
+
   const rawTopics = value.topics;
 
   if (
@@ -254,7 +289,7 @@ function guardRepository(
       (topic) =>
         typeof topic !== "string" ||
         topic.length === 0 ||
-        hasControlOrLoneSurrogate(topic),
+        hasControlOrMalformedUtf16(topic),
     )
   ) {
     return invalidResponse();
@@ -269,6 +304,10 @@ function guardRepository(
 
     topics.push(topic);
   }
+  if (!hasOwn(value, "license")) {
+    return invalidResponse();
+  }
+
   const rawLicense = value.license;
   let licenseSpdxId: string | null;
 
@@ -309,9 +348,13 @@ function guardCommit(value: unknown): { sha: string; treeSha: string } {
   }
 
   const sha = assertSha(readString(value, "sha"));
+  if (!hasOwn(value, "commit")) {
+    return invalidResponse();
+  }
+
   const commit = value.commit;
 
-  if (!isRecord(commit) || !isRecord(commit.tree)) {
+  if (!isRecord(commit) || !hasOwn(commit, "tree") || !isRecord(commit.tree)) {
     return invalidResponse();
   }
 
@@ -331,11 +374,11 @@ function guardTreeEntry(value: unknown): RawTreeEntry {
   const type = readString(value, "type");
   const sha = assertSha(readString(value, "sha"));
 
-  if (!MODE_PATTERN.test(mode)) {
-    return invalidResponse();
-  }
-
   if (type === "blob") {
+    if (mode !== "100644" && mode !== "100755" && mode !== "120000") {
+      return invalidResponse();
+    }
+
     return {
       path,
       mode,
@@ -346,7 +389,11 @@ function guardTreeEntry(value: unknown): RawTreeEntry {
   }
 
   if (type === "tree") {
-    if (value.size !== undefined) {
+    if (mode !== "040000") {
+      return invalidResponse();
+    }
+
+    if (hasOwn(value, "size")) {
       readNonNegativeInteger(value, "size");
     }
 
@@ -365,7 +412,9 @@ function guardTree(value: unknown, expectedSha: string): RawTreeResponse {
 
   if (
     sha !== expectedSha ||
+    !hasOwn(value, "truncated") ||
     typeof value.truncated !== "boolean" ||
+    !hasOwn(value, "tree") ||
     !Array.isArray(value.tree)
   ) {
     return invalidResponse();
@@ -471,6 +520,31 @@ function preserveAbort(signal: AbortSignal): never {
   throw new GitHubApiError("network");
 }
 
+function throwIfRawAborted(
+  callerSignal: AbortSignal,
+  timeoutSignal: AbortSignal,
+): void {
+  if (callerSignal.aborted) {
+    throw callerSignal.reason;
+  }
+
+  if (timeoutSignal.aborted) {
+    throw new GitHubApiError("network");
+  }
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  if (response.body === null || response.body.locked) {
+    return;
+  }
+
+  try {
+    await response.body.cancel();
+  } catch {
+    // Cancellation is best effort and never replaces the boundary error.
+  }
+}
+
 async function requestJson(
   url: string,
   signal: AbortSignal,
@@ -485,19 +559,32 @@ async function requestJson(
     return preserveAbort(signal);
   }
 
+  signal.throwIfAborted();
+
   if (!response.ok) {
+    await cancelResponseBody(response);
+    signal.throwIfAborted();
     return throwForStatus(response);
   }
 
-  let payload: unknown;
+  let serialized: string;
 
   try {
-    payload = (await response.json()) as unknown;
+    serialized = await response.text();
   } catch {
     if (signal.aborted) {
       return preserveAbort(signal);
     }
 
+    throw new GitHubApiError("network");
+  }
+
+  signal.throwIfAborted();
+  let payload: unknown;
+
+  try {
+    payload = JSON.parse(serialized) as unknown;
+  } catch {
     return invalidResponse();
   }
 
@@ -566,9 +653,17 @@ function parseContentLength(headers: Headers): number | null {
 }
 
 async function readBoundedBody(response: Response): Promise<Uint8Array> {
-  const contentLength = parseContentLength(response.headers);
+  let contentLength: number | null;
+
+  try {
+    contentLength = parseContentLength(response.headers);
+  } catch (error) {
+    await cancelResponseBody(response);
+    throw error;
+  }
 
   if (contentLength !== null && contentLength > MAX_RAW_BYTES) {
+    await cancelResponseBody(response);
     throw new GitHubApiError("file-limit");
   }
 
@@ -655,7 +750,13 @@ export async function fetchRawTextFile(
       throw new GitHubApiError("network");
     }
 
+    throwIfRawAborted(signal, timeoutController.signal);
+
     if (!response.ok) {
+      await cancelResponseBody(response);
+
+      throwIfRawAborted(signal, timeoutController.signal);
+
       throwForStatus(response);
     }
 
@@ -664,13 +765,7 @@ export async function fetchRawTextFile(
     try {
       body = await readBoundedBody(response);
     } catch (error) {
-      if (signal.aborted) {
-        throw signal.reason;
-      }
-
-      if (timeoutController.signal.aborted) {
-        throw new GitHubApiError("network");
-      }
+      throwIfRawAborted(signal, timeoutController.signal);
 
       if (error instanceof GitHubApiError) {
         throw error;
@@ -678,6 +773,8 @@ export async function fetchRawTextFile(
 
       throw new GitHubApiError("network");
     }
+
+    throwIfRawAborted(signal, timeoutController.signal);
 
     let text: string;
 

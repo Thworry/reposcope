@@ -25,7 +25,7 @@ export interface RawCommitResponse {
 
 export interface RawBlobTreeEntry {
   path: string;
-  mode: string;
+  mode: "100644" | "100755" | "120000";
   type: "blob";
   sha: string;
   size: number;
@@ -33,7 +33,7 @@ export interface RawBlobTreeEntry {
 
 export interface RawDirectoryTreeEntry {
   path: string;
-  mode: string;
+  mode: "040000";
   type: "tree";
   sha: string;
 }

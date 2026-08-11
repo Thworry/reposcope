@@ -55,6 +55,33 @@ function rawResponse(
   return new Response(body, init);
 }
 
+function cancellableResponse(
+  status: number,
+  headers?: HeadersInit,
+): { response: Response; cancel: ReturnType<typeof vi.fn> } {
+  const cancel = vi.fn();
+  let sent = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent) {
+        return;
+      }
+
+      sent = true;
+      controller.enqueue(new TextEncoder().encode("untrusted response body"));
+    },
+    cancel,
+  });
+
+  return {
+    response: new Response(
+      body,
+      headers === undefined ? { status } : { status, headers },
+    ),
+    cancel,
+  };
+}
+
 function successfulSnapshotFetch() {
   return vi
     .fn<FetchImplementation>()
@@ -186,6 +213,73 @@ describe("fetchRepositorySnapshot", () => {
     );
   });
 
+  it("accepts well-formed emoji in remote prose, topics, branch names, and tree paths", async () => {
+    const fetchMock = vi
+      .fn<FetchImplementation>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...VALID_REPOSITORY_RESPONSE,
+          description: "Quality lens 🔭",
+          topics: ["quality", "可读性😀"],
+          default_branch: "feature/😀",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(VALID_COMMIT_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...VALID_TREE_RESPONSE,
+          tree: [
+            {
+              ...VALID_TREE_RESPONSE.tree[0],
+              path: "src/😀.ts",
+            },
+          ],
+        }),
+      );
+
+    const snapshot = await fetchRepositorySnapshot(
+      ref,
+      new AbortController().signal,
+      fetchMock,
+    );
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://api.github.com/repos/owner/repo/commits/feature%2F%F0%9F%98%80",
+    );
+    expect(snapshot.repository.description).toBe("Quality lens 🔭");
+    expect(snapshot.repository.topics).toEqual(["quality", "可读性😀"]);
+    expect(snapshot.entries[0]?.path).toBe("src/😀.ts");
+  });
+
+  it.each([
+    ["description", { ...VALID_REPOSITORY_RESPONSE, description: "bad\ud800" }],
+    ["topic", { ...VALID_REPOSITORY_RESPONSE, topics: ["bad\udc00"] }],
+    ["branch", { ...VALID_REPOSITORY_RESPONSE, default_branch: "bad\ud800" }],
+  ])("rejects a lone surrogate in repository %s", async (_label, body) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(body));
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "invalid-response" });
+  });
+
+  it("rejects a lone surrogate in a tree path", async () => {
+    const fetchMock = vi
+      .fn<FetchImplementation>()
+      .mockResolvedValueOnce(jsonResponse(VALID_REPOSITORY_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(VALID_COMMIT_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...VALID_TREE_RESPONSE,
+          tree: [{ ...VALID_TREE_RESPONSE.tree[0], path: "src/bad\udc00.ts" }],
+        }),
+      );
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "invalid-response" });
+  });
+
   it.each([
     ["repository array", 0, []],
     [
@@ -261,6 +355,30 @@ describe("fetchRepositorySnapshot", () => {
         tree: [{ ...VALID_TREE_RESPONSE.tree[0], mode: "ordinary" }],
       },
     ],
+    [
+      "tree with a blob/tree mode mismatch",
+      2,
+      {
+        ...VALID_TREE_RESPONSE,
+        tree: [{ ...VALID_TREE_RESPONSE.tree[0], mode: "040000" }],
+      },
+    ],
+    [
+      "tree with an unsupported blob mode",
+      2,
+      {
+        ...VALID_TREE_RESPONSE,
+        tree: [{ ...VALID_TREE_RESPONSE.tree[0], mode: "100600" }],
+      },
+    ],
+    [
+      "directory with a blob mode",
+      2,
+      {
+        ...VALID_TREE_RESPONSE,
+        tree: [{ ...VALID_TREE_RESPONSE.tree[1], mode: "100644" }],
+      },
+    ],
   ])("rejects hostile %s", async (_label, failingIndex, invalidBody) => {
     const responses = [
       VALID_REPOSITORY_RESPONSE,
@@ -290,6 +408,121 @@ describe("fetchRepositorySnapshot", () => {
       fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
     ).rejects.toMatchObject({ kind: "invalid-response" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a REST response body read failure to network", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError("transport interrupted"));
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body));
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "network" });
+  });
+
+  it("preserves a caller abort that races a resolved REST response", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("cancelled-after-fetch", "AbortError");
+    const fetchMock = vi.fn<FetchImplementation>(() => {
+      controller.abort(reason);
+      return Promise.resolve(jsonResponse({}, { status: 500 }));
+    });
+
+    await expect(
+      fetchRepositorySnapshot(ref, controller.signal, fetchMock),
+    ).rejects.toBe(reason);
+  });
+
+  it("cancels a REST error body without reading it", async () => {
+    const { response, cancel } = cancellableResponse(500);
+    const textSpy = vi.spyOn(response, "text");
+    const fetchMock = vi.fn().mockResolvedValue(response);
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "api", status: 500 });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(textSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts a JSON object created with a null prototype", async () => {
+    const repository = Object.assign(
+      Object.create(null) as Record<string, unknown>,
+      VALID_REPOSITORY_RESPONSE,
+    );
+    const fetchMock = vi
+      .fn<FetchImplementation>()
+      .mockResolvedValueOnce(jsonResponse(repository))
+      .mockResolvedValueOnce(jsonResponse(VALID_COMMIT_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(VALID_TREE_RESPONSE));
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).resolves.toMatchObject({ commitSha });
+  });
+
+  it("does not accept a required repository field from a prototype", async () => {
+    const repository: Record<string, unknown> = Object.assign(
+      Object.create({ name: "inherited-name" }) as Record<string, unknown>,
+      { ...VALID_REPOSITORY_RESPONSE },
+    );
+    delete repository.name;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(repository));
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "invalid-response" });
+  });
+
+  it("accepts a null-prototype tree entry and retains a valid symlink blob", async () => {
+    const symlink = Object.assign(
+      Object.create(null) as Record<string, unknown>,
+      {
+        path: "current-config",
+        mode: "120000",
+        type: "blob",
+        sha: "f".repeat(40),
+        size: 12,
+      },
+    );
+    const fetchMock = vi
+      .fn<FetchImplementation>()
+      .mockResolvedValueOnce(jsonResponse(VALID_REPOSITORY_RESPONSE))
+      .mockResolvedValueOnce(jsonResponse(VALID_COMMIT_RESPONSE))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...VALID_TREE_RESPONSE, tree: [symlink] }),
+      );
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).resolves.toMatchObject({
+      entries: [
+        {
+          path: "current-config",
+          mode: "120000",
+          type: "blob",
+          size: 12,
+        },
+      ],
+    });
+  });
+
+  it("does not let REST body cancellation failure replace the status error", async () => {
+    const cancel = vi.fn(() => {
+      throw new Error("cancel failed");
+    });
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(body, { status: 500 }));
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "api", status: 500 });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -423,6 +656,38 @@ describe("fetchRawTextFile", () => {
     });
   });
 
+  it("accepts an emoji raw path and encodes each path segment", async () => {
+    const fetchMock = vi
+      .fn<FetchImplementation>()
+      .mockResolvedValue(rawResponse([new TextEncoder().encode("ok")]));
+    const result = await fetchRawTextFile(
+      { ref, commitSha, path: "src/😀.ts", declaredSize: 2 },
+      new AbortController().signal,
+      fetchMock,
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `https://raw.githubusercontent.com/owner/repo/${commitSha}/src/%F0%9F%98%80.ts`,
+    );
+    expect(result.text).toBe("ok");
+  });
+
+  it.each(["src/bad\ud800.ts", "src/bad\udc00.ts"])(
+    "rejects a lone surrogate raw path %j before fetch",
+    async (path) => {
+      const fetchMock = vi.fn<FetchImplementation>();
+
+      await expect(
+        fetchRawTextFile(
+          { ref, commitSha, path, declaredSize: 1 },
+          new AbortController().signal,
+          fetchMock,
+        ),
+      ).rejects.toMatchObject({ kind: "invalid-response" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects a declared oversize before any request", async () => {
     const fetchMock = vi.fn<FetchImplementation>();
 
@@ -467,6 +732,82 @@ describe("fetchRawTextFile", () => {
         fetchMock,
       ),
     ).rejects.toMatchObject({ kind: "file-limit" });
+  });
+
+  it.each([
+    ["oversized", "262145", "file-limit"],
+    ["invalid", "not-a-number", "invalid-response"],
+  ])(
+    "cancels a raw body with %s Content-Length",
+    async (_label, contentLength, kind) => {
+      const { response, cancel } = cancellableResponse(200, {
+        "Content-Length": contentLength,
+      });
+      const fetchMock = vi.fn().mockResolvedValue(response);
+
+      await expect(
+        fetchRawTextFile(
+          { ref, commitSha, path: "bounded.ts", declaredSize: 1 },
+          new AbortController().signal,
+          fetchMock,
+        ),
+      ).rejects.toMatchObject({ kind });
+      expect(cancel).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not let raw body cancellation failure replace a length error", async () => {
+    const cancel = vi.fn(() => {
+      throw new Error("cancel failed");
+    });
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(body, {
+        headers: { "Content-Length": "262145" },
+      }),
+    );
+
+    await expect(
+      fetchRawTextFile(
+        { ref, commitSha, path: "bounded.ts", declaredSize: 1 },
+        new AbortController().signal,
+        fetchMock,
+      ),
+    ).rejects.toMatchObject({ kind: "file-limit" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("cancels a non-ok raw body without reading it", async () => {
+    const { response, cancel } = cancellableResponse(500);
+    const textSpy = vi.spyOn(response, "text");
+    const fetchMock = vi.fn().mockResolvedValue(response);
+
+    await expect(
+      fetchRawTextFile(
+        { ref, commitSha, path: "error.ts", declaredSize: 1 },
+        new AbortController().signal,
+        fetchMock,
+      ),
+    ).rejects.toMatchObject({ kind: "api", status: 500 });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(textSpy).not.toHaveBeenCalled();
+  });
+
+  it("preserves a caller abort that races a resolved raw response", async () => {
+    const controller = new AbortController();
+    const reason = new DOMException("cancelled-after-fetch", "AbortError");
+    const fetchMock = vi.fn<FetchImplementation>(() => {
+      controller.abort(reason);
+      return Promise.resolve(new Response("error", { status: 500 }));
+    });
+
+    await expect(
+      fetchRawTextFile(
+        { ref, commitSha, path: "error.ts", declaredSize: 1 },
+        controller.signal,
+        fetchMock,
+      ),
+    ).rejects.toBe(reason);
   });
 
   it("cancels a stream when accumulated bytes cross 256 KiB", async () => {
