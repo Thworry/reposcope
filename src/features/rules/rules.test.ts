@@ -530,6 +530,40 @@ describe("ruleset 1.0.0", () => {
     ).toMatchObject({ state: "not-applicable", earned: 0, available: 0 });
   });
 
+  it("short-circuits every explicitly inapplicable rule before validation", () => {
+    for (const id of RULE_IDS) {
+      expect(
+        scoreRule(id, {
+          applicable: false,
+          valid: false,
+          count: -1,
+          total: Number.NaN,
+          median: Number.NaN,
+          p90: Number.POSITIVE_INFINITY,
+          max: -1,
+          ratio: Number.NaN,
+          elapsedDays: -1,
+        }),
+      ).toMatchObject({ state: "not-applicable", earned: 0, available: 0 });
+    }
+  });
+
+  it("allows more test files than non-test source files", () => {
+    expect(
+      scoreRule("testing.test-source-ratio", { count: 2, total: 1 }),
+    ).toMatchObject({ state: "passed", earned: 3, available: 3 });
+  });
+
+  it.each([
+    ["complexity.median-cyclomatic", { median: 0 }],
+    ["complexity.p90-cyclomatic", { p90: 0 }],
+  ] as const)("rejects zero cyclomatic input for %s", (id, metrics) => {
+    expect(scoreRule(id, metrics)).toMatchObject({
+      state: "failed",
+      earned: 0,
+    });
+  });
+
   it("rejects unknown rule IDs", () => {
     expect(() => scoreRule("unknown", {})).toThrow("unknown");
   });
@@ -636,6 +670,45 @@ describe("project scoring", () => {
         ?.state,
     ).toBe("not-applicable");
     expect(testing).toMatchObject({ earned: 12, available: 12, score: 100 });
+  });
+
+  it("scores test/source ratios above one from their unrounded counts", () => {
+    const scored = scoreProject({
+      ...input,
+      general: {
+        ...perfectGeneralMetrics,
+        testFileCount: 2,
+        supportedSourceFileCount: 1,
+      },
+    });
+
+    expect(
+      scored.rules.find((rule) => rule.id === "testing.test-source-ratio"),
+    ).toMatchObject({ state: "passed", earned: 3 });
+  });
+
+  it("rejects zero cyclomatic values from analyzer arrays", () => {
+    const scored = scoreProject({
+      ...input,
+      language: {
+        ...perfectLanguageAnalysis,
+        functions: perfectLanguageAnalysis.functions.map((metric) => ({
+          ...metric,
+          cyclomatic: 0,
+        })),
+      },
+    });
+
+    expect(
+      scored.rules
+        .filter((rule) =>
+          [
+            "complexity.median-cyclomatic",
+            "complexity.p90-cyclomatic",
+          ].includes(rule.id),
+        )
+        .every((rule) => rule.state === "failed" && rule.earned === 0),
+    ).toBe(true);
   });
 
   it.each([

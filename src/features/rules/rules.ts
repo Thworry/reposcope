@@ -125,6 +125,12 @@ function validNonNegativeNumber(metrics: RuleMetrics, key: string): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
+function validAtLeastOne(metrics: RuleMetrics, key: string): boolean {
+  const value = metrics[key];
+
+  return typeof value === "number" && Number.isFinite(value) && value >= 1;
+}
+
 function validCount(metrics: RuleMetrics, key: string): boolean {
   const value = metrics[key];
 
@@ -168,8 +174,6 @@ function validNumericMetrics(ruleId: RuleId, metrics: RuleMetrics): boolean {
     return false;
   }
 
-  const explicitlyUnavailable = metrics["applicable"] === false;
-
   switch (ruleId) {
     case "documentation.architecture":
       return validCount(metrics, "areaCount");
@@ -178,39 +182,30 @@ function validNumericMetrics(ruleId: RuleId, metrics: RuleMetrics): boolean {
     case "readability.ambiguous-identifiers":
     case "readability.documented-exports":
     case "complexity.very-large-files":
-    case "testing.test-source-ratio":
-      return explicitlyUnavailable
-        ? validCount(metrics, "count") && validCount(metrics, "total")
-        : validCountPair(metrics);
+      return validCountPair(metrics);
     case "readability.median-function-length":
     case "readability.median-nesting":
-    case "complexity.median-cyclomatic":
-      return explicitlyUnavailable
-        ? true
-        : validNonNegativeNumber(metrics, "median");
+      return validNonNegativeNumber(metrics, "median");
     case "readability.p90-function-length":
+      return validNonNegativeNumber(metrics, "p90");
+    case "complexity.median-cyclomatic":
+      return validAtLeastOne(metrics, "median");
     case "complexity.p90-cyclomatic":
-      return explicitlyUnavailable
-        ? true
-        : validNonNegativeNumber(metrics, "p90");
+      return validAtLeastOne(metrics, "p90");
     case "complexity.max-nesting":
-      return explicitlyUnavailable
-        ? true
-        : validNonNegativeNumber(metrics, "max");
+      return validNonNegativeNumber(metrics, "max");
     case "complexity.duplication": {
       const ratio = metrics["ratio"];
 
       return (
-        explicitlyUnavailable ||
-        (typeof ratio === "number" &&
-          Number.isFinite(ratio) &&
-          ratio >= 0 &&
-          ratio <= 1 &&
-          validOptionalDuplicateCounts(metrics, ratio))
+        typeof ratio === "number" &&
+        Number.isFinite(ratio) &&
+        ratio >= 0 &&
+        ratio <= 1 &&
+        validOptionalDuplicateCounts(metrics, ratio)
       );
     }
     case "complexity.circular-imports": {
-      if (explicitlyUnavailable) return true;
       if (
         !validCount(metrics, "components") ||
         !validCount(metrics, "largest")
@@ -225,6 +220,12 @@ function validNumericMetrics(ruleId: RuleId, metrics: RuleMetrics): boolean {
     case "testing.test-files":
     case "maintenance.generated-directories":
       return validCount(metrics, "count");
+    case "testing.test-source-ratio":
+      return (
+        validCount(metrics, "count") &&
+        validCount(metrics, "total") &&
+        numberMetric(metrics, "total") > 0
+      );
     case "maintenance.activity":
       return validNonNegativeNumber(metrics, "elapsedDays");
     default:
@@ -702,9 +703,12 @@ export function scoreRule(ruleId: string, metrics: RuleMetrics): RuleResult {
     throw new Error(ruleId);
   }
   const definition = RULE_DEFINITIONS[ruleId];
-  const evaluation = validNumericMetrics(ruleId, metrics)
-    ? definition.evaluate(metrics)
-    : result("failed", 0);
+  const evaluation =
+    metrics["applicable"] === false
+      ? unavailable()
+      : validNumericMetrics(ruleId, metrics)
+        ? definition.evaluate(metrics)
+        : result("failed", 0);
   const args = descriptorArgs(metrics);
 
   return {
@@ -777,6 +781,10 @@ function isDeclarationOnly(path: string): boolean {
 
 function validAnalysisCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
+}
+
+function validCyclomaticCount(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 1;
 }
 
 function validOccurrenceCounts(count: number, total: number): boolean {
@@ -869,7 +877,7 @@ function projectRuleMetrics(input: ScoreProjectInput): {
   const cyclomaticValues = nonTestFunctions.map((metric) => metric.cyclomatic);
   const functionLengthsValid = functionLengths.every(validAnalysisCount);
   const nestingDepthsValid = nestingDepths.every(validAnalysisCount);
-  const cyclomaticValuesValid = cyclomaticValues.every(validAnalysisCount);
+  const cyclomaticValuesValid = cyclomaticValues.every(validCyclomaticCount);
   const identifierCountsValid = validOccurrenceCounts(
     language.ambiguousIdentifierOccurrences,
     language.identifierOccurrences,

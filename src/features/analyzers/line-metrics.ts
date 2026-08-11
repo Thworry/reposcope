@@ -343,12 +343,30 @@ function isExplanatoryUsageProse(line: string): boolean {
   }
 
   const commandTokens = stripPrompt(visible).match(/[^\s]+/gu) ?? [];
-  const executable = commandTokens[0];
+  let commandIndex = 0;
+
+  while (commandIndex < commandTokens.length) {
+    const token = commandTokens[commandIndex] ?? "";
+
+    if (/^[A-Za-z_][A-Za-z0-9_]*=\S+$/u.test(token)) {
+      commandIndex += 1;
+      continue;
+    }
+    if (token === "sudo" || token === "env") {
+      commandIndex += 1;
+      continue;
+    }
+    break;
+  }
+  const executable = commandTokens[commandIndex];
 
   if (
     executable !== undefined &&
     COMMAND_SET.has(commandName(executable.replace(/[,:;]$/u, "")))
   ) {
+    return false;
+  }
+  if (isConcreteCodeExample("", [visible])) {
     return false;
   }
 
