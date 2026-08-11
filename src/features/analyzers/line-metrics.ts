@@ -8,6 +8,8 @@ export interface MarkdownEvidence {
   installHeading: boolean;
   installCommand: boolean;
   usageHeading: boolean;
+  usageCommand: boolean;
+  usageConcreteExample: boolean;
   usageCommandOrExample: boolean;
   architectureHeading: boolean;
   configurationHeading: boolean;
@@ -23,9 +25,128 @@ const COMMAND_SET = new Set<string>(COMMAND_EXECUTABLES);
 const INLINE_MARKERS = /[*_~`]/gu;
 const NORMALIZED_SEPARATOR = /[^\p{L}\p{N}]+/gu;
 const PROSE_PUNCTUATION = /^[.,:;!?…。，：；！？、]/u;
+const CODE_FENCE_LANGUAGES = new Set([
+  "javascript",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "typescript",
+  "ts",
+  "tsx",
+  "mts",
+  "cts",
+  "python",
+  "py",
+  "go",
+  "golang",
+  "rust",
+  "rs",
+  "c",
+  "h",
+  "cpp",
+  "c++",
+  "cxx",
+  "hpp",
+  "java",
+  "kotlin",
+  "kt",
+  "kts",
+  "csharp",
+  "cs",
+  "fsharp",
+  "fs",
+  "ruby",
+  "rb",
+  "php",
+  "swift",
+  "dart",
+  "scala",
+  "lua",
+  "vue",
+  "svelte",
+  "astro",
+]);
+
+function closingBracket(value: string, start: number, close: string): number {
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+
+    if (escaped) {
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === close) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function closingParenthesis(value: string, start: number): number {
+  let depth = 1;
+  let escaped = false;
+
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+
+    if (escaped) {
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return value.length - 1;
+}
+
+function visibleMarkdownText(value: string): string {
+  let result = "";
+
+  for (let index = 0; index < value.length; index += 1) {
+    const image = value[index] === "!" && value[index + 1] === "[";
+    const labelStart = image ? index + 1 : index;
+
+    if (value[labelStart] !== "[") {
+      result += value[index] ?? "";
+      continue;
+    }
+
+    const labelEnd = closingBracket(value, labelStart + 1, "]");
+
+    if (labelEnd === -1) {
+      result += value[index] ?? "";
+      continue;
+    }
+
+    result += value.slice(labelStart + 1, labelEnd);
+    const destinationStart = labelEnd + 1;
+
+    if (value[destinationStart] === "(") {
+      index = closingParenthesis(value, destinationStart + 1);
+    } else if (value[destinationStart] === "[") {
+      const referenceEnd = closingBracket(value, destinationStart + 1, "]");
+      index = referenceEnd === -1 ? value.length - 1 : referenceEnd;
+    } else {
+      index = labelEnd;
+    }
+  }
+
+  return result;
+}
 
 function normalizeHeading(value: string): string {
-  return value
+  return visibleMarkdownText(value)
     .normalize("NFKC")
     .replace(INLINE_MARKERS, " ")
     .toLocaleLowerCase("en-US")
@@ -69,7 +190,64 @@ function commandName(token: string): string {
   return (parts.at(-1) ?? withoutQuotes).toLocaleLowerCase("en-US");
 }
 
-function analyzeFence(lines: readonly string[]): {
+function codeLikeLines(lines: readonly string[]): string {
+  let blockComment = false;
+  const visible: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (blockComment) {
+      if (trimmed.includes("*/")) {
+        blockComment = false;
+      }
+      continue;
+    }
+    if (trimmed.startsWith("/*")) {
+      blockComment = !trimmed.includes("*/");
+      continue;
+    }
+    if (
+      trimmed.length === 0 ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("*")
+    ) {
+      continue;
+    }
+    visible.push(line);
+  }
+
+  return visible.join("\n");
+}
+
+function isConcreteCodeExample(
+  language: string,
+  lines: readonly string[],
+): boolean {
+  if (!CODE_FENCE_LANGUAGES.has(language)) {
+    return false;
+  }
+
+  const code = codeLikeLines(lines);
+
+  return (
+    code.length > 0 &&
+    (/\b(?:import|export|from|const|let|var|function|class|def|fn|package|use|new|return|await|async)\b/u.test(
+      code,
+    ) ||
+      /\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/u.test(code) ||
+      /(?:^|[;\n])\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*=(?!=)/u.test(
+        code,
+      ) ||
+      /=>/u.test(code))
+  );
+}
+
+function analyzeFence(
+  language: string,
+  lines: readonly string[],
+): {
   command: boolean;
   concreteExample: boolean;
   invocations: string[][];
@@ -85,7 +263,10 @@ function analyzeFence(lines: readonly string[]): {
     );
   const first = meaningful[0];
 
-  if (first === undefined || PROSE_PUNCTUATION.test(first)) {
+  if (
+    first === undefined ||
+    (PROSE_PUNCTUATION.test(first) && !first.startsWith("./"))
+  ) {
     return { command: false, concreteExample: false, invocations: [] };
   }
 
@@ -107,7 +288,11 @@ function analyzeFence(lines: readonly string[]): {
     return executable !== undefined && COMMAND_SET.has(commandName(executable));
   });
 
-  return { command, concreteExample: true, invocations };
+  return {
+    command,
+    concreteExample: isConcreteCodeExample(language, lines),
+    invocations,
+  };
 }
 
 function activeSections(stack: readonly HeadingContext[]): MarkdownSection[] {
@@ -127,6 +312,8 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
     installHeading: false,
     installCommand: false,
     usageHeading: false,
+    usageCommand: false,
+    usageConcreteExample: false,
     usageCommandOrExample: false,
     architectureHeading: false,
     configurationHeading: false,
@@ -135,6 +322,7 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
   const stack: HeadingContext[] = [];
   let fenceMarker: "`" | "~" | null = null;
   let fenceLength = 0;
+  let fenceLanguage = "";
   let fenceSections: MarkdownSection[] = [];
   let fenceLines: string[] = [];
 
@@ -146,21 +334,22 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
       );
 
       if (closePattern.test(line)) {
-        const block = analyzeFence(fenceLines);
+        const block = analyzeFence(fenceLanguage, fenceLines);
         evidence.invocations.push(...block.invocations);
 
         if (fenceSections.includes("installation") && block.command) {
           evidence.installCommand = true;
         }
-        if (
-          fenceSections.includes("usage") &&
-          (block.command || block.concreteExample)
-        ) {
-          evidence.usageCommandOrExample = true;
+        if (fenceSections.includes("usage")) {
+          evidence.usageCommand ||= block.command;
+          evidence.usageConcreteExample ||= block.concreteExample;
+          evidence.usageCommandOrExample ||=
+            block.command || block.concreteExample;
         }
 
         fenceMarker = null;
         fenceLength = 0;
+        fenceLanguage = "";
         fenceSections = [];
         fenceLines = [];
       } else {
@@ -174,6 +363,12 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
     if (fence?.[1] !== undefined) {
       fenceMarker = fence[1][0] === "`" ? "`" : "~";
       fenceLength = fence[1].length;
+      fenceLanguage =
+        line
+          .slice(fence[0].length)
+          .trim()
+          .split(/\s/u)[0]
+          ?.toLocaleLowerCase("en-US") ?? "";
       fenceSections = activeSections(stack);
       continue;
     }
@@ -253,9 +448,14 @@ function javascriptLogicalLines(text: string): number[] {
       }
     }
 
-    if (quote !== "`") {
-      quote = null;
+    if (quote === "`") {
       escaped = false;
+    } else if (quote !== null) {
+      const continued = escaped;
+      escaped = false;
+      if (!continued) {
+        quote = null;
+      }
     }
     if (hasCode) {
       result.push(lineIndex + 1);
@@ -268,18 +468,44 @@ function javascriptLogicalLines(text: string): number[] {
 function pythonLogicalLines(text: string): number[] {
   const result: number[] = [];
   let tripleQuote: "'''" | '"""' | null = null;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  function unescapedDelimiter(
+    line: string,
+    delimiter: "'''" | '"""',
+    start: number,
+  ): number {
+    let candidate = line.indexOf(delimiter, start);
+
+    while (candidate !== -1) {
+      let slashCount = 0;
+
+      for (
+        let index = candidate - 1;
+        index >= 0 && line[index] === "\\";
+        index -= 1
+      ) {
+        slashCount += 1;
+      }
+      if (slashCount % 2 === 0) {
+        return candidate;
+      }
+      candidate = line.indexOf(delimiter, candidate + delimiter.length);
+    }
+
+    return -1;
+  }
 
   for (const [lineIndex, line] of text.split("\n").entries()) {
     let hasCode = false;
-    let quote: "'" | '"' | null = null;
-    let escaped = false;
 
     for (let index = 0; index < line.length; index += 1) {
       const rest = line.slice(index);
 
       if (tripleQuote !== null) {
         hasCode = true;
-        const closing = line.indexOf(tripleQuote, index);
+        const closing = unescapedDelimiter(line, tripleQuote, index);
 
         if (closing === -1) {
           break;
@@ -331,6 +557,13 @@ function pythonLogicalLines(text: string): number[] {
 
     if (hasCode) {
       result.push(lineIndex + 1);
+    }
+    if (quote !== null) {
+      const continued = escaped;
+      escaped = false;
+      if (!continued) {
+        quote = null;
+      }
     }
   }
 

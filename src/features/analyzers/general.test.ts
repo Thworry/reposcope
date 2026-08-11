@@ -77,7 +77,7 @@ describe("structured manifest evidence", () => {
         hasStructuredEntryPoint: true,
         hasRunCommand: false,
         hasBuildCommand: false,
-        hasTestCommand: true,
+        hasTestCommand: false,
         hasStaticCheckCommand: true,
         hasCoverageEvidence: true,
         hasManifestVersion: true,
@@ -99,6 +99,39 @@ describe("structured manifest evidence", () => {
     expect(readPyprojectTomlEvidence(malformedPyprojectToml)).toMatchObject({
       failure: "toml",
     });
+  });
+
+  it("requires field-specific non-empty package and Python entry targets", () => {
+    expect(
+      readPackageJsonEvidence(
+        JSON.stringify({
+          main: {},
+          module: [],
+          browser: { client: false },
+          bin: { cli: 1 },
+          exports: { ".": [null, "", { browser: "./browser.js" }] },
+        }),
+      ),
+    ).toMatchObject({ evidence: { hasStructuredEntryPoint: true } });
+    expect(
+      readPackageJsonEvidence(
+        JSON.stringify({
+          main: {},
+          module: [],
+          browser: { client: false },
+          bin: { cli: 1 },
+          exports: [null, "", { invalid: 1 }],
+        }),
+      ),
+    ).toMatchObject({ evidence: { hasStructuredEntryPoint: false } });
+    expect(
+      readPyprojectTomlEvidence(
+        '[project.scripts]\nvalid = "pkg.cli:main"\ninvalid = 3',
+      ),
+    ).toMatchObject({ evidence: { hasStructuredEntryPoint: true } });
+    expect(
+      readPyprojectTomlEvidence('[project.scripts]\ninvalid = 3\nempty = ""'),
+    ).toMatchObject({ evidence: { hasStructuredEntryPoint: false } });
   });
 
   it("rejects placeholder versions and empty entry points", () => {
@@ -185,6 +218,8 @@ describe("general repository evidence", () => {
       installHeading: true,
       installCommand: true,
       usageHeading: true,
+      usageCommand: false,
+      usageConcreteExample: true,
       usageCommandOrExample: true,
       hasContributing: true,
       hasLicenseFile: true,
@@ -294,4 +329,141 @@ describe("general repository evidence", () => {
     expect(metrics.hasConventionalEntryPoint).toBe(false);
     expect(metrics.hasExample).toBe(false);
   });
+
+  it("does not treat a documented command alone as a concrete example", () => {
+    const metrics = analyzeGeneralRepository({
+      repository,
+      tree: tree("README.md"),
+      files: [fetchedTextFile("README.md", "## Usage\n```sh\nnpm test\n```")],
+    });
+
+    expect(metrics.usageCommandOrExample).toBe(true);
+    expect(metrics.hasExample).toBe(false);
+  });
+
+  it("ignores every positive fact below excluded generated/dependency paths", () => {
+    const inputTree = tree(
+      "README.md",
+      "package.json",
+      "vendor/package.json",
+      "vendor/pnpm-lock.yaml",
+      "vendor/codecov.yml",
+      "vendor/pytest.ini",
+      "vendor/ruff.toml",
+      "vendor/.env.example",
+      "vendor/examples/demo.ts",
+      "vendor/src/index.ts",
+      "dist/app.js",
+      "build/app.js",
+      ".venv/app.py",
+    );
+    const metrics = analyzeGeneralRepository({
+      repository,
+      tree: inputTree,
+      files: [
+        fetchedTextFile("README.md", "# Repo"),
+        fetchedTextFile("package.json", '{"scripts":{}}', {
+          category: "manifest",
+        }),
+        fetchedTextFile("vendor/package.json", malformedPackageJson, {
+          category: "manifest",
+        }),
+        fetchedTextFile("vendor/examples/demo.ts", "scan('repo');", {
+          language: "typescript",
+          category: "source",
+        }),
+        fetchedTextFile("vendor/src/index.ts", "export const x = 1;", {
+          language: "typescript",
+          category: "source",
+        }),
+      ],
+    });
+
+    expect(metrics).toMatchObject({
+      hasReadme: true,
+      hasManifest: true,
+      hasStructuredEntryPoint: false,
+      hasConventionalEntryPoint: false,
+      hasExample: false,
+      hasConfigurationEvidence: false,
+      hasTestConfiguration: false,
+      hasStaticCheckCommand: false,
+      hasCoverageEvidence: false,
+      hasLockfile: false,
+      testFileCount: 0,
+      supportedSourceFileCount: 0,
+      committedGeneratedDirectoryCount: 4,
+      parseFailures: [],
+    });
+  });
+
+  it.each([
+    ["npm test", false, false, true, false],
+    ["npm run lint", false, false, false, true],
+    ["npm run typecheck", false, false, false, true],
+    ["pnpm run test", false, false, true, false],
+    ["pnpm lint", false, false, false, true],
+    ["pnpm type-check", false, false, false, true],
+    ["yarn test", false, false, true, false],
+    ["yarn run test", false, false, true, false],
+    ["yarn lint", false, false, false, true],
+    ["yarn typecheck", false, false, false, true],
+    ["bun test", false, false, true, false],
+    ["bun run test", false, false, true, false],
+    ["bun lint", false, false, false, true],
+    ["bun run typecheck", false, false, false, true],
+    ["npm run dev", true, false, false, false],
+    ["pnpm run build", false, true, false, false],
+    ["pytest", false, false, true, false],
+    ["tox", false, false, true, false],
+    ["nox", false, false, true, false],
+    ["python -m unittest", false, false, true, false],
+    ["python3 -m pytest", false, false, true, false],
+    ["go run .", true, false, false, false],
+    ["go build ./...", false, true, false, false],
+    ["go test ./...", false, false, true, false],
+    ["cargo run", true, false, false, false],
+    ["cargo build", false, true, false, false],
+    ["cargo test", false, false, true, false],
+    ["mvn exec:java", true, false, false, false],
+    ["mvn package", false, true, false, false],
+    ["mvn test", false, false, true, false],
+    ["gradlew run", true, false, false, false],
+    ["gradle build", false, true, false, false],
+    ["gradle test", false, false, true, false],
+    ["./gradlew test", false, false, true, false],
+    ["dotnet run", true, false, false, false],
+    ["dotnet build", false, true, false, false],
+    ["dotnet test", false, false, true, false],
+    ["swift run", true, false, false, false],
+    ["swift build", false, true, false, false],
+    ["swift test", false, false, true, false],
+    ["docker run image", true, false, false, false],
+    ["docker build .", false, true, false, false],
+    ["docker-compose up", true, false, false, false],
+    ["docker-compose build", false, true, false, false],
+    ["docker compose build", false, true, false, false],
+    ["black --check .", false, false, false, true],
+  ])(
+    "classifies documented command %s without cross-granting",
+    (command, run, build, test, staticCheck) => {
+      const metrics = analyzeGeneralRepository({
+        repository,
+        tree: tree("README.md"),
+        files: [
+          fetchedTextFile(
+            "README.md",
+            `## Usage\n\`\`\`sh\n${command}\n\`\`\``,
+          ),
+        ],
+      });
+
+      expect({
+        run: metrics.hasDocumentedRunCommand,
+        build: metrics.hasDocumentedBuildCommand,
+        test: metrics.hasDocumentedTestCommand,
+        staticCheck: metrics.hasDocumentedStaticCheckCommand,
+      }).toEqual({ run, build, test, staticCheck });
+    },
+  );
 });

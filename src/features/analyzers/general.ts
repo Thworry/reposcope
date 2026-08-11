@@ -15,6 +15,7 @@ import {
   ISSUE_AND_PR_TEMPLATE_PATHS,
   classifyFile,
   isConventionalEntryPoint,
+  isExcludedPath,
   isLockfilePath,
   isManifestPath,
   toPathComparisonKey,
@@ -58,16 +59,6 @@ const VERSION_PLACEHOLDERS = new Set([
   "private",
   "workspace",
 ]);
-const TEST_TOOLS = new Set(["pytest", "unittest", "tox", "nox"]);
-const STATIC_TOOLS = new Set([
-  "ruff",
-  "mypy",
-  "pyright",
-  "flake8",
-  "pylint",
-  "black",
-]);
-
 function emptyStructuredEvidence(): StructuredManifestEvidence {
   return {
     hasStructuredEntryPoint: false,
@@ -85,11 +76,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function nonEmptyValue(value: unknown): boolean {
-  return (
-    (typeof value === "string" && value.trim().length > 0) ||
-    (isRecord(value) && Object.keys(value).length > 0)
-  );
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function recordHasStringTarget(value: unknown): boolean {
+  return isRecord(value) && Object.values(value).some(nonEmptyString);
+}
+
+function hasRecursiveStringTarget(value: unknown): boolean {
+  if (nonEmptyString(value)) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasRecursiveStringTarget);
+  }
+  return isRecord(value) && Object.values(value).some(hasRecursiveStringTarget);
 }
 
 function validVersion(value: unknown): boolean {
@@ -137,13 +139,14 @@ export function readPackageJsonEvidence(text: string): StructuredReadResult {
   const scripts = scriptEntries(parsed.scripts);
   const scriptKeys = scripts.map(([key]) => key);
   const evidence: StructuredManifestEvidence = {
-    hasStructuredEntryPoint: [
-      "main",
-      "module",
-      "browser",
-      "bin",
-      "exports",
-    ].some((field) => nonEmptyValue(parsed[field])),
+    hasStructuredEntryPoint:
+      nonEmptyString(parsed.main) ||
+      nonEmptyString(parsed.module) ||
+      nonEmptyString(parsed.browser) ||
+      recordHasStringTarget(parsed.browser) ||
+      nonEmptyString(parsed.bin) ||
+      recordHasStringTarget(parsed.bin) ||
+      hasRecursiveStringTarget(parsed.exports),
     hasRunCommand: scriptKeys.some((key) =>
       ["start", "dev", "serve"].includes(key),
     ),
@@ -175,8 +178,8 @@ function childRecord(
   return isRecord(child) ? child : undefined;
 }
 
-function hasRecord(value: Record<string, unknown> | undefined): boolean {
-  return value !== undefined && Object.keys(value).length > 0;
+function hasScriptTarget(value: Record<string, unknown> | undefined): boolean {
+  return value !== undefined && Object.values(value).some(nonEmptyString);
 }
 
 export function readPyprojectTomlEvidence(text: string): StructuredReadResult {
@@ -202,8 +205,8 @@ export function readPyprojectTomlEvidence(text: string): StructuredReadResult {
   const tool = childRecord(parsed, "tool");
   const poetry = childRecord(tool, "poetry");
   const projectEntryPoints = childRecord(project, "entry-points");
-  const testConfiguration = ["pytest", "unittest", "tox", "nox"].some((key) =>
-    hasRecord(childRecord(tool, key)),
+  const testConfiguration = ["pytest", "unittest", "tox", "nox"].some(
+    (key) => childRecord(tool, key) !== undefined,
   );
   const evidence: StructuredManifestEvidence = {
     hasStructuredEntryPoint: [
@@ -211,10 +214,10 @@ export function readPyprojectTomlEvidence(text: string): StructuredReadResult {
       childRecord(project, "gui-scripts"),
       childRecord(projectEntryPoints, "console_scripts"),
       childRecord(poetry, "scripts"),
-    ].some(hasRecord),
+    ].some(hasScriptTarget),
     hasRunCommand: false,
     hasBuildCommand: false,
-    hasTestCommand: testConfiguration,
+    hasTestCommand: false,
     hasStaticCheckCommand: [
       "ruff",
       "mypy",
@@ -222,8 +225,8 @@ export function readPyprojectTomlEvidence(text: string): StructuredReadResult {
       "flake8",
       "pylint",
       "black",
-    ].some((key) => hasRecord(childRecord(tool, key))),
-    hasCoverageEvidence: hasRecord(childRecord(tool, "coverage")),
+    ].some((key) => childRecord(tool, key) !== undefined),
+    hasCoverageEvidence: childRecord(tool, "coverage") !== undefined,
     hasManifestVersion:
       validVersion(project?.version) || validVersion(poetry?.version),
     hasTestConfiguration: testConfiguration,
@@ -429,68 +432,150 @@ function preferredReadme(
     })[0];
 }
 
-function invocationTool(tokens: readonly string[]): string | undefined {
-  const first = tokens[0]?.replace(/^\.\//u, "").toLocaleLowerCase("en-US");
+interface DocumentedCommandFacts {
+  run: boolean;
+  build: boolean;
+  test: boolean;
+  staticCheck: boolean;
+}
 
-  if (first === "python" || first === "python3") {
-    const moduleIndex = tokens.indexOf("-m");
+function commandToken(value: string | undefined): string {
+  return (value ?? "")
+    .normalize("NFKC")
+    .replace(/^\.\//u, "")
+    .replace(/^["']|["'],?$/gu, "")
+    .toLocaleLowerCase("en-US");
+}
 
-    if (moduleIndex >= 0) {
-      return tokens[moduleIndex + 1]?.toLocaleLowerCase("en-US");
+function commandFacts(tokens: readonly string[]): DocumentedCommandFacts {
+  const executable = commandToken(tokens[0]).split("/").at(-1) ?? "";
+  const arguments_ = tokens.slice(1).map(commandToken);
+  const positional = arguments_.filter((token) => !token.startsWith("-"));
+  const empty: DocumentedCommandFacts = {
+    run: false,
+    build: false,
+    test: false,
+    staticCheck: false,
+  };
+
+  if (["pytest", "tox", "nox"].includes(executable)) {
+    return { ...empty, test: true };
+  }
+  if (executable === "python" || executable === "python3") {
+    const moduleIndex = arguments_.indexOf("-m");
+    const module = moduleIndex >= 0 ? arguments_[moduleIndex + 1] : undefined;
+
+    if (module === "pytest" || module === "unittest") {
+      return { ...empty, test: true };
     }
+    return { ...empty, run: true };
+  }
+  if (["ruff", "mypy", "pyright", "flake8", "pylint"].includes(executable)) {
+    return { ...empty, staticCheck: true };
+  }
+  if (executable === "black") {
+    return { ...empty, staticCheck: arguments_.includes("--check") };
+  }
+  if (["node", "deno"].includes(executable)) {
+    return { ...empty, run: true };
   }
 
-  return first?.split("/").at(-1);
+  if (["npm", "pnpm", "yarn", "bun"].includes(executable)) {
+    const action = positional[0] === "run" ? positional[1] : positional[0];
+
+    return {
+      run: ["start", "dev", "serve"].includes(action ?? ""),
+      build: action === "build",
+      test: action === "test" || action?.startsWith("test:") === true,
+      staticCheck: [
+        "lint",
+        "typecheck",
+        "type-check",
+        "check",
+        "format:check",
+      ].some((prefix) => action?.startsWith(prefix) === true),
+    };
+  }
+
+  if (["go", "cargo", "dotnet", "swift"].includes(executable)) {
+    const action = positional[0];
+
+    return {
+      run: action === "run",
+      build: action === "build",
+      test: action === "test",
+      staticCheck: false,
+    };
+  }
+  if (executable === "mvn") {
+    return {
+      run: positional.some((action) =>
+        ["exec:java", "spring-boot:run"].includes(action),
+      ),
+      build: positional.some((action) =>
+        ["compile", "package", "install"].includes(action),
+      ),
+      test: positional.includes("test"),
+      staticCheck: false,
+    };
+  }
+  if (["gradle", "gradlew"].includes(executable)) {
+    return {
+      run: positional.some((action) => ["run", "bootrun"].includes(action)),
+      build: positional.some((action) =>
+        ["build", "assemble", "compile"].includes(action),
+      ),
+      test: positional.includes("test"),
+      staticCheck: positional.some((action) =>
+        ["lint", "check"].includes(action),
+      ),
+    };
+  }
+  if (executable === "docker" || executable === "docker-compose") {
+    const dockerArguments =
+      executable === "docker" && positional[0] === "compose"
+        ? positional.slice(1)
+        : positional;
+    const action = dockerArguments[0];
+
+    return {
+      run: ["run", "up", "start"].includes(action ?? ""),
+      build: action === "build",
+      test: false,
+      staticCheck: false,
+    };
+  }
+  if (["make", "just", "task"].includes(executable)) {
+    const action = positional[0];
+
+    return {
+      run: ["run", "start", "serve"].includes(action ?? ""),
+      build:
+        action === undefined || ["build", "all", "install"].includes(action),
+      test: action === "test",
+      staticCheck: ["lint", "check", "typecheck"].includes(action ?? ""),
+    };
+  }
+
+  return empty;
 }
 
-function documentedRun(invocations: readonly string[][]): boolean {
-  return invocations.some((tokens) => {
-    const tool = invocationTool(tokens);
-    const argumentsText = tokens.slice(1).join(" ").toLocaleLowerCase("en-US");
+function documentedCommandFacts(
+  invocations: readonly string[][],
+): DocumentedCommandFacts {
+  return invocations.reduce<DocumentedCommandFacts>(
+    (combined, tokens) => {
+      const facts = commandFacts(tokens);
 
-    return (
-      [
-        "node",
-        "deno",
-        "python",
-        "python3",
-        "go",
-        "cargo",
-        "mvn",
-        "gradle",
-        "gradlew",
-        "dotnet",
-        "swift",
-        "docker",
-        "docker-compose",
-      ].includes(tool ?? "") ||
-      (["npm", "pnpm", "yarn", "bun"].includes(tool ?? "") &&
-        /(?:^|\s)(?:run\s+)?(?:start|dev|serve)(?:\s|$)/u.test(argumentsText))
-    );
-  });
-}
-
-function documentedBuild(invocations: readonly string[][]): boolean {
-  return invocations.some((tokens) => {
-    const tool = invocationTool(tokens);
-    const argumentsText = tokens.slice(1).join(" ").toLocaleLowerCase("en-US");
-
-    return (
-      [
-        "make",
-        "gradle",
-        "gradlew",
-        "mvn",
-        "cargo",
-        "go",
-        "dotnet",
-        "swift",
-        "docker",
-      ].includes(tool ?? "") ||
-      (["npm", "pnpm", "yarn", "bun"].includes(tool ?? "") &&
-        /(?:^|\s)(?:run\s+)?build(?:\s|$)/u.test(argumentsText))
-    );
-  });
+      return {
+        run: combined.run || facts.run,
+        build: combined.build || facts.build,
+        test: combined.test || facts.test,
+        staticCheck: combined.staticCheck || facts.staticCheck,
+      };
+    },
+    { run: false, build: false, test: false, staticCheck: false },
+  );
 }
 
 function countMentionedTopLevelAreas(
@@ -530,14 +615,20 @@ function combineStructured(
 export function analyzeGeneralRepository(
   input: GeneralAnalysisInput,
 ): GeneralMetrics {
-  const paths = input.tree.files.map((file) => file.path);
+  const positiveTreeFiles = input.tree.files.filter(
+    (file) => !isExcludedPath(file.path),
+  );
+  const positiveFetchedFiles = input.files.filter(
+    (file) => !isExcludedPath(file.path),
+  );
+  const paths = positiveTreeFiles.map((file) => file.path);
   const pathKeys = paths.map(toPathComparisonKey);
-  const readme = preferredReadme(input.files);
+  const readme = preferredReadme(positiveFetchedFiles);
   const markdown = findMarkdownEvidence(readme?.text ?? "");
   const structured = emptyStructuredEvidence();
   const parseFailures: GeneralMetrics["parseFailures"] = [];
 
-  for (const file of [...input.files].sort((left, right) =>
+  for (const file of [...positiveFetchedFiles].sort((left, right) =>
     toPathComparisonKey(left.path).localeCompare(
       toPathComparisonKey(right.path),
       "en-US",
@@ -563,7 +654,7 @@ export function analyzeGeneralRepository(
   const versionHistoryPaths = new Set(
     paths.filter(isVersionHistory).map(toPathComparisonKey),
   );
-  const hasVersionHistory = input.files.some(
+  const hasVersionHistory = positiveFetchedFiles.some(
     (file) =>
       versionHistoryPaths.has(toPathComparisonKey(file.path)) &&
       hasVersionHeading(file.text),
@@ -571,7 +662,7 @@ export function analyzeGeneralRepository(
   let testFileCount = 0;
   let supportedSourceFileCount = 0;
 
-  for (const file of input.tree.files) {
+  for (const file of positiveTreeFiles) {
     const classification = classifyFile(file.path, file.size);
     const declarationOnly = /(?:\.d\.ts|\.pyi)$/iu.test(file.path);
     const generated = classification.skipReason === "excluded";
@@ -585,20 +676,7 @@ export function analyzeGeneralRepository(
     }
   }
 
-  const documentedTools = markdown.invocations.map(invocationTool);
-  const hasDocumentedTestCommand = documentedTools.some((tool) =>
-    TEST_TOOLS.has(tool ?? ""),
-  );
-  const hasDocumentedStaticCheckCommand = markdown.invocations.some(
-    (tokens) => {
-      const tool = invocationTool(tokens);
-
-      return (
-        STATIC_TOOLS.has(tool ?? "") &&
-        (tool !== "black" || tokens.includes("--check"))
-      );
-    },
-  );
+  const documented = documentedCommandFacts(markdown.invocations);
   const hasTreeTestConfiguration = paths.some(isTestConfig);
 
   return {
@@ -606,6 +684,8 @@ export function analyzeGeneralRepository(
     installHeading: markdown.installHeading,
     installCommand: markdown.installCommand,
     usageHeading: markdown.usageHeading,
+    usageCommand: markdown.usageCommand,
+    usageConcreteExample: markdown.usageConcreteExample,
     usageCommandOrExample: markdown.usageCommandOrExample,
     hasContributing: paths.some(isContribution),
     hasLicenseFile: paths.some(isLicense),
@@ -619,11 +699,11 @@ export function analyzeGeneralRepository(
       paths.some(isArchitecture) || markdown.architectureHeading,
     readmeTopLevelSourceAreaCount: countMentionedTopLevelAreas(
       readme?.text ?? "",
-      input.tree.files,
+      positiveTreeFiles,
     ),
     hasManifest: paths.some(isManifestPath),
     hasStructuredEntryPoint: structured.hasStructuredEntryPoint,
-    hasConventionalEntryPoint: input.files.some(
+    hasConventionalEntryPoint: positiveFetchedFiles.some(
       (file) =>
         isConventionalEntryPoint(file.path) &&
         !/(?:\.d\.ts|\.pyi)$/iu.test(file.path) &&
@@ -631,11 +711,11 @@ export function analyzeGeneralRepository(
     ),
     hasRunCommand: structured.hasRunCommand,
     hasBuildCommand: structured.hasBuildCommand,
-    hasDocumentedRunCommand: documentedRun(markdown.invocations),
-    hasDocumentedBuildCommand: documentedBuild(markdown.invocations),
+    hasDocumentedRunCommand: documented.run,
+    hasDocumentedBuildCommand: documented.build,
     hasExample:
-      input.files.some((file) => isExamplePath(file.path)) ||
-      markdown.usageCommandOrExample,
+      positiveFetchedFiles.some((file) => isExamplePath(file.path)) ||
+      markdown.usageConcreteExample,
     hasVersionHistory,
     hasManifestVersion: structured.hasManifestVersion,
     hasConfigurationEvidence:
@@ -646,10 +726,10 @@ export function analyzeGeneralRepository(
       structured.hasTestConfiguration || hasTreeTestConfiguration,
     hasCi: paths.some(isCi),
     hasTestCommand: structured.hasTestCommand,
-    hasDocumentedTestCommand,
+    hasDocumentedTestCommand: documented.test,
     hasStaticCheckCommand:
       structured.hasStaticCheckCommand || paths.some(isPythonStaticConfig),
-    hasDocumentedStaticCheckCommand,
+    hasDocumentedStaticCheckCommand: documented.staticCheck,
     hasCoverageEvidence:
       structured.hasCoverageEvidence || paths.some(isCoverageConfig),
     hasLockfile: pathKeys.some(isLockfilePath),

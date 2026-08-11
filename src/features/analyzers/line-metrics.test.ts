@@ -13,6 +13,8 @@ describe("Markdown evidence", () => {
       installHeading: true,
       installCommand: true,
       usageHeading: true,
+      usageCommand: false,
+      usageConcreteExample: true,
       usageCommandOrExample: true,
       architectureHeading: true,
       configurationHeading: true,
@@ -24,6 +26,8 @@ describe("Markdown evidence", () => {
       installHeading: true,
       installCommand: true,
       usageHeading: true,
+      usageCommand: false,
+      usageConcreteExample: true,
       usageCommandOrExample: true,
       architectureHeading: true,
       configurationHeading: true,
@@ -52,6 +56,24 @@ describe("Markdown evidence", () => {
     ).toBe(false);
   });
 
+  it("keeps visible link labels but discards inline and reference destinations", () => {
+    expect(findMarkdownEvidence("## [Guide](setup)").installHeading).toBe(
+      false,
+    );
+    expect(
+      findMarkdownEvidence("## [Install guide](https://example.test/setup)")
+        .installHeading,
+    ).toBe(true);
+    expect(
+      findMarkdownEvidence(
+        "## [Guide][installation]\n\n[installation]: https://example.test",
+      ).installHeading,
+    ).toBe(false);
+    expect(
+      findMarkdownEvidence("## ![Setup diagram](diagram.svg)").installHeading,
+    ).toBe(true);
+  });
+
   it("requires fenced commands and rejects prose punctuation as the first token", () => {
     const outsideFence = "## Install\n$ npm install";
     const proseFence = "## Install\n```text\n... npm install\n```";
@@ -70,6 +92,24 @@ describe("Markdown evidence", () => {
     expect(evidence.installCommand).toBe(false);
     expect(evidence.usageCommandOrExample).toBe(true);
   });
+
+  it.each([
+    ["```sh\nnpm test\n```", true, false],
+    ["```sh\n./gradlew test\n```", true, false],
+    ['```ts\nscan("owner/repo");\n```', false, true],
+    ["```text\nThis is prose only.\n```", false, false],
+    ['```json\n{"command":"npm run dev"}\n```', false, false],
+    ['```ts\n// scan("owner/repo");\n```', false, false],
+  ])(
+    "separates command and concrete-example fences: %s",
+    (fence, usageCommand, usageConcreteExample) => {
+      expect(findMarkdownEvidence(`## Usage\n${fence}`)).toMatchObject({
+        usageCommand,
+        usageConcreteExample,
+        usageCommandOrExample: usageCommand || usageConcreteExample,
+      });
+    },
+  );
 });
 
 describe("logical line helpers", () => {
@@ -109,6 +149,36 @@ describe("logical line helpers", () => {
     ].join("\n");
 
     expect(countLogicalLines(source, "python")).toBe(2);
+  });
+
+  it("preserves JS and Python strings across trailing-backslash continuations", () => {
+    const javascript = [
+      'const value = "first \\',
+      '// still inside the string";',
+      "// comment",
+      "const next = 1;",
+    ].join("\n");
+    const python = [
+      'value = "first \\',
+      '# still inside the string"',
+      "# comment",
+      "next_value = 1",
+    ].join("\n");
+
+    expect(countLogicalLines(javascript, "javascript")).toBe(3);
+    expect(countLogicalLines(python, "python")).toBe(3);
+  });
+
+  it("only closes Python triple strings on unescaped delimiters", () => {
+    const source = [
+      String.raw`value = r"""first \""" still string`,
+      "continued",
+      '"""',
+      "# comment after string",
+      "next_value = 1",
+    ].join("\n");
+
+    expect(countLogicalLines(source, "python")).toBe(4);
   });
 
   it("returns one-based line numbers for valid offsets", () => {

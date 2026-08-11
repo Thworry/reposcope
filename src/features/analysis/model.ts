@@ -131,6 +131,8 @@ export interface GeneralMetrics {
   installHeading: boolean;
   installCommand: boolean;
   usageHeading: boolean;
+  usageCommand: boolean;
+  usageConcreteExample: boolean;
   usageCommandOrExample: boolean;
   hasContributing: boolean;
   hasLicenseFile: boolean;
