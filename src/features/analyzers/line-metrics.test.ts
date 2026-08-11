@@ -267,6 +267,44 @@ describe("logical line helpers", () => {
     },
   );
 
+  it.each([
+    [
+      "JavaScript single-quoted LS followed by //",
+      "javascript",
+      "'",
+      "\u2028",
+      "//",
+    ],
+    [
+      "JavaScript double-quoted PS followed by /*",
+      "javascript",
+      '"',
+      "\u2029",
+      "/*",
+    ],
+    [
+      "TypeScript double-quoted LS followed by /*",
+      "typescript",
+      '"',
+      "\u2028",
+      "/*",
+    ],
+    [
+      "TypeScript single-quoted PS followed by //",
+      "typescript",
+      "'",
+      "\u2029",
+      "//",
+    ],
+  ] as const)(
+    "keeps %s inside the ordinary string token",
+    (_label, language, quote, separator, commentPrefix) => {
+      const source = `function inspect() { return ${quote}first${separator}${commentPrefix} still string${quote}; }`;
+
+      expect(logicalLineNumbers(source, language)).toEqual([1, 2]);
+    },
+  );
+
   it("handles mixed ECMAScript line terminators without changing Python syntax", () => {
     const javascript =
       "// comment\rconst first = 1;\n\r\nconst second = 2;\u2028// comment\u2029const third = 3;";

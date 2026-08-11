@@ -407,14 +407,56 @@ export function findMarkdownEvidence(text: string): MarkdownEvidence {
   return evidence;
 }
 
+type JavaScriptLineTerminator =
+  "\n" | "\r" | "\r\n" | "\u2028" | "\u2029" | null;
+
+interface JavaScriptPhysicalLine {
+  text: string;
+  terminator: JavaScriptLineTerminator;
+}
+
+function javascriptPhysicalLines(text: string): JavaScriptPhysicalLine[] {
+  const lines: JavaScriptPhysicalLine[] = [];
+  let lineStart = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    let terminator: Exclude<JavaScriptLineTerminator, null> | null = null;
+
+    if (character === "\r") {
+      terminator = text[index + 1] === "\n" ? "\r\n" : "\r";
+    } else if (
+      character === "\n" ||
+      character === "\u2028" ||
+      character === "\u2029"
+    ) {
+      terminator = character;
+    }
+
+    if (terminator === null) {
+      continue;
+    }
+
+    lines.push({ text: text.slice(lineStart, index), terminator });
+    if (terminator === "\r\n") {
+      index += 1;
+    }
+    lineStart = index + 1;
+  }
+
+  lines.push({ text: text.slice(lineStart), terminator: null });
+  return lines;
+}
+
 function javascriptLogicalLines(text: string): number[] {
   const result: number[] = [];
   let blockComment = false;
   let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
-  const lines = text.split("\n");
+  const lines = javascriptPhysicalLines(text);
 
-  for (const [lineIndex, line] of lines.entries()) {
+  for (const [lineIndex, physicalLine] of lines.entries()) {
+    const { text: line, terminator } = physicalLine;
     let hasCode = false;
 
     for (let index = 0; index < line.length; index += 1) {
@@ -464,7 +506,10 @@ function javascriptLogicalLines(text: string): number[] {
     } else if (quote !== null) {
       const continued = escaped;
       escaped = false;
-      if (!continued) {
+      const separatorInsideString =
+        terminator === "\u2028" || terminator === "\u2029";
+
+      if (!continued && !separatorInsideString) {
         quote = null;
       }
     }
@@ -589,7 +634,7 @@ export function logicalLineNumbers(
     return pythonLogicalLines(text.replace(/\r\n?/gu, "\n"));
   }
 
-  return javascriptLogicalLines(text.replace(/\r\n?|[\u2028\u2029]/gu, "\n"));
+  return javascriptLogicalLines(text);
 }
 
 export function countLogicalLines(

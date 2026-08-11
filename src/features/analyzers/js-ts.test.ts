@@ -264,6 +264,53 @@ export const undocumented = 2;`,
     },
   );
 
+  it.each([
+    [
+      "JavaScript single-quoted LS followed by //",
+      "src/string-ls.js",
+      "'",
+      "\u2028",
+      "//",
+    ],
+    [
+      "JavaScript double-quoted PS followed by /*",
+      "src/string-ps.js",
+      '"',
+      "\u2029",
+      "/*",
+    ],
+    [
+      "TypeScript double-quoted LS followed by /*",
+      "src/string-ls.ts",
+      '"',
+      "\u2028",
+      "/*",
+    ],
+    [
+      "TypeScript single-quoted PS followed by //",
+      "src/string-ps.ts",
+      "'",
+      "\u2029",
+      "//",
+    ],
+  ] as const)(
+    "keeps %s aligned with Babel's string-token positions",
+    (_label, path, quote, separator, commentPrefix) => {
+      const text = `export function inspect() { return ${quote}first${separator}${commentPrefix} still string${quote}; }`;
+      const result = analyzeJavaScriptTypeScript([sourceFile(path, text)]);
+
+      expect(result.parseFailures).toEqual([]);
+      expect(result.files[0]?.logicalLines).toBe(2);
+      expect(result.functions[0]).toMatchObject({
+        path,
+        name: "inspect",
+        startLine: 1,
+        endLine: 2,
+        logicalLines: 2,
+      });
+    },
+  );
+
   it("handles mixed ECMAScript terminators like the equivalent LF source", () => {
     const lines = [
       "/** documented */",
