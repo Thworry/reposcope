@@ -625,6 +625,115 @@ if TYPE_CHECKING:
     ]);
   });
 
+  it.each([
+    [
+      "nested true branch",
+      `b = set
+try:
+    if True:
+        del b
+        risky()
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "with body",
+      `b = set
+try:
+    with context():
+        del b
+        risky()
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "nested try with else",
+      `b = set
+try:
+    try:
+        del b
+        risky()
+    except ValueError:
+        pass
+    else:
+        b = set
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "nested try with non-restoring finally",
+      `b = set
+try:
+    try:
+        del b
+        risky()
+    finally:
+        marker = object()
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "partially applied repeated delete",
+      `b = set
+try:
+    del b, b
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "nested try with restoring finally",
+      `b = set
+try:
+    try:
+        del b
+        risky()
+    finally:
+        b = None
+except Exception:
+    from . import b`,
+      [],
+    ],
+  ] as const)(
+    "propagates %s exceptional package-binding effects to handlers",
+    (_, source, relativeImportCandidates) => {
+      const result = analyzePython([
+        pythonSourceFile("pkg/__init__.py", source),
+      ]);
+
+      expect(result.files[0]?.relativeImportCandidates).toEqual(
+        relativeImportCandidates,
+      );
+    },
+  );
+
+  it("fails conservatively instead of overflowing on deeply nested binding flow", () => {
+    const depth = 300;
+    const nestedBranches = Array.from(
+      { length: depth },
+      (_, index) => `${"    ".repeat(index + 1)}if True:`,
+    ).join("\n");
+    const nestedStatementIndent = "    ".repeat(depth + 1);
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `b = set
+try:
+${nestedBranches}
+${nestedStatementIndent}del b
+${nestedStatementIndent}risky()
+except Exception:
+    from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]?.relativeImportCandidates).toEqual([".b"]);
+  });
+
   it("sorts paths case-insensitively after POSIX normalization with a raw tie-break", () => {
     const files = [
       pythonSourceFile("src/b.py", "def lower_b():\n    return 1"),

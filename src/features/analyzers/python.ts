@@ -1225,6 +1225,13 @@ interface BindingFlowContext {
   namesBeforeImport: Map<number, ReadonlySet<string>>;
 }
 
+interface BindingFlowResult {
+  normal: Set<string>;
+  exceptional: Set<string> | null;
+}
+
+const MAX_BINDING_FLOW_DEPTH = 128;
+
 function cloneBindingState(state: ReadonlySet<string>): Set<string> {
   return new Set(state);
 }
@@ -1324,28 +1331,56 @@ function recordImportState(
   );
 }
 
-function interpretBindingBlock(
+function mergeExceptionalBindingStates(
+  states: readonly (ReadonlySet<string> | null)[],
+): Set<string> | null {
+  const reachable = states.filter(
+    (state): state is ReadonlySet<string> => state !== null,
+  );
+
+  return reachable.length === 0 ? null : intersectBindingStates(reachable);
+}
+
+function conservativeBindingFlow(): BindingFlowResult {
+  return { normal: new Set(), exceptional: new Set() };
+}
+
+function interpretBindingBlockFlow(
   context: BindingFlowContext,
   blockIndex: number,
   input: ReadonlySet<string>,
-): Set<string> {
-  let state = cloneBindingState(input);
-
-  for (const child of context.nodes[blockIndex]?.children ?? []) {
-    state = interpretBindingStatement(context, child, state);
+  depth: number,
+): BindingFlowResult {
+  if (depth > MAX_BINDING_FLOW_DEPTH) {
+    return conservativeBindingFlow();
   }
 
-  return state;
+  let normal = cloneBindingState(input);
+  let exceptional: Set<string> | null = null;
+
+  for (const child of context.nodes[blockIndex]?.children ?? []) {
+    const flow = interpretBindingStatementFlow(context, child, normal, depth);
+
+    exceptional = mergeExceptionalBindingStates([
+      exceptional,
+      flow.exceptional,
+    ]);
+    normal = flow.normal;
+  }
+
+  return { normal, exceptional };
 }
 
-function interpretIfStatement(
+function interpretIfStatementFlow(
   context: BindingFlowContext,
   index: number,
   input: ReadonlySet<string>,
-): Set<string> {
+  depth: number,
+): BindingFlowResult {
   const children = context.nodes[index]?.children ?? [];
   const outcomes: Set<string>[] = [];
   const remaining = cloneBindingState(input);
+  let exceptional: Set<string> | null = null;
   let remainingPossible = true;
   let keywordIndex: number | null = null;
   let conditionChildren: number[] = [];
@@ -1370,18 +1405,48 @@ function interpretIfStatement(
     const keywordType = context.nodes[keywordIndex]?.type;
 
     if (keywordType === "else") {
-      outcomes.push(interpretBindingBlock(context, child, remaining));
+      const flow = interpretBindingBlockFlow(
+        context,
+        child,
+        remaining,
+        depth + 1,
+      );
+
+      outcomes.push(flow.normal);
+      exceptional = mergeExceptionalBindingStates([
+        exceptional,
+        flow.exceptional,
+      ]);
       remainingPossible = false;
       continue;
     }
+
+    const beforeCondition = cloneBindingState(remaining);
 
     applyNamedExpressions(context, conditionChildren, remaining);
     const truth = conditionTruth(
       normalizedCondition(context.nodes, keywordIndex, child, context.text),
     );
 
+    if (truth === null) {
+      exceptional = mergeExceptionalBindingStates([
+        exceptional,
+        intersectBindingStates([beforeCondition, remaining]),
+      ]);
+    }
     if (truth !== false) {
-      outcomes.push(interpretBindingBlock(context, child, remaining));
+      const flow = interpretBindingBlockFlow(
+        context,
+        child,
+        remaining,
+        depth + 1,
+      );
+
+      outcomes.push(flow.normal);
+      exceptional = mergeExceptionalBindingStates([
+        exceptional,
+        flow.exceptional,
+      ]);
     }
     if (truth === true) {
       remainingPossible = false;
@@ -1392,14 +1457,15 @@ function interpretIfStatement(
     outcomes.push(remaining);
   }
 
-  return intersectBindingStates(outcomes);
+  return { normal: intersectBindingStates(outcomes), exceptional };
 }
 
-function interpretTryStatement(
+function interpretTryStatementFlow(
   context: BindingFlowContext,
   index: number,
   input: ReadonlySet<string>,
-): Set<string> {
+  depth: number,
+): BindingFlowResult {
   const children = context.nodes[index]?.children ?? [];
   const handlers: number[] = [];
   let clause: "try" | "except" | "else" | "finally" | null = null;
@@ -1435,35 +1501,78 @@ function interpretTryStatement(
 
   const tryFlow =
     tryBody === null
-      ? { normal: cloneBindingState(input), exceptionalEntry: null }
-      : interpretTryBindingBlock(context, tryBody, input);
+      ? { normal: cloneBindingState(input), exceptional: null }
+      : interpretBindingBlockFlow(context, tryBody, input, depth + 1);
   let normal = tryFlow.normal;
+  let exceptional = tryFlow.exceptional;
 
   if (elseBody !== null) {
-    normal = interpretBindingBlock(context, elseBody, normal);
+    const elseFlow = interpretBindingBlockFlow(
+      context,
+      elseBody,
+      normal,
+      depth + 1,
+    );
+
+    normal = elseFlow.normal;
+    exceptional = mergeExceptionalBindingStates([
+      exceptional,
+      elseFlow.exceptional,
+    ]);
   }
   const continuing = [normal];
 
-  if (tryFlow.exceptionalEntry !== null) {
+  if (tryFlow.exceptional !== null) {
     for (const handler of handlers) {
-      continuing.push(
-        interpretBindingBlock(context, handler, tryFlow.exceptionalEntry),
+      const handlerFlow = interpretBindingBlockFlow(
+        context,
+        handler,
+        tryFlow.exceptional,
+        depth + 1,
       );
+
+      continuing.push(handlerFlow.normal);
+      exceptional = mergeExceptionalBindingStates([
+        exceptional,
+        handlerFlow.exceptional,
+      ]);
     }
   }
   let state = intersectBindingStates(continuing);
 
   if (finallyBody !== null) {
-    state = interpretBindingBlock(context, finallyBody, state);
+    const normalFinally = interpretBindingBlockFlow(
+      context,
+      finallyBody,
+      state,
+      depth + 1,
+    );
+    let finalExceptional = normalFinally.exceptional;
+
+    state = normalFinally.normal;
+    if (exceptional !== null) {
+      const exceptionalFinally = interpretBindingBlockFlow(
+        context,
+        finallyBody,
+        exceptional,
+        depth + 1,
+      );
+
+      finalExceptional = mergeExceptionalBindingStates([
+        finalExceptional,
+        exceptionalFinally.exceptional,
+        exceptionalFinally.normal,
+      ]);
+    }
+    exceptional = finalExceptional;
   }
 
-  return state;
+  return { normal: state, exceptional };
 }
 
 function bindingStatementMayThrow(
   context: BindingFlowContext,
   index: number,
-  state: ReadonlySet<string>,
 ): boolean {
   const node = context.nodes[index];
 
@@ -1473,50 +1582,70 @@ function bindingStatementMayThrow(
   if (node.type === "PassStatement") {
     return false;
   }
-  if (node.type === "DeleteStatement") {
-    const targets = node.children.filter(
-      (child) => context.nodes[child]?.type === "VariableName",
+  if (node.type === "AssignStatement") {
+    const meaningful = node.children.filter(
+      (child) => context.nodes[child]?.type !== "Comment",
     );
-    const names = targets.map((target) =>
-      nodeTextAt(context.nodes, target, context.text),
+    const assignPosition = meaningful.findIndex(
+      (child) => context.nodes[child]?.type === "AssignOp",
     );
+    const target = meaningful[0];
+    const value = meaningful[assignPosition + 1];
 
-    return (
-      targets.length === 0 ||
-      new Set(names).size !== names.length ||
-      names.some((name) => !state.has(name))
-    );
+    if (
+      meaningful.length === 3 &&
+      assignPosition === 1 &&
+      target !== undefined &&
+      context.nodes[target]?.type === "VariableName" &&
+      value !== undefined &&
+      ["Boolean", "None", "Number", "String"].includes(
+        context.nodes[value]?.type ?? "",
+      )
+    ) {
+      return false;
+    }
   }
 
   return node.type.endsWith("Statement") || node.type.endsWith("Definition");
 }
 
-function interpretTryBindingBlock(
-  context: BindingFlowContext,
-  blockIndex: number,
-  input: ReadonlySet<string>,
-): { normal: Set<string>; exceptionalEntry: Set<string> | null } {
-  let normal = cloneBindingState(input);
-  let exceptionalEntry: Set<string> | null = null;
-
-  for (const child of context.nodes[blockIndex]?.children ?? []) {
-    if (bindingStatementMayThrow(context, child, normal)) {
-      exceptionalEntry =
-        exceptionalEntry === null
-          ? cloneBindingState(normal)
-          : intersectBindingStates([exceptionalEntry, normal]);
-    }
-    normal = interpretBindingStatement(context, child, normal);
-  }
-
-  return { normal, exceptionalEntry };
-}
-
-function interpretConditionalBody(
+function interpretDeleteStatementFlow(
   context: BindingFlowContext,
   index: number,
   input: ReadonlySet<string>,
-): Set<string> {
+): BindingFlowResult {
+  const normal = cloneBindingState(input);
+  let exceptional: Set<string> | null = null;
+
+  for (const child of context.nodes[index]?.children ?? []) {
+    const type = context.nodes[child]?.type;
+
+    if (type === "VariableName") {
+      const name = nodeTextAt(context.nodes, child, context.text);
+
+      if (!normal.has(name)) {
+        exceptional = mergeExceptionalBindingStates([exceptional, normal]);
+      }
+      normal.delete(name);
+    } else if (
+      type !== "del" &&
+      type !== "," &&
+      type !== ";" &&
+      type !== "Comment"
+    ) {
+      exceptional = mergeExceptionalBindingStates([exceptional, normal]);
+    }
+  }
+
+  return { normal, exceptional };
+}
+
+function interpretConditionalBodyFlow(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+  depth: number,
+): BindingFlowResult {
   const children = context.nodes[index]?.children ?? [];
   const bodies = children.filter(
     (child) => context.nodes[child]?.type === "Body",
@@ -1529,55 +1658,95 @@ function interpretConditionalBody(
     conditionState,
   );
   const outcomes = [conditionState];
+  let exceptional: Set<string> | null = new Set();
 
   for (const body of bodies) {
-    outcomes.push(interpretBindingBlock(context, body, conditionState));
+    const flow = interpretBindingBlockFlow(
+      context,
+      body,
+      conditionState,
+      depth + 1,
+    );
+
+    outcomes.push(flow.normal);
+    exceptional = mergeExceptionalBindingStates([
+      exceptional,
+      flow.exceptional,
+    ]);
   }
 
-  return intersectBindingStates(outcomes);
+  return { normal: intersectBindingStates(outcomes), exceptional };
 }
 
-function interpretBindingStatement(
+function interpretWithStatementFlow(
   context: BindingFlowContext,
   index: number,
   input: ReadonlySet<string>,
-): Set<string> {
+  depth: number,
+): BindingFlowResult {
   const node = context.nodes[index];
   const state = cloneBindingState(input);
 
   if (node === undefined) {
-    return state;
+    return { normal: state, exceptional: null };
+  }
+  applyNamedExpressions(
+    context,
+    node.children.filter((child) => context.nodes[child]?.type !== "Body"),
+    state,
+  );
+  const bindings = new Set<number>();
+
+  collectAsBindings(context.nodes, index, bindings);
+  addBindingIndices(context, state, bindings);
+  const body = node.children.find(
+    (child) => context.nodes[child]?.type === "Body",
+  );
+  const bodyFlow =
+    body === undefined
+      ? { normal: state, exceptional: null }
+      : interpretBindingBlockFlow(context, body, state, depth + 1);
+
+  return {
+    normal: bodyFlow.normal,
+    exceptional: mergeExceptionalBindingStates([
+      cloneBindingState(input),
+      bodyFlow.exceptional,
+      bodyFlow.normal,
+    ]),
+  };
+}
+
+function interpretBindingStatementFlow(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+  depth: number,
+): BindingFlowResult {
+  if (depth > MAX_BINDING_FLOW_DEPTH) {
+    return conservativeBindingFlow();
+  }
+  const node = context.nodes[index];
+  const state = cloneBindingState(input);
+
+  if (node === undefined) {
+    return { normal: state, exceptional: null };
   }
   if (node.type === "IfStatement") {
-    return interpretIfStatement(context, index, state);
+    return interpretIfStatementFlow(context, index, state, depth);
   }
   if (node.type === "TryStatement") {
-    return interpretTryStatement(context, index, state);
+    return interpretTryStatementFlow(context, index, state, depth);
   }
   if (
     node.type === "ForStatement" ||
     node.type === "WhileStatement" ||
     node.type === "MatchStatement"
   ) {
-    return interpretConditionalBody(context, index, state);
+    return interpretConditionalBodyFlow(context, index, state, depth);
   }
   if (node.type === "WithStatement") {
-    applyNamedExpressions(
-      context,
-      node.children.filter((child) => context.nodes[child]?.type !== "Body"),
-      state,
-    );
-    const bindings = new Set<number>();
-
-    collectAsBindings(context.nodes, index, bindings);
-    addBindingIndices(context, state, bindings);
-    const body = node.children.find(
-      (child) => context.nodes[child]?.type === "Body",
-    );
-
-    return body === undefined
-      ? state
-      : interpretBindingBlock(context, body, state);
+    return interpretWithStatementFlow(context, index, state, depth);
   }
   if (node.type === "DecoratedStatement") {
     const definition = node.children.find((child) => {
@@ -1586,9 +1755,23 @@ function interpretBindingStatement(
       return type === "FunctionDefinition" || type === "ClassDefinition";
     });
 
-    return definition === undefined
-      ? state
-      : interpretBindingStatement(context, definition, state);
+    if (definition === undefined) {
+      return { normal: state, exceptional: cloneBindingState(input) };
+    }
+    const flow = interpretBindingStatementFlow(
+      context,
+      definition,
+      state,
+      depth,
+    );
+
+    return {
+      normal: flow.normal,
+      exceptional: mergeExceptionalBindingStates([
+        cloneBindingState(input),
+        flow.exceptional,
+      ]),
+    };
   }
   if (node.type === "FunctionDefinition" || node.type === "ClassDefinition") {
     const name = firstDirectVariable(context.nodes, index);
@@ -1596,7 +1779,7 @@ function interpretBindingStatement(
     if (name !== null) {
       state.add(nodeTextAt(context.nodes, name, context.text));
     }
-    return state;
+    return { normal: state, exceptional: cloneBindingState(input) };
   }
   if (
     node.type === "AssignStatement" &&
@@ -1607,7 +1790,12 @@ function interpretBindingStatement(
     collectAssignmentBindings(context.nodes, index, bindings);
     addBindingIndices(context, state, bindings);
     applyNamedExpressions(context, node.children, state);
-    return state;
+    return {
+      normal: state,
+      exceptional: bindingStatementMayThrow(context, index)
+        ? intersectBindingStates([input, state])
+        : null,
+    };
   }
   if (node.type === "UpdateStatement") {
     const binding = node.children.find(
@@ -1617,35 +1805,43 @@ function interpretBindingStatement(
     if (binding !== undefined) {
       state.add(nodeTextAt(context.nodes, binding, context.text));
     }
-    return state;
+    return { normal: state, exceptional: cloneBindingState(input) };
   }
   if (node.type === "ImportStatement") {
     if (isTypeCheckingOnlyImport(context.nodes, index, context.text)) {
-      return state;
+      return { normal: state, exceptional: null };
     }
     const relative = relativePythonImports(context.nodes, index, context.text);
 
     if (relative.candidates.length > 0) {
       recordImportState(context, node.from, state);
-      return state;
+      return { normal: state, exceptional: cloneBindingState(input) };
     }
     const bindings = new Set<number>();
 
     collectImportBindings(context.nodes, index, context.text, bindings);
     addBindingIndices(context, state, bindings);
-    return state;
+    return { normal: state, exceptional: cloneBindingState(input) };
   }
   if (node.type === "DeleteStatement") {
-    for (const child of node.children) {
-      if (context.nodes[child]?.type === "VariableName") {
-        state.delete(nodeTextAt(context.nodes, child, context.text));
-      }
-    }
-    return state;
+    return interpretDeleteStatementFlow(context, index, state);
   }
 
   applyNamedExpressions(context, [index], state);
-  return state;
+  return {
+    normal: state,
+    exceptional: bindingStatementMayThrow(context, index)
+      ? intersectBindingStates([input, state])
+      : null,
+  };
+}
+
+function interpretBindingStatement(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+): Set<string> {
+  return interpretBindingStatementFlow(context, index, input, 0).normal;
 }
 
 function topLevelBindingMetadata(

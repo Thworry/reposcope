@@ -956,6 +956,25 @@ describe("relative import graph metrics", () => {
     });
   });
 
+  it("retains a cycle when a nested branch deletes a package shadow before throwing", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = set\ntry:\n    if True:\n        del b\n        risky()\nexcept Exception:\n    from . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(analyzed.files[0]).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
   it("joins caught exceptional prefixes before a later normal restoration", () => {
     const analyzed = analyzePython([
       pythonSourceFile(
