@@ -8,6 +8,7 @@ import {
   countLogicalLines,
   findMarkdownEvidence,
   lineAtOffset,
+  logicalLineNumbers,
 } from "./line-metrics";
 
 describe("Markdown evidence", () => {
@@ -246,6 +247,33 @@ describe("logical line helpers", () => {
     expect(countLogicalLines(javascript, "javascript")).toBe(3);
     expect(countLogicalLines(python, "python")).toBe(3);
     expect(lineAtOffset("a\r\nb", 3)).toBe(2);
+  });
+
+  it.each([
+    ["LINE SEPARATOR", "\u2028"],
+    ["PARAGRAPH SEPARATOR", "\u2029"],
+  ])(
+    "treats ECMAScript %s as a JS/TS logical-line terminator",
+    (_label, separator) => {
+      const source = [
+        "// comment",
+        "const first = 1;",
+        "",
+        "const second = 2;",
+      ].join(separator);
+
+      expect(logicalLineNumbers(source, "javascript")).toEqual([2, 4]);
+      expect(logicalLineNumbers(source, "typescript")).toEqual([2, 4]);
+    },
+  );
+
+  it("handles mixed ECMAScript line terminators without changing Python syntax", () => {
+    const javascript =
+      "// comment\rconst first = 1;\n\r\nconst second = 2;\u2028// comment\u2029const third = 3;";
+
+    expect(logicalLineNumbers(javascript, "javascript")).toEqual([2, 4, 6]);
+    expect(logicalLineNumbers(javascript, "typescript")).toEqual([2, 4, 6]);
+    expect(countLogicalLines("# comment\u2028value = 1", "python")).toBe(0);
   });
 
   it("only closes Python triple strings on unescaped delimiters", () => {

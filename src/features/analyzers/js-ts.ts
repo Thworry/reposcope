@@ -310,7 +310,11 @@ function lineLookup(text: string): LineLookup {
         index += 1;
       }
       lineStarts.push(index + 1);
-    } else if (text[index] === "\n") {
+    } else if (
+      text[index] === "\n" ||
+      text[index] === "\u2028" ||
+      text[index] === "\u2029"
+    ) {
       lineStarts.push(index + 1);
     }
   }

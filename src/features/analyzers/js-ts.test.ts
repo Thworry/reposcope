@@ -237,6 +237,8 @@ export const undocumented = 2;`,
   it.each([
     ["CR-only", "\r"],
     ["CRLF", "\r\n"],
+    ["LINE SEPARATOR", "\u2028"],
+    ["PARAGRAPH SEPARATOR", "\u2029"],
   ])(
     "uses consistent %s line positions for functions, logical lines, and JSDoc",
     (_label, newline) => {
@@ -261,6 +263,35 @@ export const undocumented = 2;`,
       expect(result.documentedExports).toBe(1);
     },
   );
+
+  it("handles mixed ECMAScript terminators like the equivalent LF source", () => {
+    const lines = [
+      "/** documented */",
+      " ",
+      "export function choose(value: number) {",
+      "  if (value) return value;",
+      "  return 0;",
+      "}",
+    ];
+    const terminators = ["\r", "\n", "\r\n", "\u2028", "\u2029"];
+    const text = lines
+      .flatMap((line, index) =>
+        index < terminators.length ? [line, terminators[index] ?? ""] : [line],
+      )
+      .join("");
+    const result = analyzeJavaScriptTypeScript([
+      sourceFile("src/mixed-newlines.ts", text),
+    ]);
+
+    expect(result.files[0]?.logicalLines).toBe(4);
+    expect(result.functions[0]).toMatchObject({
+      startLine: 3,
+      endLine: 6,
+      logicalLines: 4,
+    });
+    expect(result.exportedDeclarations).toBe(1);
+    expect(result.documentedExports).toBe(1);
+  });
 
   it("does not mutate caller-owned files", () => {
     const file = sourceFile("src/immutable.ts", "export const value = 1;");

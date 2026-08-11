@@ -585,11 +585,11 @@ export function logicalLineNumbers(
   text: string,
   language: Extract<SourceLanguage, "javascript" | "typescript" | "python">,
 ): number[] {
-  const normalized = text.replace(/\r\n?/gu, "\n");
+  if (language === "python") {
+    return pythonLogicalLines(text.replace(/\r\n?/gu, "\n"));
+  }
 
-  return language === "python"
-    ? pythonLogicalLines(normalized)
-    : javascriptLogicalLines(normalized);
+  return javascriptLogicalLines(text.replace(/\r\n?|[\u2028\u2029]/gu, "\n"));
 }
 
 export function countLogicalLines(
