@@ -45,6 +45,7 @@ interface DuplicateCandidate {
 }
 
 interface CandidateSource {
+  filePair: readonly [number, number];
   next: () => DuplicateCandidate | null;
 }
 
@@ -69,6 +70,16 @@ interface AlignedRunStarts {
 interface ExactWindowGroup {
   representative: WindowOccurrence;
   occurrences: WindowOccurrence[];
+}
+
+interface PreparedWindowGroup {
+  startsByFile: ReadonlyMap<number, readonly number[]>;
+}
+
+interface GeneralPairGroups {
+  leftFileIndex: number;
+  rightFileIndex: number;
+  groups: PreparedWindowGroup[];
 }
 
 interface CoveredInterval {
@@ -431,6 +442,7 @@ function periodicDeltaSource(
   let delta = initialDelta;
 
   return {
+    filePair: [leftFileIndex, rightFileIndex],
     next: () => {
       if (
         (deltaStep > 0 && delta > finalDelta) ||
@@ -555,35 +567,6 @@ function periodicCandidateSources(
   }
 
   return { sources, skippedPairs };
-}
-
-function hasUnskippedCrossFilePair(
-  occurrences: readonly WindowOccurrence[],
-  skippedPairs: ReadonlySet<string>,
-): boolean {
-  const fileIndices = [
-    ...new Set(occurrences.map(({ fileIndex }) => fileIndex)),
-  ];
-
-  for (let left = 0; left < fileIndices.length; left += 1) {
-    const leftFileIndex = fileIndices[left];
-
-    if (leftFileIndex === undefined) {
-      continue;
-    }
-    for (let right = left + 1; right < fileIndices.length; right += 1) {
-      const rightFileIndex = fileIndices[right];
-
-      if (
-        rightFileIndex !== undefined &&
-        !skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex))
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
 
 function groupExactWindows(
@@ -895,26 +878,20 @@ function hasAnyUnskippedFilePair(
   return false;
 }
 
-function generalDuplicateCandidates(
+function prepareGeneralPairGroups(
   files: readonly DuplicateFile[],
   skippedPairs: ReadonlySet<string>,
-): DuplicateCandidate[] {
+): GeneralPairGroups[] {
   if (!hasAnyUnskippedFilePair(files, skippedPairs)) {
     return [];
   }
 
-  const candidates: DuplicateCandidate[] = [];
-  const candidateKeys = new Set<string>();
-  const coverage = new Map<string, CoveredInterval[]>();
+  const pairGroups = new Map<string, GeneralPairGroups>();
   const buckets = indexWindows(files, DUPLICATE_WINDOW_SIZE);
   const orderedHashes = [...buckets.keys()].sort((left, right) => left - right);
 
   for (const hash of orderedHashes) {
     const occurrences = buckets.get(hash) ?? [];
-
-    if (!hasUnskippedCrossFilePair(occurrences, skippedPairs)) {
-      continue;
-    }
 
     for (const exactGroup of groupExactWindows(files, occurrences)) {
       const startsByFile = new Map<number, number[]>();
@@ -944,76 +921,151 @@ function generalDuplicateCandidates(
           ) {
             continue;
           }
+          const key = filePairKey(leftFileIndex, rightFileIndex);
+          const pair = pairGroups.get(key) ?? {
+            leftFileIndex,
+            rightFileIndex,
+            groups: [],
+          };
 
-          const leftRuns = arithmeticRuns(
-            startsByFile.get(leftFileIndex) ?? [],
-          );
-          const rightRuns = arithmeticRuns(
-            startsByFile.get(rightFileIndex) ?? [],
-          );
-
-          // A Cartesian product of repeated windows is cubic once each seed is
-          // extended. Runs represent it by diagonals; coverage then extends
-          // each maximal match only once without changing the candidate set.
-          for (const leftRun of leftRuns) {
-            for (const rightRun of rightRuns) {
-              forEachRunPairSeed(leftRun, rightRun, (leftStart, rightStart) => {
-                const seed: DuplicateCandidate = {
-                  leftFileIndex,
-                  leftStart,
-                  rightFileIndex,
-                  rightStart,
-                  length: DUPLICATE_WINDOW_SIZE,
-                };
-
-                const existingCoverageEnd = coveredThrough(coverage, seed);
-
-                if (existingCoverageEnd !== null) {
-                  return existingCoverageEnd;
-                }
-                const candidate = extendMatch(
-                  files,
-                  {
-                    fileIndex: leftFileIndex,
-                    start: seed.leftStart,
-                  },
-                  {
-                    fileIndex: rightFileIndex,
-                    start: seed.rightStart,
-                  },
-                );
-
-                if (candidate === null) {
-                  return leftStart;
-                }
-                recordCoverage(coverage, candidate);
-
-                const key = candidateKey(candidate);
-                if (!candidateKeys.has(key)) {
-                  candidateKeys.add(key);
-                  candidates.push(candidate);
-                }
-                return (
-                  candidate.leftStart + candidate.length - DUPLICATE_WINDOW_SIZE
-                );
-              });
-            }
-          }
+          pair.groups.push({ startsByFile });
+          pairGroups.set(key, pair);
         }
       }
     }
   }
 
-  return candidates.sort(candidateComparator(files));
+  return [...pairGroups.values()].sort(
+    (left, right) =>
+      left.leftFileIndex - right.leftFileIndex ||
+      left.rightFileIndex - right.rightFileIndex,
+  );
 }
 
-function arrayCandidateSource(
-  candidates: readonly DuplicateCandidate[],
+function generalPairCandidateSource(
+  files: readonly DuplicateFile[],
+  pair: GeneralPairGroups,
+  occupied: readonly (readonly boolean[])[],
 ): CandidateSource {
-  let index = 0;
+  const { leftFileIndex, rightFileIndex } = pair;
+  const compare = candidateComparator(files);
+  let initialHeadReturned = false;
+  let buffered: DuplicateCandidate[] | null = null;
+  let bufferedIndex = 0;
+
+  const candidateIsFree = (candidate: DuplicateCandidate): boolean =>
+    rangeIsFree(
+      occupied[leftFileIndex] ?? [],
+      candidate.leftStart,
+      candidate.length,
+    ) &&
+    rangeIsFree(
+      occupied[rightFileIndex] ?? [],
+      candidate.rightStart,
+      candidate.length,
+    );
+  const scanCandidates = (
+    collect: boolean,
+  ): DuplicateCandidate | DuplicateCandidate[] | null => {
+    const coverage = new Map<string, CoveredInterval[]>();
+    const candidates: DuplicateCandidate[] = [];
+    const candidateKeys = new Set<string>();
+    let best: DuplicateCandidate | null = null;
+
+    for (const group of pair.groups) {
+      const leftRuns = arithmeticRuns(
+        group.startsByFile.get(leftFileIndex) ?? [],
+      );
+      const rightRuns = arithmeticRuns(
+        group.startsByFile.get(rightFileIndex) ?? [],
+      );
+
+      for (const leftRun of leftRuns) {
+        for (const rightRun of rightRuns) {
+          forEachRunPairSeed(leftRun, rightRun, (leftStart, rightStart) => {
+            const seed: DuplicateCandidate = {
+              leftFileIndex,
+              leftStart,
+              rightFileIndex,
+              rightStart,
+              length: DUPLICATE_WINDOW_SIZE,
+            };
+            const existingCoverageEnd = coveredThrough(coverage, seed);
+
+            if (existingCoverageEnd !== null) {
+              return existingCoverageEnd;
+            }
+            const candidate = extendMatch(
+              files,
+              { fileIndex: leftFileIndex, start: leftStart },
+              { fileIndex: rightFileIndex, start: rightStart },
+            );
+
+            if (candidate === null) {
+              return leftStart;
+            }
+            recordCoverage(coverage, candidate);
+            if (candidateIsFree(candidate)) {
+              if (collect) {
+                const key = candidateKey(candidate);
+
+                if (!candidateKeys.has(key)) {
+                  candidateKeys.add(key);
+                  candidates.push(candidate);
+                }
+              } else if (best === null || compare(candidate, best) < 0) {
+                best = candidate;
+              }
+            }
+
+            return (
+              candidate.leftStart + candidate.length - DUPLICATE_WINDOW_SIZE
+            );
+          });
+        }
+      }
+    }
+
+    return collect ? candidates.sort(compare) : best;
+  };
 
   return {
-    next: () => candidates[index++] ?? null,
+    filePair: [leftFileIndex, rightFileIndex],
+    next: () => {
+      if (!initialHeadReturned) {
+        initialHeadReturned = true;
+        return scanCandidates(false) as DuplicateCandidate | null;
+      }
+      if (buffered === null) {
+        buffered = scanCandidates(true) as DuplicateCandidate[];
+      }
+      while (bufferedIndex < buffered.length) {
+        const candidate = buffered[bufferedIndex++];
+
+        if (candidate !== undefined && candidateIsFree(candidate)) {
+          return candidate;
+        }
+      }
+      buffered = [];
+      return null;
+    },
+  };
+}
+
+function singletonCandidateSource(
+  candidate: DuplicateCandidate,
+): CandidateSource {
+  let pending = true;
+
+  return {
+    filePair: [candidate.leftFileIndex, candidate.rightFileIndex],
+    next: () => {
+      if (!pending) {
+        return null;
+      }
+      pending = false;
+      return candidate;
+    },
   };
 }
 
@@ -1089,22 +1141,22 @@ function popCandidateHeap(
 
 function duplicateCandidateSources(
   files: readonly DuplicateFile[],
+  occupied: readonly (readonly boolean[])[],
 ): CandidateSource[] {
-  const compare = candidateComparator(files);
   const identical = identicalFileCandidates(files);
   const periodic = periodicCandidateSources(files, identical.skippedPairs);
   const skippedPairs = new Set([
     ...identical.skippedPairs,
     ...periodic.skippedPairs,
   ]);
-  const general = generalDuplicateCandidates(files, skippedPairs);
+  const general = prepareGeneralPairGroups(files, skippedPairs);
   const sources = [...periodic.sources];
 
-  if (identical.candidates.length > 0) {
-    sources.push(arrayCandidateSource(identical.candidates.sort(compare)));
+  for (const candidate of identical.candidates) {
+    sources.push(singletonCandidateSource(candidate));
   }
-  if (general.length > 0) {
-    sources.push(arrayCandidateSource(general));
+  for (const pair of general) {
+    sources.push(generalPairCandidateSource(files, pair, occupied));
   }
 
   return sources;
@@ -1113,6 +1165,7 @@ function duplicateCandidateSources(
 function* orderedCandidates(
   files: readonly DuplicateFile[],
   sources: readonly CandidateSource[],
+  fileCanMatch: readonly boolean[],
 ): Generator<DuplicateCandidate> {
   const compare = candidateComparator(files);
   const heap: CandidateHeapEntry[] = [];
@@ -1131,8 +1184,19 @@ function* orderedCandidates(
     if (entry === null) {
       break;
     }
+    if (
+      entry.source.filePair.some(
+        (fileIndex) => fileCanMatch[fileIndex] !== true,
+      )
+    ) {
+      continue;
+    }
     yield entry.candidate;
-    const next = entry.source.next();
+    const next = entry.source.filePair.every(
+      (fileIndex) => fileCanMatch[fileIndex] === true,
+    )
+      ? entry.source.next()
+      : null;
 
     if (next !== null) {
       pushCandidateHeap(
@@ -1164,12 +1228,31 @@ function markRange(occupied: boolean[], start: number, length: number): void {
   }
 }
 
-function chooseNonOverlapping(
-  files: readonly DuplicateFile[],
-  candidates: Iterable<DuplicateCandidate>,
-): { accepted: DuplicateCandidate[]; occupied: boolean[][] } {
+function hasFreeDuplicateWindow(occupied: readonly boolean[]): boolean {
+  let free = 0;
+
+  for (const duplicate of occupied) {
+    free = duplicate ? 0 : free + 1;
+    if (free >= DUPLICATE_WINDOW_SIZE) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function chooseNonOverlapping(files: readonly DuplicateFile[]): {
+  accepted: DuplicateCandidate[];
+  occupied: boolean[][];
+} {
   const occupied = files.map((file) =>
     Array.from({ length: file.tokens.length }, () => false),
+  );
+  const fileCanMatch = occupied.map(hasFreeDuplicateWindow);
+  const candidates = orderedCandidates(
+    files,
+    duplicateCandidateSources(files, occupied),
+    fileCanMatch,
   );
   const accepted: DuplicateCandidate[] = [];
 
@@ -1188,6 +1271,10 @@ function chooseNonOverlapping(
 
     markRange(leftOccupied, candidate.leftStart, candidate.length);
     markRange(rightOccupied, candidate.rightStart, candidate.length);
+    fileCanMatch[candidate.leftFileIndex] =
+      hasFreeDuplicateWindow(leftOccupied);
+    fileCanMatch[candidate.rightFileIndex] =
+      hasFreeDuplicateWindow(rightOccupied);
     accepted.push(candidate);
   }
 
@@ -1250,8 +1337,7 @@ export function computeDuplicateRatio(
     };
   }
 
-  const candidates = orderedCandidates(files, duplicateCandidateSources(files));
-  const { accepted, occupied } = chooseNonOverlapping(files, candidates);
+  const { accepted, occupied } = chooseNonOverlapping(files);
   const duplicatedTokens = occupied.reduce(
     (total, file) =>
       total + file.reduce((count, duplicate) => count + Number(duplicate), 0),

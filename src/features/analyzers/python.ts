@@ -1148,7 +1148,7 @@ function isTypeCheckingOnlyImport(
 function collectRelativeImports(
   nodes: readonly PythonNode[],
   text: string,
-  priorPackageBindings?: ReadonlyMap<string, number>,
+  packageBindingsBeforeImport?: ReadonlyMap<number, ReadonlySet<string>>,
 ): { definite: string[]; candidates: string[] } {
   const imports = new Set<string>();
   const candidates = new Set<string>();
@@ -1171,8 +1171,8 @@ function collectRelativeImports(
 
       if (
         importedName !== undefined &&
-        (priorPackageBindings?.get(importedName) ?? Number.POSITIVE_INFINITY) <
-          importOffset
+        packageBindingsBeforeImport?.get(importOffset)?.has(importedName) ===
+          true
       ) {
         continue;
       }
@@ -1240,24 +1240,38 @@ function hasDefiniteModuleExecution(
   return true;
 }
 
-function topLevelDefinedNameBindings(
+interface ModuleBindingEvent {
+  offset: number;
+  kind: "set" | "delete" | "import";
+  names: readonly string[];
+}
+
+interface TopLevelBindingMetadata {
+  finalNames: string[];
+  namesBeforeImport: ReadonlyMap<number, ReadonlySet<string>>;
+}
+
+function topLevelBindingMetadata(
   nodes: readonly PythonNode[],
   text: string,
-): Map<string, number> {
-  const names = new Map<string, number>();
-  const addCandidates = (candidates: ReadonlySet<number>): void => {
+): TopLevelBindingMetadata {
+  const events: ModuleBindingEvent[] = [];
+  const addSetEvent = (
+    offset: number,
+    candidates: ReadonlySet<number>,
+  ): void => {
+    const names: string[] = [];
+
     for (const candidate of candidates) {
       if (
         hasDefiniteModuleExecution(nodes, candidate) &&
         !isTypeCheckingOnlyImport(nodes, candidate, text)
       ) {
-        const name = nodeTextAt(nodes, candidate, text);
-        const offset = nodes[candidate]?.from ?? 0;
-
-        if (offset < (names.get(name) ?? Number.POSITIVE_INFINITY)) {
-          names.set(name, offset);
-        }
+        names.push(nodeTextAt(nodes, candidate, text));
       }
+    }
+    if (names.length > 0) {
+      events.push({ offset, kind: "set", names });
     }
   };
 
@@ -1275,34 +1289,87 @@ function topLevelDefinedNameBindings(
       const name = firstDirectVariable(nodes, index);
 
       if (name !== null) {
-        const value = nodeTextAt(nodes, name, text);
-        const offset = nodes[name]?.from ?? 0;
-
-        if (offset < (names.get(value) ?? Number.POSITIVE_INFINITY)) {
-          names.set(value, offset);
-        }
+        events.push({
+          offset: node.from,
+          kind: "set",
+          names: [nodeTextAt(nodes, name, text)],
+        });
       }
-    } else if (node.type === "AssignStatement") {
+    } else if (
+      node.type === "AssignStatement" &&
+      node.children.some((child) => nodes[child]?.type === "AssignOp")
+    ) {
       const bindings = new Set<number>();
 
       collectAssignmentBindings(nodes, index, bindings);
-      addCandidates(bindings);
+      addSetEvent(node.from, bindings);
+    } else if (node.type === "NamedExpression") {
+      const bindings = new Set<number>();
+
+      collectAssignmentBindings(nodes, index, bindings);
+      addSetEvent(node.from, bindings);
+    } else if (node.type === "UpdateStatement") {
+      const binding = node.children.find(
+        (child) => nodes[child]?.type === "VariableName",
+      );
+
+      if (binding !== undefined) {
+        addSetEvent(node.from, new Set([binding]));
+      }
     } else if (node.type === "ImportStatement") {
-      if (relativePythonImports(nodes, index, text).candidates.length > 0) {
+      if (isTypeCheckingOnlyImport(nodes, index, text)) {
+        continue;
+      }
+      const relative = relativePythonImports(nodes, index, text);
+
+      if (relative.candidates.length > 0) {
+        events.push({ offset: node.from, kind: "import", names: [] });
         continue;
       }
       const bindings = new Set<number>();
 
       collectImportBindings(nodes, index, text, bindings);
-      addCandidates(bindings);
+      addSetEvent(node.from, bindings);
+    } else if (
+      node.type === "DeleteStatement" &&
+      hasModuleScope(nodes, index)
+    ) {
+      const names = node.children
+        .filter((child) => nodes[child]?.type === "VariableName")
+        .map((child) => nodeTextAt(nodes, child, text));
+
+      if (names.length > 0) {
+        events.push({ offset: node.from, kind: "delete", names });
+      }
     }
   }
 
-  return names;
-}
+  events.sort(
+    (left, right) =>
+      left.offset - right.offset ||
+      left.kind.localeCompare(right.kind, "en-US"),
+  );
+  const present = new Set<string>();
+  const namesBeforeImport = new Map<number, ReadonlySet<string>>();
 
-function topLevelDefinedNames(bindings: ReadonlyMap<string, number>): string[] {
-  return [...bindings.keys()].sort();
+  for (const event of events) {
+    if (event.kind === "import") {
+      namesBeforeImport.set(event.offset, new Set(present));
+    } else if (event.kind === "set") {
+      for (const name of event.names) {
+        present.add(name);
+      }
+    } else {
+      for (const name of event.names) {
+        present.delete(name);
+      }
+    }
+  }
+
+  return {
+    finalNames: [...present].sort(),
+    namesBeforeImport,
+  };
 }
 
 function normalizedTokens(
@@ -1419,15 +1486,15 @@ function analyzeParsedFile(
   nodes: readonly PythonNode[],
   output: LanguageAnalysis,
 ): void {
-  const definedNameBindings = topLevelDefinedNameBindings(nodes, file.text);
+  const bindingMetadata = topLevelBindingMetadata(nodes, file.text);
   const relativeImports = collectRelativeImports(
     nodes,
     file.text,
     /(?:^|\/)__init__\.pyi?$/iu.test(file.path)
-      ? definedNameBindings
+      ? bindingMetadata.namesBeforeImport
       : undefined,
   );
-  const definedNames = topLevelDefinedNames(definedNameBindings);
+  const definedNames = bindingMetadata.finalNames;
 
   if (isStubPath(file.path)) {
     output.files.push({

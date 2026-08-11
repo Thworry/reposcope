@@ -529,6 +529,99 @@ describe("cross-file duplicate metrics", () => {
     },
   );
 
+  it(
+    "does not materialize the repeated-block candidate cross product",
+    { timeout: 5000 },
+    () => {
+      const originalSort = Array.prototype.sort;
+      let largestSortedArray = 0;
+      const sortSpy = vi
+        .spyOn(Array.prototype, "sort")
+        .mockImplementation(function (
+          this: unknown[],
+          compareFunction?: (left: unknown, right: unknown) => number,
+        ): unknown[] {
+          largestSortedArray = Math.max(largestSortedArray, this.length);
+
+          return Reflect.apply(originalSort, this, [
+            compareFunction,
+          ]) as unknown[];
+        });
+      const shared = sequence("shared-block", WINDOW_SIZE);
+      const copiesPerFile = 80;
+      const files = Array.from({ length: 20 }, (_, fileIndex) => {
+        const tokens: string[] = [];
+
+        for (let copy = 0; copy < copiesPerFile; copy += 1) {
+          tokens.push(...shared);
+          tokens.push(
+            ...sequence(
+              `gap-${String(fileIndex)}-${String(copy)}`,
+              1 + ((copy * 17 + fileIndex * 13) % 9),
+            ),
+          );
+        }
+
+        return tokenizedFile(
+          `src/${String(fileIndex).padStart(2, "0")}.ts`,
+          tokens,
+        );
+      });
+
+      try {
+        const result = computeDuplicateRatio(files);
+
+        expect(result.duplicatedTokens).toBe(
+          files.length * copiesPerFile * WINDOW_SIZE,
+        );
+      } finally {
+        sortSpy.mockRestore();
+      }
+
+      expect(largestSortedArray).toBeLessThanOrEqual(
+        files.reduce((total, file) => total + file.normalizedTokens.length, 0),
+      );
+    },
+  );
+
+  it(
+    "stops draining periodic pair sources once no 50-token range remains",
+    { timeout: 5000 },
+    () => {
+      const originalMax = Math.max;
+      let maxCalls = 0;
+      const maxSpy = vi.spyOn(Math, "max").mockImplementation((...values) => {
+        maxCalls += 1;
+        if (maxCalls > 1_000_000) {
+          throw new Error(
+            "periodic candidate drain exceeded its operation budget",
+          );
+        }
+
+        return originalMax(...values);
+      });
+      const files = Array.from({ length: 100 }, (_, fileIndex) =>
+        tokenizedFile(
+          `src/${String(fileIndex).padStart(3, "0")}.ts`,
+          Array.from({ length: 5000 + fileIndex }, (_, tokenIndex) =>
+            tokenIndex % 2 === 0 ? "identifier" : ";",
+          ),
+        ),
+      );
+
+      try {
+        expect(computeDuplicateRatio(files)).toMatchObject({
+          totalEligibleTokens: 504_950,
+          duplicatedTokens: 504_900,
+        });
+      } finally {
+        maxSpy.mockRestore();
+      }
+
+      expect(maxCalls).toBeLessThanOrEqual(1_000_000);
+    },
+  );
+
   it.each([
     [
       "period seven",
@@ -725,6 +818,43 @@ describe("relative import graph metrics", () => {
     expect(findCircularImports(analyzed.files)).toEqual({
       components: [],
       largestComponentSize: 0,
+    });
+  });
+
+  it("does not treat annotation-only package names as runtime shadows", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile("pkg/__init__.py", "b: object"),
+      pythonSourceFile("pkg/a.py", "from . import b"),
+      pythonSourceFile("pkg/b.py", "from . import a"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({ topLevelDefinedNames: [] });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/a.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
+  it("restores a from-dot edge after a definite package attribute deletion", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\ndel b\nfrom . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
     });
   });
 
