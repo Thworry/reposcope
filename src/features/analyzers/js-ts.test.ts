@@ -110,6 +110,34 @@ describe("JavaScript and TypeScript analyzer", () => {
     expect(result.ambiguousIdentifierOccurrences).toBe(10);
   });
 
+  it("counts TypeScript import-equals bindings but retains only runtime relative edges", () => {
+    const result = analyzeJavaScriptTypeScript([
+      sourceFile(
+        "src/import-equals.ts",
+        `import q = require("./runtime");
+import type uv = require("./types");
+export const result = q;`,
+      ),
+    ]);
+
+    expect(result.files[0]?.relativeImports).toEqual(["./runtime"]);
+    expect(result.identifierOccurrences).toBe(3);
+    expect(result.ambiguousIdentifierOccurrences).toBe(2);
+  });
+
+  it("applies lowercase allowlist and keyword exemptions case-sensitively", () => {
+    const result = analyzeJavaScriptTypeScript([
+      sourceFile(
+        "src/case-sensitive.ts",
+        `const ok = 1, id = 2, OK = 3, ID = 4, IF = 5, DO = 6, IN = 7;
+class Container { in() {} if() {} do() {} }`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(11);
+    expect(result.ambiguousIdentifierOccurrences).toBe(5);
+  });
+
   it("isolates nested-function decisions and carries the test-file flag", () => {
     const result = analyzeJavaScriptTypeScript([
       sourceFile("tests/nested.test.ts", nestedTestSource, { isTest: true }),
@@ -205,6 +233,34 @@ export const undocumented = 2;`,
     expect(result.exportedDeclarations).toBe(2);
     expect(result.documentedExports).toBe(1);
   });
+
+  it.each([
+    ["CR-only", "\r"],
+    ["CRLF", "\r\n"],
+  ])(
+    "uses consistent %s line positions for functions, logical lines, and JSDoc",
+    (_label, newline) => {
+      const text = [
+        "/** documented */",
+        "export function choose(value: number) {",
+        "  if (value) return value;",
+        "  return 0;",
+        "}",
+      ].join(newline);
+      const result = analyzeJavaScriptTypeScript([
+        sourceFile("src/newlines.ts", text),
+      ]);
+
+      expect(result.files[0]?.logicalLines).toBe(4);
+      expect(result.functions[0]).toMatchObject({
+        startLine: 2,
+        endLine: 5,
+        logicalLines: 4,
+      });
+      expect(result.exportedDeclarations).toBe(1);
+      expect(result.documentedExports).toBe(1);
+    },
+  );
 
   it("does not mutate caller-owned files", () => {
     const file = sourceFile("src/immutable.ts", "export const value = 1;");

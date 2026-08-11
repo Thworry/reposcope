@@ -305,7 +305,12 @@ function lineLookup(text: string): LineLookup {
   const lineStarts = [0];
 
   for (let index = 0; index < text.length; index += 1) {
-    if (text[index] === "\n") {
+    if (text[index] === "\r") {
+      if (text[index + 1] === "\n") {
+        index += 1;
+      }
+      lineStarts.push(index + 1);
+    } else if (text[index] === "\n") {
       lineStarts.push(index + 1);
     }
   }
@@ -541,6 +546,9 @@ function declaredIdentifiers(node: t.Node): t.Identifier[] {
   ) {
     return [node.local];
   }
+  if (t.isTSImportEqualsDeclaration(node)) {
+    return [node.id];
+  }
   if (t.isCatchClause(node)) {
     return bindingIdentifiers(node.param);
   }
@@ -549,18 +557,21 @@ function declaredIdentifiers(node: t.Node): t.Identifier[] {
 }
 
 function isAmbiguousIdentifier(name: string): boolean {
-  const lowercase = name.toLocaleLowerCase("en-US");
   const codePoints = Array.from(name).length;
 
   return (
     codePoints <= 2 &&
-    !RESERVED_WORDS.has(lowercase) &&
-    !AMBIGUOUS_IDENTIFIER_ALLOWLIST.has(lowercase)
+    !RESERVED_WORDS.has(name) &&
+    !AMBIGUOUS_IDENTIFIER_ALLOWLIST.has(name)
   );
 }
 
 function isRelativeSpecifier(value: string): boolean {
   return value.startsWith(".");
+}
+
+function isTypeOnlyImportKind(value: unknown): boolean {
+  return value === "type" || value === "typeof";
 }
 
 function importHasRuntimeValue(node: t.ImportDeclaration): boolean {
@@ -620,6 +631,7 @@ function relativeSpecifier(node: t.Node): string | null {
   }
   if (
     t.isTSImportEqualsDeclaration(node) &&
+    !isTypeOnlyImportKind(node.importKind) &&
     t.isTSExternalModuleReference(node.moduleReference) &&
     t.isStringLiteral(node.moduleReference.expression) &&
     isRelativeSpecifier(node.moduleReference.expression.value)
