@@ -19,6 +19,27 @@ export interface RepoRef {
   repo: string;
 }
 
+export interface RepositoryMetadata extends RepoRef {
+  name: string;
+  fullName: string;
+  url: string;
+  description: string | null;
+  defaultBranch: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  pushedAt: string;
+  size: number;
+  openIssuesCount: number;
+  topics: string[];
+  licenseSpdxId: string | null;
+}
+
+export interface RateLimitMetadata {
+  remaining: number | null;
+  resetAt: string | null;
+}
+
 export type SourceLanguage =
   "javascript" | "typescript" | "python" | "recognized-unsupported" | "none";
 
