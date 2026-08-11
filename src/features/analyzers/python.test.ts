@@ -131,6 +131,66 @@ class Container:
     expect(result.ambiguousIdentifierOccurrences).toBe(5);
   });
 
+  it("excludes global and nonlocal assignment targets in only their declaring function scope", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/scope-statements.py",
+        `shared = 0
+
+def outer():
+    value = 1
+    other = 2
+
+    def inner():
+        if condition:
+            nonlocal value
+            global shared
+        value = 3
+        shared = 4
+        local = 5
+
+        def nested():
+            value = 6
+            shared = 7
+            own_value = 8
+            return own_value
+
+        return local
+
+    def sibling():
+        value = 9
+        shared = 10
+        return value
+
+    return inner`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(12);
+    expect(result.ambiguousIdentifierOccurrences).toBe(0);
+  });
+
+  it("stops scope declarations at nested class and lambda lexical boundaries", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/scope-boundaries.py",
+        `def boundaries():
+    global target
+
+    class Container:
+        global class_global
+        class_global = 1
+
+    callback = lambda: (target := 2)
+    target = 3
+    class_global = 4
+    return callback`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(5);
+  });
+
   it("counts parameter targets without counting annotation or default-value references", () => {
     const result = analyzePython([
       pythonSourceFile(
@@ -192,12 +252,29 @@ enabled = count and True  # hidden`,
     ]);
   });
 
+  it("assigns nested f-string replacements to their nearest template exactly once", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/nested-template.py",
+        `f"outer {f'inner {value!r:{width}}'} sibling {other=}"`,
+      ),
+    ]);
+
+    expect(result.files[0]?.normalizedTokens).toEqual([
+      "TEMPLATE",
+      "TEMPLATE",
+      "value",
+      "width",
+      "other",
+    ]);
+  });
+
   it("isolates lambda decisions from the enclosing function metric", () => {
     const result = analyzePython([
       pythonSourceFile(
         "src/lambda.py",
         `def outer():
-    callback = lambda value: 1 if value and other or third else 0
+    callback = lambda value: (local_value := 1 if value and other or third else 0)
     return callback`,
       ),
     ]);
@@ -206,10 +283,31 @@ enabled = count and True  # hidden`,
       expect.objectContaining({
         name: "outer",
         cyclomatic: 1,
-        maxNesting: 1,
+        maxNesting: 0,
         hasErrorHandling: false,
       }),
     ]);
+    expect(result.identifierOccurrences).toBe(4);
+  });
+
+  it("does not add lambda nesting beyond an enclosing decision", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/decision-lambda.py",
+        `def outer(flag):
+    if flag:
+        callback = lambda value: 1 if value and other or third else 0
+        return callback
+    return None`,
+      ),
+    ]);
+
+    expect(result.functions[0]).toMatchObject({
+      name: "outer",
+      cyclomatic: 2,
+      maxNesting: 1,
+      hasErrorHandling: false,
+    });
   });
 
   it("isolates a recovered malformed tree and counts only successful bytes", () => {

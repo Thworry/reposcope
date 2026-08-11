@@ -23,6 +23,11 @@ interface MetricEntry {
   depth: number;
 }
 
+interface LexicalOwner {
+  kind: "function" | "lambda" | "comprehension";
+  index: number;
+}
+
 type LineLookup = (offset: number) => number;
 
 const AMBIGUOUS_IDENTIFIER_ALLOWLIST = new Set([
@@ -369,11 +374,11 @@ function functionMetric(
     if (currentNode === undefined) {
       continue;
     }
-    if (
-      currentNode.type === "FunctionDefinition" ||
-      currentNode.type === "LambdaExpression"
-    ) {
+    if (currentNode.type === "FunctionDefinition") {
       maxNesting = Math.max(maxNesting, current.depth + 1);
+      continue;
+    }
+    if (currentNode.type === "LambdaExpression") {
       continue;
     }
 
@@ -684,13 +689,74 @@ function collectImportBindings(
   }
 }
 
+function functionScopeDeclarations(
+  nodes: readonly PythonNode[],
+  text: string,
+): ReadonlyMap<number, ReadonlySet<string>> {
+  const result = new Map<number, ReadonlySet<string>>();
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (nodes[index]?.type !== "FunctionDefinition") {
+      continue;
+    }
+    const body = nodes[index]?.children.find(
+      (child) => nodes[child]?.type === "Body",
+    );
+
+    if (body === undefined) {
+      continue;
+    }
+    const names = new Set<string>();
+    const pending = [body];
+
+    while (pending.length > 0) {
+      const current = pending.pop();
+
+      if (current === undefined) {
+        break;
+      }
+      const node = nodes[current];
+
+      if (node === undefined) {
+        continue;
+      }
+      if (
+        current !== body &&
+        (node.type === "FunctionDefinition" ||
+          node.type === "LambdaExpression" ||
+          node.type === "ClassDefinition")
+      ) {
+        continue;
+      }
+      if (node.type === "ScopeStatement") {
+        for (const child of node.children) {
+          if (nodes[child]?.type === "VariableName") {
+            names.add(nodeTextAt(nodes, child, text));
+          }
+        }
+        continue;
+      }
+      for (const child of node.children) {
+        pending.push(child);
+      }
+    }
+
+    if (names.size > 0) {
+      result.set(index, names);
+    }
+  }
+
+  return result;
+}
+
 function bindingIdentifiers(
   nodes: readonly PythonNode[],
   text: string,
 ): Set<number> {
   const result = new Set<number>();
+  const scopeDeclarations = functionScopeDeclarations(nodes, text);
 
-  const hasLocalLexicalOwner = (index: number): boolean => {
+  const localLexicalOwner = (index: number): LexicalOwner | null => {
     let parent = nodes[index]?.parent ?? null;
     let crossedSignature = false;
 
@@ -700,27 +766,41 @@ function bindingIdentifiers(
       if (type === "ParamList" || type === "TypeDef") {
         crossedSignature = true;
       } else if (COMPREHENSION_CONTAINERS.has(type ?? "")) {
-        return true;
+        return { kind: "comprehension", index: parent };
       } else if (type === "FunctionDefinition" || type === "LambdaExpression") {
         if (crossedSignature) {
           crossedSignature = false;
         } else {
-          return true;
+          return {
+            kind: type === "FunctionDefinition" ? "function" : "lambda",
+            index: parent,
+          };
         }
       } else if (type === "ClassDefinition" || type === "Script") {
-        return false;
+        return null;
       }
       parent = nodes[parent]?.parent ?? null;
     }
 
-    return false;
+    return null;
   };
 
   const addLocalBindings = (candidates: ReadonlySet<number>): void => {
     for (const candidate of candidates) {
-      if (hasLocalLexicalOwner(candidate)) {
-        result.add(candidate);
+      const owner = localLexicalOwner(candidate);
+
+      if (owner === null) {
+        continue;
       }
+      if (
+        owner.kind === "function" &&
+        scopeDeclarations
+          .get(owner.index)
+          ?.has(nodeTextAt(nodes, candidate, text)) === true
+      ) {
+        continue;
+      }
+      result.add(candidate);
     }
   };
 
@@ -764,12 +844,8 @@ function bindingIdentifiers(
     } else if (node.type === "CapturePattern") {
       const name = firstDirectVariable(nodes, index);
 
-      if (
-        name !== null &&
-        nodeTextAt(nodes, name, text) !== "_" &&
-        hasLocalLexicalOwner(name)
-      ) {
-        result.add(name);
+      if (name !== null && nodeTextAt(nodes, name, text) !== "_") {
+        addLocalBindings(new Set([name]));
       }
     }
   }
@@ -1074,6 +1150,9 @@ function normalizedTokens(
       }
       if (node.type === "FormatReplacement") {
         replacements.push(current);
+      }
+      if (node.type === "FormatString") {
+        continue;
       }
       for (let index = node.children.length - 1; index >= 0; index -= 1) {
         const child = node.children[index];
