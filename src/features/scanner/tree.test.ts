@@ -82,6 +82,49 @@ describe("normalizeTree", () => {
     });
   });
 
+  it("accepts absent or valid optional submodule sizes", () => {
+    const entries = [
+      {
+        path: "dependency-a",
+        mode: "160000",
+        type: "commit",
+        sha: sha("a"),
+      },
+      {
+        path: "dependency-b",
+        mode: "160000",
+        type: "commit",
+        sha: sha("b"),
+        size: 0,
+      },
+    ] as unknown as readonly RawTreeEntry[];
+
+    expect(normalizeTree(entries, false).skippedEntries).toEqual([
+      { path: "dependency-a", reason: "invalid-entry" },
+      { path: "dependency-b", reason: "invalid-entry" },
+    ]);
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects hostile optional submodule size %s",
+    (size) => {
+      expect(() =>
+        normalizeTree(
+          [
+            {
+              path: "dependency",
+              mode: "160000",
+              type: "commit",
+              sha: sha("a"),
+              size,
+            },
+          ] as unknown as readonly RawTreeEntry[],
+          false,
+        ),
+      ).toThrow("Invalid tree size");
+    },
+  );
+
   it.each([
     ["empty", ""],
     ["leading slash", "/src/a.ts"],

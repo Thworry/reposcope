@@ -107,8 +107,8 @@ describe("selectFiles", () => {
     });
 
     expect(plan.treeComplete).toBe(false);
-    expect(plan.eligibleFiles).toBe(12);
-    expect(plan.eligibleBytes).toBe(1_560);
+    expect(plan.eligibleFiles).toBe(13);
+    expect(plan.eligibleBytes).toBe(2_061);
     expect(plan.eligibleSourceBytes).toBe(920);
     expect(plan.unsupportedFiles).toBe(1);
     expect(plan.unsupportedBytes).toBe(120);
@@ -119,7 +119,7 @@ describe("selectFiles", () => {
     expect(plan.skipped).toHaveLength(
       Object.values(plan.skipCounts).reduce((total, count) => total + count, 0),
     );
-    expect(plan.eligibleBytes).toBe(plan.eligibleSourceBytes + 640);
+    expect(plan.eligibleBytes).toBe(plan.eligibleSourceBytes + 1_141);
     expect(plan.selectedBytes).toBeLessThanOrEqual(plan.eligibleBytes);
   });
 
@@ -227,6 +227,107 @@ describe("selectFiles", () => {
 
     expect(plan.selected.map((file) => file.path)).toEqual(["exact.ts"]);
     expect(plan.skipCounts.oversized).toBe(1);
+  });
+
+  it("keeps hard-oversized recognized evidence in confidence denominators", () => {
+    const oversized = 256 * 1024 + 1;
+    const plan = selectFiles(
+      normalizeTree(
+        [
+          {
+            path: "large.ts",
+            mode: "100644",
+            type: "blob",
+            sha: sha(1),
+            size: oversized,
+          },
+          {
+            path: "docs/large.md",
+            mode: "100644",
+            type: "blob",
+            sha: sha(2),
+            size: oversized,
+          },
+        ],
+        false,
+      ),
+    );
+
+    expect(plan.selected).toEqual([]);
+    expect(plan.eligibleFiles).toBe(2);
+    expect(plan.eligibleBytes).toBe(oversized * 2);
+    expect(plan.eligibleSourceBytes).toBe(oversized);
+    expect(plan.skipCounts.oversized).toBe(2);
+    expect(plan.limitReached).toBe(true);
+  });
+
+  it("keeps custom-cap oversized source and docs accountable but unselected", () => {
+    const tree = normalizeTree(
+      [
+        {
+          path: "large.ts",
+          mode: "100644",
+          type: "blob",
+          sha: sha(1),
+          size: 501,
+        },
+        {
+          path: "docs/large.md",
+          mode: "100644",
+          type: "blob",
+          sha: sha(2),
+          size: 501,
+        },
+      ],
+      false,
+    );
+    const before = structuredClone(tree);
+    const plan = selectFiles(tree, {
+      maxFiles: 10,
+      maxBytes: 2_000,
+      maxFileBytes: 500,
+    });
+
+    expect(plan.selected).toEqual([]);
+    expect(plan.eligibleFiles).toBe(2);
+    expect(plan.eligibleBytes).toBe(1_002);
+    expect(plan.eligibleSourceBytes).toBe(501);
+    expect(plan.skipCounts.oversized).toBe(2);
+    expect(tree).toEqual(before);
+  });
+
+  it("mixes a selected candidate with oversized accountable evidence exactly once", () => {
+    const plan = selectFiles(
+      normalizeTree(
+        [
+          {
+            path: "small.ts",
+            mode: "100644",
+            type: "blob",
+            sha: sha(1),
+            size: 100,
+          },
+          {
+            path: "docs/large.md",
+            mode: "100644",
+            type: "blob",
+            sha: sha(2),
+            size: 501,
+          },
+        ],
+        false,
+      ),
+      { maxFiles: 10, maxBytes: 2_000, maxFileBytes: 500 },
+    );
+
+    expect(plan.selected.map((file) => file.path)).toEqual(["small.ts"]);
+    expect(plan.selectedBytes).toBe(100);
+    expect(plan.eligibleFiles).toBe(2);
+    expect(plan.eligibleBytes).toBe(601);
+    expect(plan.eligibleSourceBytes).toBe(100);
+    expect(plan.unsupportedFiles).toBe(0);
+    expect(plan.skipCounts.oversized).toBe(1);
+    expect(plan.skipped).toHaveLength(1);
   });
 
   it("allows exactly 10 MiB and budgets the next declared byte", () => {

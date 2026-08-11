@@ -117,6 +117,9 @@ export function normalizeTree(
     }
 
     if (rawEntry.type === "commit" && rawEntry.mode === "160000") {
+      if (Object.prototype.hasOwnProperty.call(rawEntry, "size")) {
+        assertSize(rawEntry.size);
+      }
       skippedEntries.push({ path, reason: "invalid-entry" });
       continue;
     }

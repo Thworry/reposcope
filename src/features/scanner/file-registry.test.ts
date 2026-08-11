@@ -413,11 +413,17 @@ describe("canonical file registry", () => {
     expect(isExcludedPath("src/vendorized/file.ts")).toBe(false);
     expect(classifyFile("web/app.min.js", 10).skipReason).toBe("excluded");
     expect(classifyFile("web/app-min.ts", 10).skipReason).toBe("excluded");
+    expect(classifyFile("web/app.minified.js", 10).skipReason).toBe("excluded");
+    expect(classifyFile("web/app-minified.ts", 10).skipReason).toBe("excluded");
     expect(classifyFile("web/min.ts", 10)).toMatchObject({
       eligible: true,
       language: "typescript",
     });
     expect(classifyFile("web/admin.ts", 10)).toMatchObject({
+      eligible: true,
+      language: "typescript",
+    });
+    expect(classifyFile("web/minimal.ts", 10)).toMatchObject({
       eligible: true,
       language: "typescript",
     });

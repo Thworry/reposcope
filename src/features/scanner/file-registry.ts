@@ -611,7 +611,10 @@ export function classifyFile(path: string, size: number): FileClassification {
     DOCUMENTATION_EXTENSION_SET.has(minifiedExtension) ||
     minifiedExtension === ".pyi";
 
-  if (isRecognizedTextExtension && /.+(?:[._-])min$/u.test(minifiedStem)) {
+  if (
+    isRecognizedTextExtension &&
+    /.+(?:[._-])(?:min|minified)$/u.test(minifiedStem)
+  ) {
     return {
       eligible: false,
       language,

@@ -309,6 +309,11 @@ export function selectFiles(
       classification.language === "recognized-unsupported" &&
       classification.skipReason === "unsupported",
   );
+  const oversized = classifications.filter(
+    ({ file, classification }) =>
+      classification.skipReason === "oversized" ||
+      (classification.eligible && file.size > resolved.maxFileBytes),
+  );
   const unsupportedBytes = unsupported.reduce(
     (total, item) => total + item.file.size,
     0,
@@ -317,15 +322,25 @@ export function selectFiles(
     (total, file) => total + file.size,
     0,
   );
-  const eligibleBytes = selectableBytes + unsupportedBytes;
+  const oversizedBytes = oversized.reduce(
+    (total, item) => total + item.file.size,
+    0,
+  );
+  const eligibleBytes = selectableBytes + unsupportedBytes + oversizedBytes;
+  const oversizedSourceBytes = oversized
+    .filter(({ classification }) => classification.language !== "none")
+    .reduce((total, item) => total + item.file.size, 0);
   const eligibleSourceBytes = candidates
     .filter((file) => file.language !== "none")
-    .reduce((total, file) => total + file.size, unsupportedBytes);
+    .reduce(
+      (total, file) => total + file.size,
+      unsupportedBytes + oversizedSourceBytes,
+    );
 
   return {
     treeComplete: tree.complete,
     selected,
-    eligibleFiles: candidates.length + unsupported.length,
+    eligibleFiles: candidates.length + unsupported.length + oversized.length,
     eligibleBytes,
     eligibleSourceBytes,
     unsupportedFiles: unsupported.length,
