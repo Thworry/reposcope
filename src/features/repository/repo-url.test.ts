@@ -48,6 +48,13 @@ describe("parseRepositoryUrl", () => {
     "https://github.com/owner/repo%5Cissues",
     "https://github.com/owner/%2E",
     "https://github.com/owner/%2e%2e",
+    "https://github.com/owner/re\u0085po",
+    "https://github.com/owner/re%C2%85po",
+    "https://github.com/owner/re\ud800po",
+    "https://github.com/owner/re\udc00po",
+    "https://github.com/owner/repo%2Egit",
+    "https://github.com/owner/%2Egit",
+    "https://github.com/owner/repo%2Egit.git",
     "https://gitlab.com/owner/repo",
     "owner/repo",
     "",
@@ -67,6 +74,47 @@ describe("repository URL serialization", () => {
 
   it("produces a query-only share location", () => {
     expect(toShareSearch(ref)).toBe("?repo=owner%2Frepo");
+  });
+
+  it.each(["re\ud800po", "re\udc00po"])(
+    "rejects a RepoRef containing the lone surrogate %j",
+    (repo) => {
+      const malformedRef = { owner: "owner", repo };
+
+      expect(() => toCanonicalRepositoryUrl(malformedRef)).toThrow(
+        RepoUrlError,
+      );
+      expect(() => toShareSearch(malformedRef)).toThrow(RepoUrlError);
+    },
+  );
+
+  it("rejects a non-canonical RepoRef retaining a terminal .git suffix", () => {
+    const nonCanonicalRef = { owner: "owner", repo: "repo.git" };
+
+    expect(() => toCanonicalRepositoryUrl(nonCanonicalRef)).toThrow(
+      RepoUrlError,
+    );
+    expect(() => toShareSearch(nonCanonicalRef)).toThrow(RepoUrlError);
+  });
+
+  it("keeps every parsed Unicode ref closed under canonical and share serialization", () => {
+    const parsed = parseRepositoryUrl(
+      "https://github.com/owner/r%C3%A9po-%F0%9F%98%80.git",
+    );
+
+    expect(parseRepositoryUrl(toCanonicalRepositoryUrl(parsed))).toEqual(
+      parsed,
+    );
+    expect(parseShareSearch(toShareSearch(parsed))).toEqual(parsed);
+  });
+
+  it("keeps a normalized literal .git suffix closed under both serializers", () => {
+    const parsed = parseRepositoryUrl("https://github.com/owner/repo.git");
+
+    expect(parseRepositoryUrl(toCanonicalRepositoryUrl(parsed))).toEqual(
+      parsed,
+    );
+    expect(parseShareSearch(toShareSearch(parsed))).toEqual(parsed);
   });
 });
 
@@ -88,6 +136,13 @@ describe("parseShareSearch", () => {
     "?repo=owner",
     "?repo=owner%2Frepo%2Fissues",
     "?repo=owner%5Crepo",
+    "?repo=owner%2Fre%C2%85po",
+    "?repo=owner%2Fre\u0085po",
+    "?repo=owner%2Frepo%ED%A0%80",
+    "?repo=owner%2Frepo%ED%B0%80",
+    "?repo=owner%2Fre\ud800po",
+    "?repo=owner%2Fre\udc00po",
+    "?repo=owner%2Frepo%2Egit",
     "?repo=owner%2Frepo&repo=other%2Frepo",
     "?repo=owner%2Frepo&repo=",
   ])("rejects %s", (search) => {

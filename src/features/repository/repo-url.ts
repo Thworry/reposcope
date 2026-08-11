@@ -21,7 +21,22 @@ function hasControlCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
 
-    if (codePoint !== undefined && (codePoint <= 31 || codePoint === 127)) {
+    if (
+      codePoint !== undefined &&
+      (codePoint <= 31 || (codePoint >= 127 && codePoint <= 159))
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasLoneSurrogate(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+
+    if (codePoint !== undefined && codePoint >= 0xd800 && codePoint <= 0xdfff) {
       return true;
     }
   }
@@ -37,6 +52,7 @@ function assertDecodedSegment(segment: string): void {
     segment.includes("/") ||
     segment.includes("\\") ||
     hasControlCharacter(segment) ||
+    hasLoneSurrogate(segment) ||
     INTERNAL_WHITESPACE.test(segment)
   ) {
     invalidRepositoryUrl();
@@ -60,10 +76,14 @@ function decodeSegment(rawSegment: string): string {
 function assertRepoRef(ref: RepoRef): void {
   assertDecodedSegment(ref.owner);
   assertDecodedSegment(ref.repo);
+
+  if (/\.git$/i.test(ref.repo)) {
+    invalidRepositoryUrl();
+  }
 }
 
 export function parseRepositoryUrl(input: string): RepoRef {
-  if (hasControlCharacter(input)) {
+  if (hasControlCharacter(input) || hasLoneSurrogate(input)) {
     return invalidRepositoryUrl();
   }
 
@@ -76,7 +96,9 @@ export function parseRepositoryUrl(input: string): RepoRef {
     return invalidRepositoryUrl();
   }
 
-  if (/\.git$/i.test(rawRepo)) {
+  const hasLiteralGitSuffix = /\.git$/i.test(rawRepo);
+
+  if (hasLiteralGitSuffix) {
     rawRepo = rawRepo.slice(0, -4);
   }
 
@@ -104,10 +126,14 @@ export function parseRepositoryUrl(input: string): RepoRef {
     return invalidRepositoryUrl();
   }
 
-  return {
-    owner: decodeSegment(rawOwner),
-    repo: decodeSegment(rawRepo),
-  };
+  const owner = decodeSegment(rawOwner);
+  const repo = decodeSegment(rawRepo);
+
+  if (/\.git$/i.test(repo)) {
+    return invalidRepositoryUrl();
+  }
+
+  return { owner, repo };
 }
 
 export function toCanonicalRepositoryUrl(ref: RepoRef): string {
@@ -124,6 +150,16 @@ export function toShareSearch(ref: RepoRef): string {
 }
 
 export function parseShareSearch(search: string): RepoRef | null {
+  if (hasControlCharacter(search) || hasLoneSurrogate(search)) {
+    return null;
+  }
+
+  try {
+    decodeURIComponent(search);
+  } catch {
+    return null;
+  }
+
   const values = new URLSearchParams(search).getAll("repo");
   const value = values[0];
 
@@ -132,7 +168,8 @@ export function parseShareSearch(search: string): RepoRef | null {
   }
 
   try {
-    return parseRepositoryUrl(`https://github.com/${value}`);
+    const ref = parseRepositoryUrl(`https://github.com/${value}`);
+    return `${ref.owner}/${ref.repo}` === value ? ref : null;
   } catch (error) {
     if (error instanceof RepoUrlError) {
       return null;
