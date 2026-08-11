@@ -369,7 +369,10 @@ function functionMetric(
     if (currentNode === undefined) {
       continue;
     }
-    if (currentNode.type === "FunctionDefinition") {
+    if (
+      currentNode.type === "FunctionDefinition" ||
+      currentNode.type === "LambdaExpression"
+    ) {
       maxNesting = Math.max(maxNesting, current.depth + 1);
       continue;
     }
@@ -560,6 +563,36 @@ function collectAsBindings(
   }
 }
 
+function collectParameterBindings(
+  nodes: readonly PythonNode[],
+  index: number,
+  output: Set<number>,
+): void {
+  const children = nodes[index]?.children ?? [];
+  let group: number[] = [];
+
+  const collectGroup = (): void => {
+    const binding = group.find(
+      (child) => nodes[child]?.type === "VariableName",
+    );
+
+    if (binding !== undefined) {
+      output.add(binding);
+    }
+  };
+
+  for (let position = 0; position <= children.length; position += 1) {
+    const child = children[position];
+
+    if (child === undefined || nodes[child]?.type === ",") {
+      collectGroup();
+      group = [];
+    } else {
+      group.push(child);
+    }
+  }
+}
+
 function leafIndices(
   nodes: readonly PythonNode[],
   rootIndex: number,
@@ -657,6 +690,40 @@ function bindingIdentifiers(
 ): Set<number> {
   const result = new Set<number>();
 
+  const hasLocalLexicalOwner = (index: number): boolean => {
+    let parent = nodes[index]?.parent ?? null;
+    let crossedSignature = false;
+
+    while (parent !== null) {
+      const type = nodes[parent]?.type;
+
+      if (type === "ParamList" || type === "TypeDef") {
+        crossedSignature = true;
+      } else if (COMPREHENSION_CONTAINERS.has(type ?? "")) {
+        return true;
+      } else if (type === "FunctionDefinition" || type === "LambdaExpression") {
+        if (crossedSignature) {
+          crossedSignature = false;
+        } else {
+          return true;
+        }
+      } else if (type === "ClassDefinition" || type === "Script") {
+        return false;
+      }
+      parent = nodes[parent]?.parent ?? null;
+    }
+
+    return false;
+  };
+
+  const addLocalBindings = (candidates: ReadonlySet<number>): void => {
+    for (const candidate of candidates) {
+      if (hasLocalLexicalOwner(candidate)) {
+        result.add(candidate);
+      }
+    }
+  };
+
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
 
@@ -670,35 +737,37 @@ function bindingIdentifiers(
         result.add(name);
       }
     } else if (node.type === "ParamList") {
-      for (const child of node.children) {
-        if (nodes[child]?.type === "VariableName") {
-          result.add(child);
-        }
-      }
+      collectParameterBindings(nodes, index, result);
     } else if (
       node.type === "AssignStatement" ||
       node.type === "NamedExpression"
     ) {
-      collectAssignmentBindings(nodes, index, result);
+      const candidates = new Set<number>();
+
+      collectAssignmentBindings(nodes, index, candidates);
+      addLocalBindings(candidates);
     } else if (
       node.type === "ForStatement" ||
       COMPREHENSION_CONTAINERS.has(node.type)
     ) {
-      collectForBindings(nodes, index, result);
+      const candidates = new Set<number>();
+
+      collectForBindings(nodes, index, candidates);
+      addLocalBindings(candidates);
     } else if (node.type === "WithStatement" || node.type === "TryStatement") {
-      collectAsBindings(nodes, index, result);
+      const candidates = new Set<number>();
+
+      collectAsBindings(nodes, index, candidates);
+      addLocalBindings(candidates);
     } else if (node.type === "ImportStatement") {
       collectImportBindings(nodes, index, text, result);
-    } else if (
-      node.type === "CapturePattern" ||
-      node.type === "TypeDefinition"
-    ) {
+    } else if (node.type === "CapturePattern") {
       const name = firstDirectVariable(nodes, index);
 
       if (
         name !== null &&
-        (node.type !== "CapturePattern" ||
-          nodeTextAt(nodes, name, text) !== "_")
+        nodeTextAt(nodes, name, text) !== "_" &&
+        hasLocalLexicalOwner(name)
       ) {
         result.add(name);
       }
@@ -751,7 +820,11 @@ function publicApiKind(
     : null;
 }
 
-function hasDocstring(nodes: readonly PythonNode[], index: number): boolean {
+function hasDocstring(
+  nodes: readonly PythonNode[],
+  index: number,
+  text: string,
+): boolean {
   const bodyIndex = nodes[index]?.children.find(
     (child) => nodes[child]?.type === "Body",
   );
@@ -759,9 +832,11 @@ function hasDocstring(nodes: readonly PythonNode[], index: number): boolean {
   if (bodyIndex === undefined) {
     return false;
   }
-  const statementIndex = nodes[bodyIndex]?.children.find(
-    (child) => nodes[child]?.type !== ":",
-  );
+  const statementIndex = nodes[bodyIndex]?.children.find((child) => {
+    const type = nodes[child]?.type;
+
+    return type !== ":" && type !== "Comment";
+  });
 
   if (
     statementIndex === undefined ||
@@ -769,13 +844,82 @@ function hasDocstring(nodes: readonly PythonNode[], index: number): boolean {
   ) {
     return false;
   }
-  const expressionIndex = nodes[statementIndex].children.find((child) => {
+  const expressions = nodes[statementIndex].children.filter((child) => {
     const type = nodes[child]?.type;
 
-    return type === "String" || type === "ContinuedString";
+    return type !== undefined && type !== "," && type !== "Comment";
   });
 
-  return expressionIndex !== undefined;
+  if (expressions.length !== 1) {
+    return false;
+  }
+  const expression = expressions[0];
+
+  if (expression === undefined) {
+    return false;
+  }
+
+  const pending = [expression];
+  let sawString = false;
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (current === undefined) {
+      break;
+    }
+    const node = nodes[current];
+
+    if (node === undefined) {
+      return false;
+    }
+    if (node.type === "String") {
+      const prefix = /^([a-z]*)['"]/iu.exec(nodeText(node, text))?.[1];
+
+      if (prefix !== undefined && /[bf]/iu.test(prefix)) {
+        return false;
+      }
+      sawString = true;
+      continue;
+    }
+    if (node.type === "ContinuedString") {
+      const parts = node.children.filter(
+        (child) => nodes[child]?.type !== "Comment",
+      );
+
+      if (
+        parts.length === 0 ||
+        parts.some((part) => {
+          const type = nodes[part]?.type;
+
+          return type !== "String" && type !== "FormatString";
+        })
+      ) {
+        return false;
+      }
+      for (const part of parts) {
+        pending.push(part);
+      }
+      continue;
+    }
+    if (node.type === "ParenthesizedExpression") {
+      const parts = node.children.filter((child) => {
+        const type = nodes[child]?.type;
+
+        return type !== "(" && type !== ")" && type !== "Comment";
+      });
+
+      if (parts.length !== 1 || parts[0] === undefined) {
+        return false;
+      }
+      pending.push(parts[0]);
+      continue;
+    }
+
+    return false;
+  }
+
+  return sawString;
 }
 
 function relativePythonImport(
@@ -799,11 +943,167 @@ function relativePythonImport(
   return module.startsWith(".") ? module : null;
 }
 
+function stripOuterParentheses(value: string): string {
+  let result = value;
+
+  while (result.startsWith("(") && result.endsWith(")")) {
+    let depth = 0;
+    let wrapsWholeValue = true;
+
+    for (let index = 0; index < result.length; index += 1) {
+      const character = result[index];
+
+      if (character === "(") {
+        depth += 1;
+      } else if (character === ")") {
+        depth -= 1;
+        if (depth === 0 && index < result.length - 1) {
+          wrapsWholeValue = false;
+          break;
+        }
+      }
+      if (depth < 0) {
+        wrapsWholeValue = false;
+        break;
+      }
+    }
+    if (!wrapsWholeValue || depth !== 0) {
+      break;
+    }
+    result = result.slice(1, -1);
+  }
+
+  return result;
+}
+
+function isCanonicalTypeCheckingIf(
+  nodes: readonly PythonNode[],
+  index: number,
+  text: string,
+): boolean {
+  const children = nodes[index]?.children ?? [];
+  const ifIndex = children.find((child) => nodes[child]?.type === "if");
+  const bodyIndex = children.find((child) => nodes[child]?.type === "Body");
+
+  if (ifIndex === undefined || bodyIndex === undefined) {
+    return false;
+  }
+  const condition = stripOuterParentheses(
+    text
+      .slice(nodes[ifIndex]?.to ?? 0, nodes[bodyIndex]?.from ?? 0)
+      .replace(/\s+/gu, ""),
+  );
+
+  return condition === "TYPE_CHECKING" || condition === "typing.TYPE_CHECKING";
+}
+
+function isTypeCheckingOnlyImport(
+  nodes: readonly PythonNode[],
+  index: number,
+  text: string,
+): boolean {
+  let current = nodes[index]?.parent ?? null;
+
+  while (current !== null) {
+    const node = nodes[current];
+
+    if (node?.type === "Body" && node.parent !== null) {
+      const owner = nodes[node.parent];
+
+      if (owner?.type === "IfStatement") {
+        const trueBody = owner.children.find(
+          (child) => nodes[child]?.type === "Body",
+        );
+
+        if (
+          trueBody === current &&
+          isCanonicalTypeCheckingIf(nodes, node.parent, text)
+        ) {
+          return true;
+        }
+      }
+    }
+    current = node?.parent ?? null;
+  }
+
+  return false;
+}
+
+function collectRelativeImports(
+  nodes: readonly PythonNode[],
+  text: string,
+): string[] {
+  const imports = new Set<string>();
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (
+      nodes[index]?.type !== "ImportStatement" ||
+      isTypeCheckingOnlyImport(nodes, index, text)
+    ) {
+      continue;
+    }
+    const relative = relativePythonImport(nodes, index, text);
+
+    if (relative !== null) {
+      imports.add(relative);
+    }
+  }
+
+  return [...imports].sort();
+}
+
 function normalizedTokens(
   nodes: readonly PythonNode[],
   text: string,
 ): string[] {
   const result: string[] = [];
+  const formatExpressionRoots = (formatIndex: number): number[] => {
+    const replacements: number[] = [];
+    const pending = [...(nodes[formatIndex]?.children ?? [])].reverse();
+
+    while (pending.length > 0) {
+      const current = pending.pop();
+
+      if (current === undefined) {
+        break;
+      }
+      const node = nodes[current];
+
+      if (node === undefined) {
+        continue;
+      }
+      if (node.type === "FormatReplacement") {
+        replacements.push(current);
+      }
+      for (let index = node.children.length - 1; index >= 0; index -= 1) {
+        const child = node.children[index];
+
+        if (child !== undefined) {
+          pending.push(child);
+        }
+      }
+    }
+
+    const roots: number[] = [];
+
+    for (const replacement of replacements) {
+      for (const child of nodes[replacement]?.children ?? []) {
+        const type = nodes[child]?.type;
+
+        if (
+          type !== "{" &&
+          type !== "}" &&
+          type !== "FormatSelfDoc" &&
+          type !== "FormatConversion" &&
+          type !== "FormatSpec"
+        ) {
+          roots.push(child);
+        }
+      }
+    }
+
+    return roots;
+  };
   const pending = [0];
 
   while (pending.length > 0) {
@@ -823,6 +1123,15 @@ function normalizedTokens(
     }
     if (node.type === "FormatString") {
       result.push("TEMPLATE");
+      const roots = formatExpressionRoots(current);
+
+      for (let index = roots.length - 1; index >= 0; index -= 1) {
+        const root = roots[index];
+
+        if (root !== undefined) {
+          pending.push(root);
+        }
+      }
       continue;
     }
     if (node.type === "Number") {
@@ -861,21 +1170,20 @@ function analyzeParsedFile(
       logicalLines: 0,
       isTest: file.isTest,
       normalizedTokens: [],
-      relativeImports: [],
+      relativeImports: collectRelativeImports(nodes, file.text),
     });
     return;
   }
 
   const logicalLines = logicalLineNumbers(file.text, "python");
   const lineAt = lineLookup(file.text);
-  const imports = new Set<string>();
   const analyzedFile: AnalyzedSourceFile = {
     path: file.path,
     language: "python",
     logicalLines: logicalLines.length,
     isTest: file.isTest,
     normalizedTokens: normalizedTokens(nodes, file.text),
-    relativeImports: [],
+    relativeImports: collectRelativeImports(nodes, file.text),
   };
 
   for (let index = 0; index < nodes.length; index += 1) {
@@ -902,16 +1210,9 @@ function analyzeParsedFile(
         !nodeTextAt(nodes, nameIndex, file.text).startsWith("_")
       ) {
         output.exportedDeclarations += 1;
-        if (hasDocstring(nodes, index)) {
+        if (hasDocstring(nodes, index, file.text)) {
           output.documentedExports += 1;
         }
-      }
-    }
-    if (node.type === "ImportStatement") {
-      const relative = relativePythonImport(nodes, index, file.text);
-
-      if (relative !== null) {
-        imports.add(relative);
       }
     }
   }
@@ -925,11 +1226,21 @@ function analyzeParsedFile(
     }
   }
 
-  analyzedFile.relativeImports = [...imports].sort();
   output.files.push(analyzedFile);
 }
 
 function comparePaths(left: { path: string }, right: { path: string }): number {
+  const leftNormalized = left.path
+    .replaceAll("\\", "/")
+    .toLocaleLowerCase("en-US");
+  const rightNormalized = right.path
+    .replaceAll("\\", "/")
+    .toLocaleLowerCase("en-US");
+
+  if (leftNormalized !== rightNormalized) {
+    return leftNormalized < rightNormalized ? -1 : 1;
+  }
+
   return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 }
 
@@ -962,7 +1273,9 @@ export function analyzePython(
       continue;
     }
 
-    output.parsedBytes += file.bytes;
+    if (!isStubPath(file.path)) {
+      output.parsedBytes += file.bytes;
+    }
     analyzeParsedFile(file, nodes, output);
   }
 

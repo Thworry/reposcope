@@ -78,7 +78,7 @@ describe("Python analyzer", () => {
       pythonSourceFile("src/bindings.py", pythonBindingCoverageSource),
     ]);
 
-    expect(result.identifierOccurrences).toBe(15);
+    expect(result.identifierOccurrences).toBe(13);
     expect(result.ambiguousIdentifierOccurrences).toBe(11);
   });
 
@@ -98,8 +98,51 @@ match value:
       ),
     ]);
 
-    expect(result.identifierOccurrences).toBe(5);
-    expect(result.ambiguousIdentifierOccurrences).toBe(3);
+    expect(result.identifierOccurrences).toBe(1);
+    expect(result.ambiguousIdentifierOccurrences).toBe(1);
+  });
+
+  it("counts only local lexical bindings outside class, module, and type-alias scopes", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/scopes.py",
+        `module_value = 1
+type Alias = tuple[int, int]
+
+class Container:
+    class_value = 1
+
+    def method(self, rows):
+        local_value = 1
+        chosen = [uv for uv in rows]
+        if (xy := local_value):
+            with open("file") as gh:
+                try:
+                    match xy:
+                        case pq:
+                            return chosen
+                except Exception as zz:
+                    return gh
+        return chosen`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(11);
+    expect(result.ambiguousIdentifierOccurrences).toBe(5);
+  });
+
+  it("counts parameter targets without counting annotation or default-value references", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/parameters.py",
+        `def parameters(a=default, b: Model=(one, two), /, *args, c: Kind=make(ref), **kwargs):
+    callback = lambda d=default, ef=make(ref), *items, **gh: d
+    return callback`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(11);
+    expect(result.ambiguousIdentifierOccurrences).toBe(6);
   });
 
   it("normalizes literals, discards comments, and preserves identifiers and operators", () => {
@@ -127,6 +170,46 @@ enabled = count and True  # hidden`,
     expect(tokens).not.toEqual(
       expect.arrayContaining(['"secret"', "42", 'f"item {count}"', "hidden"]),
     );
+  });
+
+  it("normalizes an f-string shell while retaining replacement-expression tokens", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/template.py",
+        `f"prefix {count + 2} {format('x')} suffix"`,
+      ),
+    ]);
+
+    expect(result.files[0]?.normalizedTokens).toEqual([
+      "TEMPLATE",
+      "count",
+      "+",
+      "NUMBER",
+      "format",
+      "(",
+      "STRING",
+      ")",
+    ]);
+  });
+
+  it("isolates lambda decisions from the enclosing function metric", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/lambda.py",
+        `def outer():
+    callback = lambda value: 1 if value and other or third else 0
+    return callback`,
+      ),
+    ]);
+
+    expect(result.functions).toEqual([
+      expect.objectContaining({
+        name: "outer",
+        cyclomatic: 1,
+        maxNesting: 1,
+        hasErrorHandling: false,
+      }),
+    ]);
   });
 
   it("isolates a recovered malformed tree and counts only successful bytes", () => {
@@ -165,7 +248,29 @@ enabled = count and True  # hidden`,
     expect(result.functions).toEqual([]);
     expect(result.identifierOccurrences).toBe(0);
     expect(result.exportedDeclarations).toBe(0);
-    expect(result.parsedBytes).toBe(stub.bytes);
+    expect(result.parsedBytes).toBe(0);
+  });
+
+  it("retains only relative stub imports for resolution without parsed coverage bytes", () => {
+    const stub = pythonSourceFile(
+      "src/service.pyi",
+      `from .model import Model
+from ..shared import Shared
+from package import External
+def choose(value: Model) -> Shared: ...`,
+    );
+    const result = analyzePython([stub]);
+
+    expect(result.files[0]).toEqual({
+      path: "src/service.pyi",
+      language: "python",
+      logicalLines: 0,
+      isTest: false,
+      normalizedTokens: [],
+      relativeImports: ["..shared", ".model"],
+    });
+    expect(result.parsedBytes).toBe(0);
+    expect(result.identifierOccurrences).toBe(0);
   });
 
   it("counts only top-level public APIs and direct public methods with first-statement docstrings", () => {
@@ -206,6 +311,169 @@ def outer():
 
     expect(result.exportedDeclarations).toBe(5);
     expect(result.documentedExports).toBe(3);
+  });
+
+  it("accepts ordinary Python docstring forms but rejects bytes and f-strings", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/docstring-forms.py",
+        `def parenthesized():
+    # A comment does not displace the first statement.
+    ("Parenthesized.")
+
+def concatenated():
+    "First " "second."
+
+class RawDocs:
+    r"Raw class docs."
+
+    def unicode_method(self):
+        u"Unicode method docs."
+
+    def bytes_method(self):
+        b"Not a docstring."
+
+def formatted():
+    f"Not a docstring {value}."
+
+def _private():
+    "Private docs."
+`,
+      ),
+    ]);
+
+    expect(result.exportedDeclarations).toBe(6);
+    expect(
+      analyzePython([
+        pythonSourceFile(
+          "src/parenthesized.py",
+          `def parenthesized():\n    ("Parenthesized.")`,
+        ),
+      ]).documentedExports,
+    ).toBe(1);
+    expect(
+      analyzePython([
+        pythonSourceFile(
+          "src/concatenated.py",
+          `def concatenated():\n    "First " "second."`,
+        ),
+      ]).documentedExports,
+    ).toBe(1);
+    expect(
+      analyzePython([
+        pythonSourceFile(
+          "src/raw.py",
+          `class RawDocs:\n    r"Raw class docs."`,
+        ),
+      ]).documentedExports,
+    ).toBe(1);
+    expect(
+      analyzePython([
+        pythonSourceFile(
+          "src/unicode.py",
+          `class Public:\n    def unicode_method(self):\n        u"Unicode method docs."`,
+        ),
+      ]).documentedExports,
+    ).toBe(1);
+    expect(
+      analyzePython([
+        pythonSourceFile(
+          "src/bytes.py",
+          `def bytes_doc():\n    b"Not a docstring."`,
+        ),
+      ]).documentedExports,
+    ).toBe(0);
+    expect(result.documentedExports).toBe(4);
+  });
+
+  it("omits canonical TYPE_CHECKING true-branch imports from runtime edges", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/type-only.py",
+        `from .runtime import runtime
+if TYPE_CHECKING:
+    from .types import TypeOnly
+    if flag:
+        from .nested_types import NestedType
+else:
+    from .fallback import fallback
+
+if (typing.TYPE_CHECKING):
+    from .more_types import MoreType
+
+if flag:
+    from .live import live`,
+      ),
+    ]);
+
+    expect(result.files[0]?.relativeImports).toEqual([
+      ".fallback",
+      ".live",
+      ".runtime",
+    ]);
+    expect(result.identifierOccurrences).toBe(6);
+  });
+
+  it("sorts paths case-insensitively after POSIX normalization with a raw tie-break", () => {
+    const files = [
+      pythonSourceFile("src/b.py", "def lower_b():\n    return 1"),
+      pythonSourceFile("SRC/A.py", "def upper_a():\n    return 1"),
+      pythonSourceFile("src/a.py", "def lower_a():\n    return 1"),
+      pythonSourceFile("Src/C.py", "def mixed_c():\n    return 1"),
+    ];
+    const expected = ["SRC/A.py", "src/a.py", "src/b.py", "Src/C.py"];
+
+    expect(analyzePython(files).files.map((file) => file.path)).toEqual(
+      expected,
+    );
+    expect(
+      analyzePython([...files].reverse()).files.map((file) => file.path),
+    ).toEqual(expected);
+  });
+
+  it("keeps CRLF positions aligned and counts except-star as one handler", () => {
+    const source = [
+      "def inspect(value):",
+      "    try:",
+      "        return value",
+      "    except* ValueError as err:",
+      "        raise RuntimeError()",
+    ].join("\r\n");
+    const result = analyzePython([pythonSourceFile("src/crlf.py", source)]);
+
+    expect(result.functions[0]).toMatchObject({
+      startLine: 1,
+      endLine: 5,
+      logicalLines: 5,
+      cyclomatic: 2,
+      maxNesting: 1,
+      hasErrorHandling: true,
+    });
+  });
+
+  it("fails closed on deeply malformed input and handles wide frozen input iteratively", () => {
+    const malformed = pythonSourceFile(
+      "src/deep-broken.py",
+      `value = ${"(".repeat(4_000)}1`,
+    );
+    const wide = Object.freeze(
+      pythonSourceFile(
+        "src/wide.py",
+        `def wide():\n${Array.from(
+          { length: 1_500 },
+          (_, index) => `    local_${String(index)} = ${String(index)}`,
+        ).join("\n")}\n    return local_0`,
+      ),
+    );
+    const input = Object.freeze([malformed, wide]);
+    const result = analyzePython(input);
+
+    expect(result.parseFailures).toEqual([
+      { path: "src/deep-broken.py", language: "python", reason: "syntax" },
+    ]);
+    expect(result.files.map((file) => file.path)).toEqual(["src/wide.py"]);
+    expect(result.functions[0]?.name).toBe("wide");
+    expect(input[1]).toBe(wide);
   });
 
   it("carries test flags, uses stable path order, and never mutates inputs", () => {
