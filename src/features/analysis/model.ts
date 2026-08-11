@@ -287,6 +287,18 @@ export interface DimensionResult {
   rules: RuleResult[];
 }
 
+export interface OverallResult {
+  score: number;
+  label: "strong" | "solid" | "needs-attention" | "limited";
+  generalOnly: boolean;
+  preliminary: boolean;
+}
+
+export interface ConfidenceResult {
+  percent: number;
+  label: "high" | "medium" | "low";
+}
+
 export interface Strength {
   ruleId: string;
   dimension: DimensionKey;
@@ -304,6 +316,18 @@ export interface Improvement {
   references: FileReference[];
 }
 
+export interface ScoredProject {
+  rules: RuleResult[];
+  dimensions: DimensionResult[];
+  overall: OverallResult;
+  confidence: ConfidenceResult;
+}
+
+export interface FindingSummary {
+  strengths: Strength[];
+  weaknesses: Improvement[];
+}
+
 export interface AnalysisReport {
   rulesetVersion: "1.0.0";
   repository: {
@@ -318,16 +342,8 @@ export interface AnalysisReport {
     commitSha: string;
     analyzedAt: string;
   };
-  overall: {
-    score: number;
-    label: "strong" | "solid" | "needs-attention" | "limited";
-    generalOnly: boolean;
-    preliminary: boolean;
-  };
-  confidence: {
-    percent: number;
-    label: "high" | "medium" | "low";
-  };
+  overall: OverallResult;
+  confidence: ConfidenceResult;
   dimensions: DimensionResult[];
   strengths: Strength[];
   weaknesses: Improvement[];
