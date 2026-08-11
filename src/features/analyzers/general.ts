@@ -59,6 +59,8 @@ const VERSION_PLACEHOLDERS = new Set([
   "private",
   "workspace",
 ]);
+const MAX_STRUCTURED_TARGET_NODES = 4_096;
+const MAX_STRUCTURED_TARGET_DEPTH = 128;
 function emptyStructuredEvidence(): StructuredManifestEvidence {
   return {
     hasStructuredEntryPoint: false,
@@ -80,18 +82,65 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function recordHasStringTarget(value: unknown): boolean {
-  return isRecord(value) && Object.values(value).some(nonEmptyString);
+interface TargetValidation {
+  found: boolean;
+  tooComplex: boolean;
 }
 
-function hasRecursiveStringTarget(value: unknown): boolean {
+function validateDirectTarget(value: unknown): TargetValidation {
   if (nonEmptyString(value)) {
-    return true;
+    return { found: true, tooComplex: false };
   }
-  if (Array.isArray(value)) {
-    return value.some(hasRecursiveStringTarget);
+  if (!isRecord(value)) {
+    return { found: false, tooComplex: false };
   }
-  return isRecord(value) && Object.values(value).some(hasRecursiveStringTarget);
+
+  const values = Object.values(value);
+
+  if (values.length > MAX_STRUCTURED_TARGET_NODES) {
+    return { found: false, tooComplex: true };
+  }
+
+  return { found: values.some(nonEmptyString), tooComplex: false };
+}
+
+function validateRecursiveTarget(value: unknown): TargetValidation {
+  const pending: Array<{ value: unknown; depth: number }> = [
+    { value, depth: 0 },
+  ];
+  let visited = 0;
+  let found = false;
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (current === undefined) {
+      break;
+    }
+    visited += 1;
+    if (
+      visited > MAX_STRUCTURED_TARGET_NODES ||
+      current.depth > MAX_STRUCTURED_TARGET_DEPTH
+    ) {
+      return { found: false, tooComplex: true };
+    }
+    if (nonEmptyString(current.value)) {
+      found = true;
+      continue;
+    }
+
+    const children = Array.isArray(current.value)
+      ? current.value
+      : isRecord(current.value)
+        ? Object.values(current.value)
+        : [];
+
+    for (const child of children) {
+      pending.push({ value: child, depth: current.depth + 1 });
+    }
+  }
+
+  return { found, tooComplex: false };
 }
 
 function validVersion(value: unknown): boolean {
@@ -138,15 +187,21 @@ export function readPackageJsonEvidence(text: string): StructuredReadResult {
 
   const scripts = scriptEntries(parsed.scripts);
   const scriptKeys = scripts.map(([key]) => key);
+  const browser = validateDirectTarget(parsed.browser);
+  const bin = validateDirectTarget(parsed.bin);
+  const exportsTarget = validateRecursiveTarget(parsed.exports);
+
+  if (browser.tooComplex || bin.tooComplex || exportsTarget.tooComplex) {
+    return { evidence: empty, failure: "json" };
+  }
+
   const evidence: StructuredManifestEvidence = {
     hasStructuredEntryPoint:
       nonEmptyString(parsed.main) ||
       nonEmptyString(parsed.module) ||
-      nonEmptyString(parsed.browser) ||
-      recordHasStringTarget(parsed.browser) ||
-      nonEmptyString(parsed.bin) ||
-      recordHasStringTarget(parsed.bin) ||
-      hasRecursiveStringTarget(parsed.exports),
+      browser.found ||
+      bin.found ||
+      exportsTarget.found,
     hasRunCommand: scriptKeys.some((key) =>
       ["start", "dev", "serve"].includes(key),
     ),
@@ -178,8 +233,12 @@ function childRecord(
   return isRecord(child) ? child : undefined;
 }
 
-function hasScriptTarget(value: Record<string, unknown> | undefined): boolean {
-  return value !== undefined && Object.values(value).some(nonEmptyString);
+function validateScriptTarget(
+  value: Record<string, unknown> | undefined,
+): TargetValidation {
+  return value === undefined
+    ? { found: false, tooComplex: false }
+    : validateDirectTarget(value);
 }
 
 export function readPyprojectTomlEvidence(text: string): StructuredReadResult {
@@ -205,16 +264,22 @@ export function readPyprojectTomlEvidence(text: string): StructuredReadResult {
   const tool = childRecord(parsed, "tool");
   const poetry = childRecord(tool, "poetry");
   const projectEntryPoints = childRecord(project, "entry-points");
+  const scriptTargets = [
+    validateScriptTarget(childRecord(project, "scripts")),
+    validateScriptTarget(childRecord(project, "gui-scripts")),
+    validateScriptTarget(childRecord(projectEntryPoints, "console_scripts")),
+    validateScriptTarget(childRecord(poetry, "scripts")),
+  ];
+
+  if (scriptTargets.some((target) => target.tooComplex)) {
+    return { evidence: empty, failure: "toml" };
+  }
+
   const testConfiguration = ["pytest", "unittest", "tox", "nox"].some(
     (key) => childRecord(tool, key) !== undefined,
   );
   const evidence: StructuredManifestEvidence = {
-    hasStructuredEntryPoint: [
-      childRecord(project, "scripts"),
-      childRecord(project, "gui-scripts"),
-      childRecord(projectEntryPoints, "console_scripts"),
-      childRecord(poetry, "scripts"),
-    ].some(hasScriptTarget),
+    hasStructuredEntryPoint: scriptTargets.some((target) => target.found),
     hasRunCommand: false,
     hasBuildCommand: false,
     hasTestCommand: false,
@@ -458,17 +523,37 @@ function commandFacts(tokens: readonly string[]): DocumentedCommandFacts {
     staticCheck: false,
   };
 
-  if (["pytest", "tox", "nox"].includes(executable)) {
+  if (["pytest", "unittest", "tox", "nox"].includes(executable)) {
     return { ...empty, test: true };
   }
   if (executable === "python" || executable === "python3") {
-    const moduleIndex = arguments_.indexOf("-m");
-    const module = moduleIndex >= 0 ? arguments_[moduleIndex + 1] : undefined;
+    if (arguments_[0] === "-m") {
+      const module = arguments_[1];
+      const moduleArguments = arguments_.slice(2);
 
-    if (module === "pytest" || module === "unittest") {
-      return { ...empty, test: true };
+      if (["pytest", "unittest", "tox", "nox"].includes(module ?? "")) {
+        return { ...empty, test: true };
+      }
+      if (
+        ["ruff", "mypy", "pyright", "flake8", "pylint"].includes(module ?? "")
+      ) {
+        return { ...empty, staticCheck: true };
+      }
+      if (module === "black" && moduleArguments.includes("--check")) {
+        return { ...empty, staticCheck: true };
+      }
+      return empty;
     }
-    return { ...empty, run: true };
+    const target = arguments_[0];
+
+    return {
+      ...empty,
+      run:
+        target !== undefined &&
+        !target.startsWith("-") &&
+        target !== "pip" &&
+        target !== "pip3",
+    };
   }
   if (["ruff", "mypy", "pyright", "flake8", "pylint"].includes(executable)) {
     return { ...empty, staticCheck: true };
@@ -476,8 +561,23 @@ function commandFacts(tokens: readonly string[]): DocumentedCommandFacts {
   if (executable === "black") {
     return { ...empty, staticCheck: arguments_.includes("--check") };
   }
-  if (["node", "deno"].includes(executable)) {
-    return { ...empty, run: true };
+  if (executable === "node") {
+    const target = arguments_[0];
+
+    return {
+      ...empty,
+      run: target !== undefined && !target.startsWith("-"),
+      test: target === "--test",
+    };
+  }
+  if (executable === "deno") {
+    const action = positional[0];
+
+    return {
+      ...empty,
+      run: action === "run",
+      test: action === "test",
+    };
   }
 
   if (["npm", "pnpm", "yarn", "bun"].includes(executable)) {

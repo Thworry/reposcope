@@ -25,124 +25,127 @@ const COMMAND_SET = new Set<string>(COMMAND_EXECUTABLES);
 const INLINE_MARKERS = /[*_~`]/gu;
 const NORMALIZED_SEPARATOR = /[^\p{L}\p{N}]+/gu;
 const PROSE_PUNCTUATION = /^[.,:;!?…。，：；！？、]/u;
-const CODE_FENCE_LANGUAGES = new Set([
-  "javascript",
-  "js",
-  "jsx",
-  "mjs",
-  "cjs",
-  "typescript",
-  "ts",
-  "tsx",
-  "mts",
-  "cts",
-  "python",
-  "py",
-  "go",
-  "golang",
-  "rust",
-  "rs",
-  "c",
-  "h",
-  "cpp",
-  "c++",
-  "cxx",
-  "hpp",
-  "java",
-  "kotlin",
-  "kt",
-  "kts",
-  "csharp",
-  "cs",
-  "fsharp",
-  "fs",
-  "ruby",
-  "rb",
-  "php",
-  "swift",
-  "dart",
-  "scala",
-  "lua",
-  "vue",
-  "svelte",
-  "astro",
-]);
-
-function closingBracket(value: string, start: number, close: string): number {
-  let escaped = false;
-
-  for (let index = start; index < value.length; index += 1) {
-    const character = value[index];
-
-    if (escaped) {
-      escaped = false;
-    } else if (character === "\\") {
-      escaped = true;
-    } else if (character === close) {
-      return index;
-    }
-  }
-
-  return -1;
+function frozenAliases(...aliases: string[]): readonly string[] {
+  return Object.freeze(aliases);
 }
 
-function closingParenthesis(value: string, start: number): number {
-  let depth = 1;
-  let escaped = false;
+export const CODE_FENCE_LANGUAGE_ALIASES = Object.freeze({
+  javascript: frozenAliases("javascript", "js", "jsx", "mjs", "cjs"),
+  typescript: frozenAliases("typescript", "ts", "tsx", "mts", "cts"),
+  python: frozenAliases("python", "py"),
+  go: frozenAliases("go", "golang"),
+  rust: frozenAliases("rust", "rs"),
+  c: frozenAliases("c", "h"),
+  cpp: frozenAliases("cpp", "c++", "cc", "cxx", "hpp"),
+  java: frozenAliases("java"),
+  kotlin: frozenAliases("kotlin", "kt", "kts"),
+  csharp: frozenAliases("csharp", "cs"),
+  fsharp: frozenAliases("fsharp", "fs", "fsx"),
+  ruby: frozenAliases("ruby", "rb"),
+  php: frozenAliases("php"),
+  swift: frozenAliases("swift"),
+  dart: frozenAliases("dart"),
+  scala: frozenAliases("scala", "sc"),
+  shell: frozenAliases("shell", "sh", "bash", "zsh", "fish"),
+  lua: frozenAliases("lua"),
+  r: frozenAliases("r", "rscript"),
+  elixir: frozenAliases("elixir", "ex", "exs"),
+  erlang: frozenAliases("erlang", "erl", "hrl"),
+  clojure: frozenAliases("clojure", "clj", "cljs"),
+  haskell: frozenAliases("haskell", "hs", "lhs"),
+  vue: frozenAliases("vue"),
+  svelte: frozenAliases("svelte"),
+  astro: frozenAliases("astro"),
+});
 
-  for (let index = start; index < value.length; index += 1) {
-    const character = value[index];
+export const RECOGNIZED_CODE_FENCE_LANGUAGES = Object.freeze(
+  [...new Set(Object.values(CODE_FENCE_LANGUAGE_ALIASES).flat())].sort(),
+);
 
-    if (escaped) {
-      escaped = false;
-    } else if (character === "\\") {
-      escaped = true;
-    } else if (character === "(") {
-      depth += 1;
-    } else if (character === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
-      }
-    }
-  }
-
-  return value.length - 1;
-}
+const CODE_FENCE_LANGUAGES = new Set<string>(RECOGNIZED_CODE_FENCE_LANGUAGES);
 
 function visibleMarkdownText(value: string): string {
-  let result = "";
+  const result: string[] = [];
 
   for (let index = 0; index < value.length; index += 1) {
-    const image = value[index] === "!" && value[index + 1] === "[";
-    const labelStart = image ? index + 1 : index;
+    const character = value[index] ?? "";
 
-    if (value[labelStart] !== "[") {
-      result += value[index] ?? "";
+    if (character === "<") {
+      let quote: "'" | '"' | null = null;
+      let escaped = false;
+
+      index += 1;
+      for (; index < value.length; index += 1) {
+        const tagCharacter = value[index] ?? "";
+
+        if (escaped) {
+          escaped = false;
+        } else if (tagCharacter === "\\") {
+          escaped = true;
+        } else if (quote !== null) {
+          if (tagCharacter === quote) {
+            quote = null;
+          }
+        } else if (tagCharacter === "'" || tagCharacter === '"') {
+          quote = tagCharacter;
+        } else if (tagCharacter === ">") {
+          break;
+        }
+      }
       continue;
     }
-
-    const labelEnd = closingBracket(value, labelStart + 1, "]");
-
-    if (labelEnd === -1) {
-      result += value[index] ?? "";
+    if (character === "!" && value[index + 1] === "[") {
       continue;
     }
+    if (character === "[") {
+      continue;
+    }
+    if (character === "]" && value[index + 1] === "(") {
+      let depth = 1;
+      let escaped = false;
 
-    result += value.slice(labelStart + 1, labelEnd);
-    const destinationStart = labelEnd + 1;
+      index += 2;
+      for (; index < value.length; index += 1) {
+        const destinationCharacter = value[index] ?? "";
 
-    if (value[destinationStart] === "(") {
-      index = closingParenthesis(value, destinationStart + 1);
-    } else if (value[destinationStart] === "[") {
-      const referenceEnd = closingBracket(value, destinationStart + 1, "]");
-      index = referenceEnd === -1 ? value.length - 1 : referenceEnd;
-    } else {
-      index = labelEnd;
+        if (escaped) {
+          escaped = false;
+        } else if (destinationCharacter === "\\") {
+          escaped = true;
+        } else if (destinationCharacter === "(") {
+          depth += 1;
+        } else if (destinationCharacter === ")") {
+          depth -= 1;
+          if (depth === 0) {
+            break;
+          }
+        }
+      }
+      continue;
+    }
+    if (character === "]" && value[index + 1] === "[") {
+      let escaped = false;
+
+      index += 2;
+      for (; index < value.length; index += 1) {
+        const referenceCharacter = value[index] ?? "";
+
+        if (escaped) {
+          escaped = false;
+        } else if (referenceCharacter === "\\") {
+          escaped = true;
+        } else if (referenceCharacter === "]") {
+          break;
+        }
+      }
+      continue;
+    }
+    if (character !== "]") {
+      result.push(character);
     }
   }
 
-  return result;
+  return result.join("");
 }
 
 function normalizeHeading(value: string): string {
@@ -225,7 +228,7 @@ function isConcreteCodeExample(
   language: string,
   lines: readonly string[],
 ): boolean {
-  if (!CODE_FENCE_LANGUAGES.has(language)) {
+  if (language !== "" && !CODE_FENCE_LANGUAGES.has(language)) {
     return false;
   }
 
@@ -233,13 +236,21 @@ function isConcreteCodeExample(
 
   return (
     code.length > 0 &&
-    (/\b(?:import|export|from|const|let|var|function|class|def|fn|package|use|new|return|await|async)\b/u.test(
-      code,
-    ) ||
+    (/\bimport\s+(?:[\w$*{},\s]+\s+from\s+)?["'][^"'\n]+["']/u.test(code) ||
+      /(?:^|\n)\s*import\s+[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*(?:,|;|$))/u.test(
+        code,
+      ) ||
+      /(?:^|\n)\s*from\s+[\w.]+\s+import\s+[\w*{}, ]+(?:\s*(?:;|$))/u.test(
+        code,
+      ) ||
+      /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/u.test(code) ||
+      /\b(?:function|def|fn)\s+[A-Za-z_$][\w$]*\s*\(/u.test(code) ||
+      /\bclass\s+[A-Za-z_$][\w$]*(?:\s*[:({]|\s+extends\s+)/u.test(code) ||
       /\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\(/u.test(code) ||
       /(?:^|[;\n])\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*=(?!=)/u.test(
         code,
       ) ||
+      /\([A-Za-z_+*/!?-][\w+*/!?-]*(?:\s|\))/u.test(code) ||
       /=>/u.test(code))
   );
 }
@@ -574,9 +585,11 @@ export function logicalLineNumbers(
   text: string,
   language: Extract<SourceLanguage, "javascript" | "typescript" | "python">,
 ): number[] {
+  const normalized = text.replace(/\r\n?/gu, "\n");
+
   return language === "python"
-    ? pythonLogicalLines(text)
-    : javascriptLogicalLines(text);
+    ? pythonLogicalLines(normalized)
+    : javascriptLogicalLines(normalized);
 }
 
 export function countLogicalLines(

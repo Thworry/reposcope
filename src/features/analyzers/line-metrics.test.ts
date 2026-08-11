@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { chineseReadme, englishReadme } from "../../test/fixtures/text-files";
+import { RECOGNIZED_SOURCE_EXTENSIONS } from "../scanner/file-registry";
 import {
+  CODE_FENCE_LANGUAGE_ALIASES,
+  RECOGNIZED_CODE_FENCE_LANGUAGES,
   countLogicalLines,
   findMarkdownEvidence,
   lineAtOffset,
@@ -72,6 +75,22 @@ describe("Markdown evidence", () => {
     expect(
       findMarkdownEvidence("## ![Setup diagram](diagram.svg)").installHeading,
     ).toBe(true);
+    expect(
+      findMarkdownEvidence("## <a href='/install'>Guide</a>").installHeading,
+    ).toBe(false);
+    expect(
+      findMarkdownEvidence("## <a href='/guide'>Install guide</a>")
+        .installHeading,
+    ).toBe(true);
+    expect(
+      findMarkdownEvidence("## <https://example.test/install>").installHeading,
+    ).toBe(false);
+  });
+
+  it("handles a near-limit run of unmatched brackets without destination leakage", () => {
+    const hostile = `## ${"[".repeat(256 * 1024 - 32)}Guide`;
+
+    expect(findMarkdownEvidence(hostile).installHeading).toBe(false);
   });
 
   it("requires fenced commands and rejects prose punctuation as the first token", () => {
@@ -110,6 +129,55 @@ describe("Markdown evidence", () => {
       });
     },
   );
+
+  it.each([
+    ['```\nscan("owner/repo");\n```', true],
+    ["```\nvalue = createValue()\n```", true],
+    ["```ts\nimport\n```", false],
+    ["```python\nclass\n```", false],
+    ["```\nThis prose mentions import and class only.\n```", false],
+  ])(
+    "requires an actual code shape for concrete examples: %s",
+    (fence, expected) => {
+      expect(
+        findMarkdownEvidence(`## Usage\n${fence}`).usageConcreteExample,
+      ).toBe(expected);
+    },
+  );
+
+  it("exports the full recognized fence alias registry without data languages", () => {
+    expect(RECOGNIZED_CODE_FENCE_LANGUAGES).toEqual(
+      expect.arrayContaining([
+        "r",
+        "elixir",
+        "erlang",
+        "clojure",
+        "haskell",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "ex",
+        "erl",
+        "clj",
+        "hs",
+      ]),
+    );
+    expect(RECOGNIZED_CODE_FENCE_LANGUAGES).not.toContain("json");
+    expect(RECOGNIZED_CODE_FENCE_LANGUAGES).not.toContain("text");
+    expect(
+      RECOGNIZED_SOURCE_EXTENSIONS.map((extension) =>
+        extension.slice(1).toLocaleLowerCase("en-US"),
+      ).filter(
+        (extension) => !RECOGNIZED_CODE_FENCE_LANGUAGES.includes(extension),
+      ),
+    ).toEqual([]);
+    expect(Object.isFrozen(CODE_FENCE_LANGUAGE_ALIASES)).toBe(true);
+    expect(
+      Object.values(CODE_FENCE_LANGUAGE_ALIASES).every(Object.isFrozen),
+    ).toBe(true);
+    expect(Object.isFrozen(RECOGNIZED_CODE_FENCE_LANGUAGES)).toBe(true);
+  });
 });
 
 describe("logical line helpers", () => {
@@ -167,6 +235,17 @@ describe("logical line helpers", () => {
 
     expect(countLogicalLines(javascript, "javascript")).toBe(3);
     expect(countLogicalLines(python, "python")).toBe(3);
+  });
+
+  it("normalizes CRLF only for JS/Python logical-line continuation scanning", () => {
+    const javascript =
+      'const value = "first \\\r\n// still inside";\r\n// comment\r\nconst next = 1;';
+    const python =
+      'value = "first \\\r\n# still inside"\r\n# comment\r\nnext_value = 1';
+
+    expect(countLogicalLines(javascript, "javascript")).toBe(3);
+    expect(countLogicalLines(python, "python")).toBe(3);
+    expect(lineAtOffset("a\r\nb", 3)).toBe(2);
   });
 
   it("only closes Python triple strings on unescaped delimiters", () => {

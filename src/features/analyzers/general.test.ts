@@ -134,6 +134,26 @@ describe("structured manifest evidence", () => {
     ).toMatchObject({ evidence: { hasStructuredEntryPoint: false } });
   });
 
+  it("fails closed on deeply nested and overly wide export targets", () => {
+    const deep = `{"exports":${"[".repeat(5_000)}"./index.js"${"]".repeat(5_000)}}`;
+    const wideEntries = Array.from(
+      { length: 9_000 },
+      (_, index) => `"k${String(index)}":null`,
+    ).join(",");
+    const wide = `{"exports":{${wideEntries}}}`;
+
+    expect(new TextEncoder().encode(deep).byteLength).toBeLessThan(256 * 1024);
+    expect(new TextEncoder().encode(wide).byteLength).toBeLessThan(256 * 1024);
+    expect(readPackageJsonEvidence(deep)).toMatchObject({
+      evidence: { hasStructuredEntryPoint: false },
+      failure: "json",
+    });
+    expect(readPackageJsonEvidence(wide)).toMatchObject({
+      evidence: { hasStructuredEntryPoint: false },
+      failure: "json",
+    });
+  });
+
   it("rejects placeholder versions and empty entry points", () => {
     expect(
       readPackageJsonEvidence(
@@ -419,6 +439,24 @@ describe("general repository evidence", () => {
     ["nox", false, false, true, false],
     ["python -m unittest", false, false, true, false],
     ["python3 -m pytest", false, false, true, false],
+    ["unittest", false, false, true, false],
+    ["python -m tox", false, false, true, false],
+    ["python -m nox", false, false, true, false],
+    ["ruff check .", false, false, false, true],
+    ["python -m ruff check .", false, false, false, true],
+    ["python -m black --check .", false, false, false, true],
+    ["python -m pip install pkg", false, false, false, false],
+    ["python --version", false, false, false, false],
+    ["python", false, false, false, false],
+    ["python script.py", true, false, false, false],
+    ["python runner.py -m pytest", true, false, false, false],
+    ["node app.js", true, false, false, false],
+    ["node --test", false, false, true, false],
+    ["node --version", false, false, false, false],
+    ["node", false, false, false, false],
+    ["deno run app.ts", true, false, false, false],
+    ["deno test", false, false, true, false],
+    ["deno --version", false, false, false, false],
     ["go run .", true, false, false, false],
     ["go build ./...", false, true, false, false],
     ["go test ./...", false, false, true, false],
