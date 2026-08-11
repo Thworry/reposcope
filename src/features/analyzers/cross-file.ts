@@ -45,7 +45,7 @@ interface DuplicateCandidate {
 }
 
 interface CandidateSource {
-  filePair: readonly [number, number];
+  fileIndices: readonly number[];
   next: () => DuplicateCandidate | null;
 }
 
@@ -63,10 +63,9 @@ interface PreparedWindowGroup {
   startsByFile: ReadonlyMap<number, readonly number[]>;
 }
 
-interface GeneralPairGroups {
-  leftFileIndex: number;
-  rightFileIndex: number;
-  groups: PreparedWindowGroup[];
+/** @internal Test-only structural telemetry; it does not affect analysis. */
+export interface DuplicateRatioInstrumentation {
+  onCandidateSourcesPrepared?: (count: number) => void;
 }
 
 interface GraphFile {
@@ -185,6 +184,7 @@ function extendMatch(
   leftOccurrence: WindowOccurrence,
   rightOccurrence: WindowOccurrence,
   windowVerified = false,
+  startVerified = false,
 ): DuplicateCandidate | null {
   let leftFileIndex = leftOccurrence.fileIndex;
   let leftStart = leftOccurrence.start;
@@ -217,13 +217,15 @@ function extendMatch(
     return null;
   }
 
-  while (
-    leftStart > 0 &&
-    rightStart > 0 &&
-    leftTokens[leftStart - 1] === rightTokens[rightStart - 1]
-  ) {
-    leftStart -= 1;
-    rightStart -= 1;
+  if (!startVerified) {
+    while (
+      leftStart > 0 &&
+      rightStart > 0 &&
+      leftTokens[leftStart - 1] === rightTokens[rightStart - 1]
+    ) {
+      leftStart -= 1;
+      rightStart -= 1;
+    }
   }
 
   let length = DUPLICATE_WINDOW_SIZE;
@@ -412,7 +414,7 @@ function periodicDeltaSource(
   let delta = initialDelta;
 
   return {
-    filePair: [leftFileIndex, rightFileIndex],
+    fileIndices: [leftFileIndex, rightFileIndex],
     next: () => {
       if (
         (deltaStep > 0 && delta > finalDelta) ||
@@ -617,15 +619,15 @@ function hasAnyUnskippedFilePair(
   return false;
 }
 
-function prepareGeneralPairGroups(
+function prepareGeneralGroups(
   files: readonly DuplicateFile[],
   skippedPairs: ReadonlySet<string>,
-): GeneralPairGroups[] {
+): PreparedWindowGroup[] {
   if (!hasAnyUnskippedFilePair(files, skippedPairs)) {
     return [];
   }
 
-  const pairGroups = new Map<string, GeneralPairGroups>();
+  const groups: PreparedWindowGroup[] = [];
   const buckets = indexWindows(files, DUPLICATE_WINDOW_SIZE);
   const orderedHashes = [...buckets.keys()].sort((left, right) => left - right);
 
@@ -645,6 +647,8 @@ function prepareGeneralPairGroups(
       const fileIndices = [...startsByFile.keys()].sort(
         (left, right) => left - right,
       );
+      let hasUnskippedPair = false;
+
       for (let left = 0; left < fileIndices.length; left += 1) {
         const leftFileIndex = fileIndices[left];
 
@@ -660,59 +664,62 @@ function prepareGeneralPairGroups(
           ) {
             continue;
           }
-          const key = filePairKey(leftFileIndex, rightFileIndex);
-          const pair = pairGroups.get(key) ?? {
-            leftFileIndex,
-            rightFileIndex,
-            groups: [],
-          };
-
-          pair.groups.push({ startsByFile });
-          pairGroups.set(key, pair);
+          hasUnskippedPair = true;
+          break;
         }
+        if (hasUnskippedPair) {
+          break;
+        }
+      }
+      if (hasUnskippedPair) {
+        groups.push({ startsByFile });
       }
     }
   }
 
-  return [...pairGroups.values()].sort(
-    (left, right) =>
-      left.leftFileIndex - right.leftFileIndex ||
-      left.rightFileIndex - right.rightFileIndex,
-  );
+  return groups;
 }
 
 function generalGroupCandidateSource(
   files: readonly DuplicateFile[],
-  leftFileIndex: number,
-  rightFileIndex: number,
   group: PreparedWindowGroup,
+  skippedPairs: ReadonlySet<string>,
   occupied: readonly (readonly boolean[])[],
 ): CandidateSource {
-  const leftStarts = group.startsByFile.get(leftFileIndex) ?? [];
-  const rightStarts = group.startsByFile.get(rightFileIndex) ?? [];
+  const fileIndices = [...group.startsByFile.keys()].sort(
+    (left, right) => left - right,
+  );
   let currentLength: number | null = null;
-  let leftCursor = 0;
-  let rightCursor = 0;
+  let leftFileCursor = 0;
+  let rightFileCursor = 1;
+  let leftStartCursor = 0;
+  let rightStartCursor = 0;
 
   // Exact-window grouping proves the first 50 tokens match. Emitting only a
   // maximal match's first window makes that candidate canonical, so later
   // windows cannot duplicate it across groups.
   const candidateIsFree = (candidate: DuplicateCandidate): boolean =>
     rangeIsFree(
-      occupied[leftFileIndex] ?? [],
+      occupied[candidate.leftFileIndex] ?? [],
       candidate.leftStart,
       candidate.length,
     ) &&
     rangeIsFree(
-      occupied[rightFileIndex] ?? [],
+      occupied[candidate.rightFileIndex] ?? [],
       candidate.rightStart,
       candidate.length,
     );
   const candidateAt = (
+    leftFileIndex: number,
     leftStart: number,
+    rightFileIndex: number,
     rightStart: number,
   ): DuplicateCandidate | null => {
+    const leftTokens = files[leftFileIndex]?.tokens ?? [];
+    const rightTokens = files[rightFileIndex]?.tokens ?? [];
+
     if (
+      skippedPairs.has(filePairKey(leftFileIndex, rightFileIndex)) ||
       !rangeIsFree(
         occupied[leftFileIndex] ?? [],
         leftStart,
@@ -722,7 +729,10 @@ function generalGroupCandidateSource(
         occupied[rightFileIndex] ?? [],
         rightStart,
         DUPLICATE_WINDOW_SIZE,
-      )
+      ) ||
+      (leftStart > 0 &&
+        rightStart > 0 &&
+        leftTokens[leftStart - 1] === rightTokens[rightStart - 1])
     ) {
       return null;
     }
@@ -730,6 +740,7 @@ function generalGroupCandidateSource(
       files,
       { fileIndex: leftFileIndex, start: leftStart },
       { fileIndex: rightFileIndex, start: rightStart },
+      true,
       true,
     );
 
@@ -747,22 +758,98 @@ function generalGroupCandidateSource(
   const maximumFreeLength = (): number => {
     let maximum = 0;
 
-    for (const leftStart of leftStarts) {
-      for (const rightStart of rightStarts) {
-        maximum = Math.max(
-          maximum,
-          candidateAt(leftStart, rightStart)?.length ?? 0,
-        );
+    for (let left = 0; left < fileIndices.length; left += 1) {
+      const leftFileIndex = fileIndices[left];
+
+      if (leftFileIndex === undefined) {
+        continue;
+      }
+      const leftStarts = group.startsByFile.get(leftFileIndex) ?? [];
+
+      for (let right = left + 1; right < fileIndices.length; right += 1) {
+        const rightFileIndex = fileIndices[right];
+
+        if (rightFileIndex === undefined) {
+          continue;
+        }
+        const rightStarts = group.startsByFile.get(rightFileIndex) ?? [];
+
+        for (const leftStart of leftStarts) {
+          for (const rightStart of rightStarts) {
+            maximum = Math.max(
+              maximum,
+              candidateAt(leftFileIndex, leftStart, rightFileIndex, rightStart)
+                ?.length ?? 0,
+            );
+          }
+        }
       }
     }
 
     return maximum;
   };
+  const resetCursors = (): void => {
+    leftFileCursor = 0;
+    rightFileCursor = 1;
+    leftStartCursor = 0;
+    rightStartCursor = 0;
+  };
+  const nextCandidateAtCurrentLength = (): DuplicateCandidate | null => {
+    while (leftFileCursor < fileIndices.length - 1) {
+      if (rightFileCursor >= fileIndices.length) {
+        leftFileCursor += 1;
+        rightFileCursor = leftFileCursor + 1;
+        leftStartCursor = 0;
+        rightStartCursor = 0;
+        continue;
+      }
+      const leftFileIndex = fileIndices[leftFileCursor];
+      const rightFileIndex = fileIndices[rightFileCursor];
+
+      if (leftFileIndex === undefined || rightFileIndex === undefined) {
+        rightFileCursor += 1;
+        leftStartCursor = 0;
+        rightStartCursor = 0;
+        continue;
+      }
+      const leftStarts = group.startsByFile.get(leftFileIndex) ?? [];
+      const rightStarts = group.startsByFile.get(rightFileIndex) ?? [];
+
+      while (leftStartCursor < leftStarts.length) {
+        const leftStart = leftStarts[leftStartCursor];
+        const rightStart = rightStarts[rightStartCursor];
+
+        rightStartCursor += 1;
+        if (rightStartCursor >= rightStarts.length) {
+          leftStartCursor += 1;
+          rightStartCursor = 0;
+        }
+        if (leftStart === undefined || rightStart === undefined) {
+          continue;
+        }
+        const candidate = candidateAt(
+          leftFileIndex,
+          leftStart,
+          rightFileIndex,
+          rightStart,
+        );
+
+        if (candidate?.length === currentLength) {
+          return candidate;
+        }
+      }
+      rightFileCursor += 1;
+      leftStartCursor = 0;
+      rightStartCursor = 0;
+    }
+
+    return null;
+  };
 
   return {
-    filePair: [leftFileIndex, rightFileIndex],
+    fileIndices,
     next: () => {
-      while (currentLength !== null || leftStarts.length > 0) {
+      while (currentLength !== null || fileIndices.length > 1) {
         if (currentLength === null) {
           // Re-scan for the next occupied-aware length tier instead of storing
           // or sorting the potentially quadratic occurrence cross product.
@@ -772,27 +859,13 @@ function generalGroupCandidateSource(
             return null;
           }
           currentLength = maximum;
-          leftCursor = 0;
-          rightCursor = 0;
+          resetCursors();
         }
 
-        while (leftCursor < leftStarts.length) {
-          const leftStart = leftStarts[leftCursor];
-          const rightStart = rightStarts[rightCursor];
+        const candidate = nextCandidateAtCurrentLength();
 
-          rightCursor += 1;
-          if (rightCursor >= rightStarts.length) {
-            leftCursor += 1;
-            rightCursor = 0;
-          }
-          if (leftStart === undefined || rightStart === undefined) {
-            continue;
-          }
-          const candidate = candidateAt(leftStart, rightStart);
-
-          if (candidate?.length === currentLength) {
-            return candidate;
-          }
+        if (candidate !== null) {
+          return candidate;
         }
         currentLength = null;
       }
@@ -808,7 +881,7 @@ function singletonCandidateSource(
   let pending = true;
 
   return {
-    filePair: [candidate.leftFileIndex, candidate.rightFileIndex],
+    fileIndices: [candidate.leftFileIndex, candidate.rightFileIndex],
     next: () => {
       if (!pending) {
         return null;
@@ -892,6 +965,7 @@ function popCandidateHeap(
 function duplicateCandidateSources(
   files: readonly DuplicateFile[],
   occupied: readonly (readonly boolean[])[],
+  instrumentation?: DuplicateRatioInstrumentation,
 ): CandidateSource[] {
   const identical = identicalFileCandidates(files);
   const periodic = periodicCandidateSources(files, identical.skippedPairs);
@@ -899,27 +973,38 @@ function duplicateCandidateSources(
     ...identical.skippedPairs,
     ...periodic.skippedPairs,
   ]);
-  const general = prepareGeneralPairGroups(files, skippedPairs);
+  const general = prepareGeneralGroups(files, skippedPairs);
   const sources = [...periodic.sources];
 
   for (const candidate of identical.candidates) {
     sources.push(singletonCandidateSource(candidate));
   }
-  for (const pair of general) {
-    for (const group of pair.groups) {
-      sources.push(
-        generalGroupCandidateSource(
-          files,
-          pair.leftFileIndex,
-          pair.rightFileIndex,
-          group,
-          occupied,
-        ),
-      );
+  for (const group of general) {
+    sources.push(
+      generalGroupCandidateSource(files, group, skippedPairs, occupied),
+    );
+  }
+  instrumentation?.onCandidateSourcesPrepared?.(sources.length);
+
+  return sources;
+}
+
+function sourceCanContinue(
+  source: CandidateSource,
+  fileCanMatch: readonly boolean[],
+): boolean {
+  let matchableFiles = 0;
+
+  for (const fileIndex of source.fileIndices) {
+    if (fileCanMatch[fileIndex] === true) {
+      matchableFiles += 1;
+      if (matchableFiles >= 2) {
+        return true;
+      }
     }
   }
 
-  return sources;
+  return false;
 }
 
 function* orderedCandidates(
@@ -931,6 +1016,9 @@ function* orderedCandidates(
   const heap: CandidateHeapEntry[] = [];
 
   for (const source of sources) {
+    if (!sourceCanContinue(source, fileCanMatch)) {
+      continue;
+    }
     const candidate = source.next();
 
     if (candidate !== null) {
@@ -944,17 +1032,11 @@ function* orderedCandidates(
     if (entry === null) {
       break;
     }
-    if (
-      entry.source.filePair.some(
-        (fileIndex) => fileCanMatch[fileIndex] !== true,
-      )
-    ) {
+    if (!sourceCanContinue(entry.source, fileCanMatch)) {
       continue;
     }
     yield entry.candidate;
-    const next = entry.source.filePair.every(
-      (fileIndex) => fileCanMatch[fileIndex] === true,
-    )
+    const next = sourceCanContinue(entry.source, fileCanMatch)
       ? entry.source.next()
       : null;
 
@@ -1001,7 +1083,10 @@ function hasFreeDuplicateWindow(occupied: readonly boolean[]): boolean {
   return false;
 }
 
-function chooseNonOverlapping(files: readonly DuplicateFile[]): {
+function chooseNonOverlapping(
+  files: readonly DuplicateFile[],
+  instrumentation?: DuplicateRatioInstrumentation,
+): {
   accepted: DuplicateCandidate[];
   occupied: boolean[][];
 } {
@@ -1011,7 +1096,7 @@ function chooseNonOverlapping(files: readonly DuplicateFile[]): {
   const fileCanMatch = occupied.map(hasFreeDuplicateWindow);
   const candidates = orderedCandidates(
     files,
-    duplicateCandidateSources(files, occupied),
+    duplicateCandidateSources(files, occupied, instrumentation),
     fileCanMatch,
   );
   const accepted: DuplicateCandidate[] = [];
@@ -1075,6 +1160,7 @@ function summarizeEvidence(
 
 export function computeDuplicateRatio(
   input: readonly TokenizedFile[],
+  instrumentation?: DuplicateRatioInstrumentation,
 ): DuplicateMetrics {
   const files = input
     .filter((file) => !file.isTest)
@@ -1097,7 +1183,7 @@ export function computeDuplicateRatio(
     };
   }
 
-  const { accepted, occupied } = chooseNonOverlapping(files);
+  const { accepted, occupied } = chooseNonOverlapping(files, instrumentation);
   const duplicatedTokens = occupied.reduce(
     (total, file) =>
       total + file.reduce((count, duplicate) => count + Number(duplicate), 0),

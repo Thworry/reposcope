@@ -1240,6 +1240,108 @@ function hasDefiniteModuleExecution(
   return true;
 }
 
+function normalizedCondition(
+  nodes: readonly PythonNode[],
+  keywordIndex: number,
+  bodyIndex: number,
+  text: string,
+): string {
+  return stripOuterParentheses(
+    text
+      .slice(nodes[keywordIndex]?.to ?? 0, nodes[bodyIndex]?.from ?? 0)
+      .replace(/\s+/gu, ""),
+  );
+}
+
+function conditionTruth(value: string): boolean | null {
+  if (value === "True") {
+    return true;
+  }
+  if (
+    value === "False" ||
+    value === "TYPE_CHECKING" ||
+    value === "typing.TYPE_CHECKING"
+  ) {
+    return false;
+  }
+
+  return null;
+}
+
+function isReachableIfBody(
+  nodes: readonly PythonNode[],
+  ifIndex: number,
+  bodyIndex: number,
+  text: string,
+): boolean {
+  const children = nodes[ifIndex]?.children ?? [];
+  let keywordIndex: number | null = null;
+  let previousBranchDefinitelyTrue = false;
+
+  for (const child of children) {
+    const type = nodes[child]?.type;
+
+    if (type === "if" || type === "elif" || type === "else") {
+      keywordIndex = child;
+      continue;
+    }
+    if (type !== "Body" || keywordIndex === null) {
+      continue;
+    }
+    const keywordType = nodes[keywordIndex]?.type;
+    const truth =
+      keywordType === "else"
+        ? true
+        : conditionTruth(normalizedCondition(nodes, keywordIndex, child, text));
+
+    if (child === bodyIndex) {
+      return !previousBranchDefinitelyTrue && truth !== false;
+    }
+    if (truth === true) {
+      previousBranchDefinitelyTrue = true;
+    }
+    keywordIndex = null;
+  }
+
+  return true;
+}
+
+function hasReachableModuleExecution(
+  nodes: readonly PythonNode[],
+  index: number,
+  text: string,
+): boolean {
+  if (!hasModuleScope(nodes, index)) {
+    return false;
+  }
+
+  let current = index;
+  while (current !== 0) {
+    const parent = nodes[current]?.parent ?? null;
+
+    if (parent === null) {
+      return false;
+    }
+    if (nodes[parent]?.type === "Body") {
+      const owner = nodes[parent].parent;
+
+      if (
+        owner !== null &&
+        nodes[owner]?.type === "IfStatement" &&
+        !isReachableIfBody(nodes, owner, parent, text)
+      ) {
+        return false;
+      }
+    }
+    if (nodes[parent]?.type === "Script") {
+      return true;
+    }
+    current = parent;
+  }
+
+  return true;
+}
+
 interface ModuleBindingEvent {
   offset: number;
   kind: "set" | "delete" | "import";
@@ -1332,7 +1434,7 @@ function topLevelBindingMetadata(
       addSetEvent(node.from, bindings);
     } else if (
       node.type === "DeleteStatement" &&
-      hasDefiniteModuleExecution(nodes, index)
+      hasReachableModuleExecution(nodes, index, text)
     ) {
       const names = node.children
         .filter((child) => nodes[child]?.type === "VariableName")

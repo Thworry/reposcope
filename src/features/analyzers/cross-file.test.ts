@@ -662,6 +662,35 @@ describe("cross-file duplicate metrics", () => {
   );
 
   it(
+    "prepares at most one general source per exact window group",
+    { timeout: 5000 },
+    () => {
+      let preparedSources = 0;
+      const shared = sequence("shared-prefix", 999);
+      const files = Array.from({ length: 30 }, (_, fileIndex) =>
+        tokenizedFile(`src/${String(fileIndex).padStart(2, "0")}.ts`, [
+          ...shared,
+          `unique-tail-${String(fileIndex)}`,
+        ]),
+      );
+
+      expect(
+        computeDuplicateRatio(files, {
+          onCandidateSourcesPrepared(count) {
+            preparedSources = count;
+          },
+        }),
+      ).toMatchObject({
+        totalEligibleTokens: 30_000,
+        duplicatedTokens: 29_970,
+        ratio: 0.999,
+      });
+
+      expect(preparedSources).toBeLessThanOrEqual(1000);
+    },
+  );
+
+  it(
     "stops draining periodic pair sources once no 50-token range remains",
     { timeout: 5000 },
     () => {
@@ -935,7 +964,7 @@ describe("relative import graph metrics", () => {
     });
   });
 
-  it("keeps a package shadow across a conditional delete", () => {
+  it("keeps a package shadow across an unreachable false-branch delete", () => {
     const analyzed = analyzePython([
       pythonSourceFile(
         "pkg/__init__.py",
@@ -956,11 +985,15 @@ describe("relative import graph metrics", () => {
     });
   });
 
-  it("keeps a package shadow across a try-body delete", () => {
+  it.each([
+    ["true branch", "if True:\n    del b"],
+    ["unknown branch", "if condition:\n    del b"],
+    ["successful try body", "try:\n    del b\nexcept Exception:\n    pass"],
+  ])("restores a from-dot edge after a reachable %s delete", (_, deletion) => {
     const analyzed = analyzePython([
       pythonSourceFile(
         "pkg/__init__.py",
-        "b = object()\ntry:\n    del b\nexcept Exception:\n    pass\nfrom . import b",
+        `b = object()\n${deletion}\nfrom . import b`,
       ),
       pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
     ]);
@@ -968,12 +1001,12 @@ describe("relative import graph metrics", () => {
     expect(
       analyzed.files.find((file) => file.path === "pkg/__init__.py"),
     ).toMatchObject({
-      relativeImportCandidates: [],
-      topLevelDefinedNames: ["b"],
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
     });
     expect(findCircularImports(analyzed.files)).toEqual({
-      components: [],
-      largestComponentSize: 0,
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
     });
   });
 
