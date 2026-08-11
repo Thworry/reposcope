@@ -120,6 +120,52 @@ export interface FetchedTextFile {
   isTest: boolean;
 }
 
+export interface GeneralAnalysisInput {
+  repository: RepositoryMetadata;
+  tree: NormalizedTree;
+  files: readonly FetchedTextFile[];
+}
+
+export interface GeneralMetrics {
+  hasReadme: boolean;
+  installHeading: boolean;
+  installCommand: boolean;
+  usageHeading: boolean;
+  usageCommandOrExample: boolean;
+  hasContributing: boolean;
+  hasLicenseFile: boolean;
+  apiLicenseDetected: boolean;
+  hasArchitectureEvidence: boolean;
+  readmeTopLevelSourceAreaCount: number;
+  hasManifest: boolean;
+  hasStructuredEntryPoint: boolean;
+  hasConventionalEntryPoint: boolean;
+  hasRunCommand: boolean;
+  hasBuildCommand: boolean;
+  hasDocumentedRunCommand: boolean;
+  hasDocumentedBuildCommand: boolean;
+  hasExample: boolean;
+  hasVersionHistory: boolean;
+  hasManifestVersion: boolean;
+  hasConfigurationEvidence: boolean;
+  testFileCount: number;
+  supportedSourceFileCount: number;
+  hasTestConfiguration: boolean;
+  hasCi: boolean;
+  hasTestCommand: boolean;
+  hasDocumentedTestCommand: boolean;
+  hasStaticCheckCommand: boolean;
+  hasDocumentedStaticCheckCommand: boolean;
+  hasCoverageEvidence: boolean;
+  hasLockfile: boolean;
+  hasDependencyUpdates: boolean;
+  hasIssueOrPrTemplates: boolean;
+  hasSecurityPolicy: boolean;
+  hasCodeOfConduct: boolean;
+  committedGeneratedDirectoryCount: number;
+  parseFailures: Array<{ path: string; reason: "json" | "toml" }>;
+}
+
 export interface CoverageSummary {
   treeComplete: boolean;
   eligibleFiles: number;
