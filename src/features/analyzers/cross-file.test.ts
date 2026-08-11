@@ -1021,6 +1021,58 @@ describe("relative import graph metrics", () => {
     });
   });
 
+  it.each([
+    [
+      "for break",
+      "for item in rows:\n    break\nelse:\n    b = None\nfrom . import b",
+    ],
+    [
+      "while break",
+      "while condition:\n    break\nelse:\n    b = None\nfrom . import b",
+    ],
+  ] as const)("retains a cycle when %s skips loop else", (_, source) => {
+    const analyzed = analyzePython([
+      pythonSourceFile("pkg/__init__.py", source),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(analyzed.files[0]?.relativeImportCandidates).toEqual([".b"]);
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
+  it.each([
+    ["simple-first chain", "b = missing.attr = None", false],
+    ["member-first chain", "missing.attr = b = None", true],
+    ["simple-first unpack", "b, missing.attr = [None, None]", false],
+    ["member-first unpack", "missing.attr, b = [None, None]", true],
+  ] as const)(
+    "uses partial assignment order for %s",
+    (_, assignment, hasCycle) => {
+      const analyzed = analyzePython([
+        pythonSourceFile(
+          "pkg/__init__.py",
+          `try:\n    ${assignment}\nexcept Exception:\n    from . import b`,
+        ),
+        pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+      ]);
+
+      expect(analyzed.files[0]?.relativeImportCandidates).toEqual(
+        hasCycle ? [".b"] : [],
+      );
+      expect(findCircularImports(analyzed.files)).toEqual(
+        hasCycle
+          ? {
+              components: [["pkg/__init__.py", "pkg/b.py"]],
+              largestComponentSize: 2,
+            }
+          : { components: [], largestComponentSize: 0 },
+      );
+    },
+  );
+
   it("joins caught exceptional prefixes before a later normal restoration", () => {
     const analyzed = analyzePython([
       pythonSourceFile(

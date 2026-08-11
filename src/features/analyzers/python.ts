@@ -1691,6 +1691,227 @@ function interpretDeleteStatementFlow(
   return { normal, exceptional };
 }
 
+function isAssignmentPunctuation(type: string | undefined): boolean {
+  return (
+    type === undefined ||
+    type === "," ||
+    type === "(" ||
+    type === ")" ||
+    type === "[" ||
+    type === "]" ||
+    type === "*" ||
+    type === "Comment"
+  );
+}
+
+function assignmentSequenceEntries(
+  context: BindingFlowContext,
+  index: number,
+): number[] | null {
+  const type = context.nodes[index]?.type;
+
+  if (type !== "TupleExpression" && type !== "ArrayExpression") {
+    return null;
+  }
+
+  return (context.nodes[index]?.children ?? []).filter(
+    (child) => !isAssignmentPunctuation(context.nodes[child]?.type),
+  );
+}
+
+function isDefinitelyNonThrowingAssignmentValue(
+  context: BindingFlowContext,
+  index: number,
+): boolean {
+  const pending = [index];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (current === undefined) {
+      break;
+    }
+    const node = context.nodes[current];
+
+    if (node === undefined) {
+      return false;
+    }
+    if (
+      node.type === "Boolean" ||
+      node.type === "None" ||
+      node.type === "Number" ||
+      node.type === "String"
+    ) {
+      continue;
+    }
+    if (
+      node.type !== "ParenthesizedExpression" &&
+      node.type !== "TupleExpression" &&
+      node.type !== "ArrayExpression"
+    ) {
+      return false;
+    }
+    for (const child of node.children) {
+      if (!isAssignmentPunctuation(context.nodes[child]?.type)) {
+        pending.push(child);
+      }
+    }
+  }
+
+  return true;
+}
+
+type AssignmentTargetTask =
+  | { kind: "node"; index: number; value: number | null }
+  | { kind: "sequence"; indices: number[]; value: number | null };
+
+function applyAssignmentTargets(
+  context: BindingFlowContext,
+  target: AssignmentTargetTask,
+  state: Set<string>,
+  inputExceptional: Set<string> | null,
+): Set<string> | null {
+  let exceptional = inputExceptional;
+  const pending = [target];
+
+  while (pending.length > 0) {
+    const task = pending.pop();
+
+    if (task === undefined) {
+      break;
+    }
+    if (task.kind === "sequence") {
+      const rawTargets = task.indices.filter(
+        (index) => !isAssignmentPunctuation(context.nodes[index]?.type),
+      );
+      const hasStar = task.indices.some(
+        (index) => context.nodes[index]?.type === "*",
+      );
+      const values =
+        task.value === null
+          ? null
+          : assignmentSequenceEntries(context, task.value);
+      const exactlyMatched =
+        !hasStar && values !== null && values.length === rawTargets.length;
+
+      if (!exactlyMatched) {
+        exceptional = mergeExceptionalBindingStates([exceptional, state]);
+      }
+      for (let position = rawTargets.length - 1; position >= 0; position -= 1) {
+        const index = rawTargets[position];
+
+        if (index !== undefined) {
+          pending.push({
+            kind: "node",
+            index,
+            value: exactlyMatched ? (values[position] ?? null) : null,
+          });
+        }
+      }
+      continue;
+    }
+
+    const node = context.nodes[task.index];
+
+    if (node === undefined) {
+      exceptional = mergeExceptionalBindingStates([exceptional, state]);
+    } else if (node.type === "VariableName") {
+      const name = nodeTextAt(context.nodes, task.index, context.text);
+
+      if (name.length > 0) {
+        state.add(name);
+      }
+    } else if (node.type === "ParenthesizedExpression") {
+      const targets = node.children.filter(
+        (child) => !isAssignmentPunctuation(context.nodes[child]?.type),
+      );
+
+      for (let position = targets.length - 1; position >= 0; position -= 1) {
+        const index = targets[position];
+
+        if (index !== undefined) {
+          pending.push({ kind: "node", index, value: task.value });
+        }
+      }
+    } else if (
+      node.type === "TupleExpression" ||
+      node.type === "ArrayExpression"
+    ) {
+      pending.push({
+        kind: "sequence",
+        indices: node.children,
+        value: task.value,
+      });
+    } else if (!isAssignmentPunctuation(node.type)) {
+      exceptional = mergeExceptionalBindingStates([exceptional, state]);
+    }
+  }
+
+  return exceptional;
+}
+
+function interpretAssignStatementFlow(
+  context: BindingFlowContext,
+  index: number,
+  input: ReadonlySet<string>,
+): BindingFlowResult {
+  const children = context.nodes[index]?.children ?? [];
+  const assignPositions = children.flatMap((child, position) =>
+    context.nodes[child]?.type === "AssignOp" ? [position] : [],
+  );
+  const finalAssignPosition = assignPositions.at(-1);
+
+  if (finalAssignPosition === undefined) {
+    return {
+      normal: cloneBindingState(input),
+      exceptional: cloneBindingState(input),
+    };
+  }
+  const rhsChildren = children.slice(finalAssignPosition + 1);
+  const rhs = rhsChildren.find(
+    (child) => !isAssignmentPunctuation(context.nodes[child]?.type),
+  );
+  const normal = cloneBindingState(input);
+
+  applyNamedExpressions(context, rhsChildren, normal);
+  let exceptional =
+    rhs !== undefined && isDefinitelyNonThrowingAssignmentValue(context, rhs)
+      ? null
+      : intersectBindingStates([input, normal]);
+  let segmentStart = 0;
+
+  for (const assignPosition of assignPositions) {
+    const segment = children.slice(segmentStart, assignPosition);
+    const isSequence = segment.some(
+      (child) => context.nodes[child]?.type === ",",
+    );
+    const targets = segment.filter(
+      (child) => !isAssignmentPunctuation(context.nodes[child]?.type),
+    );
+
+    if (isSequence) {
+      exceptional = applyAssignmentTargets(
+        context,
+        { kind: "sequence", indices: segment, value: rhs ?? null },
+        normal,
+        exceptional,
+      );
+    } else {
+      for (const target of targets) {
+        exceptional = applyAssignmentTargets(
+          context,
+          { kind: "node", index: target, value: rhs ?? null },
+          normal,
+          exceptional,
+        );
+      }
+    }
+    segmentStart = assignPosition + 1;
+  }
+
+  return { normal, exceptional };
+}
+
 function interpretLoopStatementFlow(
   context: BindingFlowContext,
   index: number,
@@ -1734,6 +1955,7 @@ function interpretLoopStatementFlow(
   ]);
 
   if (elseBody !== undefined) {
+    const withoutElse = cloneBindingState(normal);
     const elseFlow = interpretBindingBlockFlow(
       context,
       elseBody,
@@ -1746,6 +1968,7 @@ function interpretLoopStatementFlow(
       exceptional,
       elseFlow.exceptional,
     ]);
+    normal = intersectBindingStates([withoutElse, normal]);
   }
 
   return { normal, exceptional };
@@ -1962,17 +2185,7 @@ function interpretBindingStatementFlow(
     node.type === "AssignStatement" &&
     node.children.some((child) => context.nodes[child]?.type === "AssignOp")
   ) {
-    const bindings = new Set<number>();
-
-    collectAssignmentBindings(context.nodes, index, bindings);
-    addBindingIndices(context, state, bindings);
-    applyNamedExpressions(context, node.children, state);
-    return {
-      normal: state,
-      exceptional: bindingStatementMayThrow(context, index)
-        ? intersectBindingStates([input, state])
-        : null,
-    };
+    return interpretAssignStatementFlow(context, index, state);
   }
   if (node.type === "UpdateStatement") {
     const binding = node.children.find(

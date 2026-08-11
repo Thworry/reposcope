@@ -808,6 +808,78 @@ except Exception:
 
   it.each([
     [
+      "for break",
+      `for item in rows:
+    break
+else:
+    b = None
+from . import b`,
+    ],
+    [
+      "while break",
+      `while condition:
+    break
+else:
+    b = None
+from . import b`,
+    ],
+  ] as const)("does not apply loop else after a possible %s", (_, source) => {
+    const result = analyzePython([pythonSourceFile("pkg/__init__.py", source)]);
+
+    expect(result.files[0]).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
+    });
+  });
+
+  it("keeps bindings definite for an import reached inside loop else", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `for item in rows:
+    pass
+else:
+    b = None
+    from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]?.relativeImportCandidates).toEqual([]);
+  });
+
+  it.each([
+    ["simple target before member", "b = missing.attr = None", []],
+    ["member before simple target", "missing.attr = b = None", [".b"]],
+    ["unpacked target before member", "b, missing.attr = [None, None]", []],
+    ["member before unpacked target", "missing.attr, b = [None, None]", [".b"]],
+    [
+      "nested unpack before member",
+      "b, [c, missing.attr] = [None, [None, None]]",
+      [],
+    ],
+    ["short unpack before any target", "b, missing.attr = [None]", [".b"]],
+    ["throwing value before any target", "b = missing.attr = risky()", [".b"]],
+  ] as const)(
+    "tracks partial assignment failure for %s",
+    (_, assignment, relativeImportCandidates) => {
+      const result = analyzePython([
+        pythonSourceFile(
+          "pkg/__init__.py",
+          `try:
+    ${assignment}
+except Exception:
+    from . import b`,
+        ),
+      ]);
+
+      expect(result.files[0]?.relativeImportCandidates).toEqual(
+        relativeImportCandidates,
+      );
+    },
+  );
+
+  it.each([
+    [
       "destructured for targets",
       `for [b, (c,)] in rows:
     from . import b, c`,
