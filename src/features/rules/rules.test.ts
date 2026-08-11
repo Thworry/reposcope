@@ -530,9 +530,25 @@ describe("ruleset 1.0.0", () => {
     ).toMatchObject({ state: "not-applicable", earned: 0, available: 0 });
   });
 
-  it("short-circuits every explicitly inapplicable rule before validation", () => {
-    for (const id of RULE_IDS) {
-      expect(
+  it("limits explicit inapplicability to the frozen conditional rule matrix", () => {
+    const conditionalRuleIds = [
+      "operability.error-handling",
+      "readability.median-function-length",
+      "readability.p90-function-length",
+      "readability.large-file-ratio",
+      "readability.median-nesting",
+      "readability.ambiguous-identifiers",
+      "readability.documented-exports",
+      "complexity.median-cyclomatic",
+      "complexity.p90-cyclomatic",
+      "complexity.max-nesting",
+      "complexity.very-large-files",
+      "complexity.duplication",
+      "complexity.circular-imports",
+      "testing.test-source-ratio",
+    ];
+    const actual = RULE_IDS.filter(
+      (id) =>
         scoreRule(id, {
           applicable: false,
           valid: false,
@@ -543,10 +559,26 @@ describe("ruleset 1.0.0", () => {
           max: -1,
           ratio: Number.NaN,
           elapsedDays: -1,
-        }),
-      ).toMatchObject({ state: "not-applicable", earned: 0, available: 0 });
-    }
+        }).state === "not-applicable",
+    );
+
+    expect(actual).toEqual(conditionalRuleIds);
   });
+
+  it.each([
+    "documentation.readme",
+    "operability.manifest",
+    "testing.ci",
+    "maintenance.lockfile",
+  ] as const)(
+    "ignores forged inapplicability for unconditional rule %s",
+    (id) => {
+      const scored = scoreRule(id, { applicable: false, exists: true });
+
+      expect(scored.state).toBe("passed");
+      expect(scored.available).toBeGreaterThan(0);
+    },
+  );
 
   it("allows more test files than non-test source files", () => {
     expect(
@@ -632,6 +664,26 @@ describe("project scoring", () => {
     ).toBeNull();
     expect(scored.overall.generalOnly).toBe(true);
     expect(scored.overall.preliminary).toBe(true);
+  });
+
+  it("normalizes unavailable deep dimensions without removing unconditional evidence", () => {
+    const scored = scoreProject({
+      ...input,
+      general: { ...perfectGeneralMetrics, hasReadme: false },
+      language: {
+        ...perfectLanguageAnalysis,
+        files: perfectLanguageAnalysis.files.slice(0, 4),
+        functions: [],
+      },
+    });
+
+    expect(
+      scored.rules.find((rule) => rule.id === "documentation.readme"),
+    ).toMatchObject({ state: "failed", available: 3 });
+    expect(
+      scored.dimensions.find((dimension) => dimension.key === "documentation"),
+    ).toMatchObject({ earned: 12, available: 15, score: 80 });
+    expect(scored.overall.score).toBe(95);
   });
 
   it("applies deep rules at either five files or 2,000 parsed lines", () => {

@@ -256,6 +256,58 @@ function isConcreteCodeExample(
   );
 }
 
+function isStandaloneShellInvocation(value: string): boolean {
+  const command = stripPrompt(value);
+  const tokens = command.match(/[^\s]+/gu) ?? [];
+  const first = tokens[0] ?? "";
+
+  if (
+    /^(?:\.{1,2}\/|\/|~\/)\S+/u.test(first) ||
+    /^export\s+[A-Za-z_][A-Za-z0-9_]*=\S+(?:\s*;|$)/u.test(command)
+  ) {
+    return true;
+  }
+
+  if (COMMAND_SET.has(commandName(first.replace(/[,:;]$/u, "")))) {
+    return true;
+  }
+
+  if (first === "sudo" || first === "env") {
+    return true;
+  }
+
+  if (/^[A-Za-z_][A-Za-z0-9_]*=\S+/u.test(first)) {
+    return true;
+  }
+
+  return (
+    /^(?:curl|wget)\b/u.test(command) && /(?:^|\s)https?:\/\/\S+/u.test(command)
+  );
+}
+
+function isStandaloneCodeLine(value: string): boolean {
+  return (
+    /^import\s+(?:[\w$*{},\s]+\s+from\s+)?["'][^"'\n]+["']/u.test(value) ||
+    /^import\s+[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*(?:,|;|$))/u.test(
+      value,
+    ) ||
+    /^from\s+[\w.]+\s+import\s+[\w*{}, ]+(?:\s*(?:;|$))/u.test(value) ||
+    /^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/u.test(value) ||
+    /^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|def|fn)\s+[A-Za-z_$][\w$]*\s*\(/u.test(
+      value,
+    ) ||
+    /^(?:export\s+(?:default\s+)?)?class\s+[A-Za-z_$][\w$]*(?:\s*[:({]|\s+extends\s+)/u.test(
+      value,
+    ) ||
+    /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*=(?!=)/u.test(value) ||
+    /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\((?:[^()\n]|\([^()\n]*\))*\)\s*;?$/u.test(
+      value,
+    ) ||
+    /^\([A-Za-z_+*/!?-][\w+*/!?-]*(?:\s|\))/u.test(value) ||
+    /^(?:\([^\n)]*\)|[A-Za-z_$][\w$]*)\s*=>/u.test(value)
+  );
+}
+
 function analyzeFence(
   language: string,
   lines: readonly string[],
@@ -342,31 +394,7 @@ function isExplanatoryUsageProse(line: string): boolean {
     return false;
   }
 
-  const commandTokens = stripPrompt(visible).match(/[^\s]+/gu) ?? [];
-  let commandIndex = 0;
-
-  while (commandIndex < commandTokens.length) {
-    const token = commandTokens[commandIndex] ?? "";
-
-    if (/^[A-Za-z_][A-Za-z0-9_]*=\S+$/u.test(token)) {
-      commandIndex += 1;
-      continue;
-    }
-    if (token === "sudo" || token === "env") {
-      commandIndex += 1;
-      continue;
-    }
-    break;
-  }
-  const executable = commandTokens[commandIndex];
-
-  if (
-    executable !== undefined &&
-    COMMAND_SET.has(commandName(executable.replace(/[,:;]$/u, "")))
-  ) {
-    return false;
-  }
-  if (isConcreteCodeExample("", [visible])) {
+  if (isStandaloneShellInvocation(visible) || isStandaloneCodeLine(visible)) {
     return false;
   }
 

@@ -75,6 +75,23 @@ export const RULE_IDS = Object.freeze([
 export type RuleId = (typeof RULE_IDS)[number];
 type RuleMetrics = Readonly<Record<string, number | boolean | string | null>>;
 
+const CONDITIONALLY_APPLICABLE_RULE_IDS: ReadonlySet<RuleId> = new Set([
+  "operability.error-handling",
+  "readability.median-function-length",
+  "readability.p90-function-length",
+  "readability.large-file-ratio",
+  "readability.median-nesting",
+  "readability.ambiguous-identifiers",
+  "readability.documented-exports",
+  "complexity.median-cyclomatic",
+  "complexity.p90-cyclomatic",
+  "complexity.max-nesting",
+  "complexity.very-large-files",
+  "complexity.duplication",
+  "complexity.circular-imports",
+  "testing.test-source-ratio",
+]);
+
 interface Evaluation {
   state: RuleState;
   earned: number;
@@ -704,7 +721,8 @@ export function scoreRule(ruleId: string, metrics: RuleMetrics): RuleResult {
   }
   const definition = RULE_DEFINITIONS[ruleId];
   const evaluation =
-    metrics["applicable"] === false
+    metrics["applicable"] === false &&
+    CONDITIONALLY_APPLICABLE_RULE_IDS.has(ruleId)
       ? unavailable()
       : validNumericMetrics(ruleId, metrics)
         ? definition.evaluate(metrics)
