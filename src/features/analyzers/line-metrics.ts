@@ -285,26 +285,85 @@ function isStandaloneShellInvocation(value: string): boolean {
   );
 }
 
+function stripTrailingCodeComment(value: string): string {
+  let quote: "'" | '"' | "`" | null = null;
+  let escaped = false;
+  let tokenStart = 0;
+  let urlToken = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? "";
+    const next = value[index + 1] ?? "";
+
+    if (quote !== null) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (/\s/u.test(character)) {
+      tokenStart = index + 1;
+      urlToken = false;
+      continue;
+    }
+    if (index === tokenStart && /[([{<]/u.test(character)) {
+      tokenStart = index + 1;
+      continue;
+    }
+    urlToken ||=
+      value.startsWith("http://", tokenStart) ||
+      value.startsWith("https://", tokenStart);
+
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+
+    if (character === "/" && next === "/" && !urlToken) {
+      return value.slice(0, index).trimEnd();
+    }
+    if (
+      character === "#" &&
+      !urlToken &&
+      (index === 0 || /[\s;)}\]]/u.test(value[index - 1] ?? ""))
+    ) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+
+  return value.trimEnd();
+}
+
 function isStandaloneCodeLine(value: string): boolean {
+  const code = stripTrailingCodeComment(value);
+
   return (
-    /^import\s+(?:[\w$*{},\s]+\s+from\s+)?["'][^"'\n]+["']/u.test(value) ||
+    /^import\s+(?:[\w$*{},\s]+\s+from\s+)?["'][^"'\n]+["']/u.test(code) ||
     /^import\s+[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*(?:,|;|$))/u.test(
-      value,
+      code,
     ) ||
-    /^from\s+[\w.]+\s+import\s+[\w*{}, ]+(?:\s*(?:;|$))/u.test(value) ||
-    /^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/u.test(value) ||
+    /^from\s+[\w.]+\s+import\s+[\w*{}, ]+(?:\s*(?:;|$))/u.test(code) ||
+    /^(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=/u.test(code) ||
     /^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function|def|fn)\s+[A-Za-z_$][\w$]*\s*\(/u.test(
-      value,
+      code,
     ) ||
     /^(?:export\s+(?:default\s+)?)?class\s+[A-Za-z_$][\w$]*(?:\s*[:({]|\s+extends\s+)/u.test(
-      value,
+      code,
     ) ||
-    /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*=(?!=)/u.test(value) ||
-    /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\((?:[^()\n]|\([^()\n]*\))*\)\s*;?$/u.test(
-      value,
+    /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*=(?!=)/u.test(code) ||
+    /^(?:(?:await|return|throw)\s+)?(?:new\s+)?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*\((?:[^()\n]|\([^()\n]*\))*\)\s*;?$/u.test(
+      code,
     ) ||
-    /^\([A-Za-z_+*/!?-][\w+*/!?-]*(?:\s|\))/u.test(value) ||
-    /^(?:\([^\n)]*\)|[A-Za-z_$][\w$]*)\s*=>/u.test(value)
+    /^(?:await|return|throw)\s+(?:[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|\d+(?:\.\d+)?|["'`][\s\S]*["'`])\s*;?$/u.test(
+      code,
+    ) ||
+    /^\([A-Za-z_+*/!?-][\w+*/!?-]*(?:\s|\))/u.test(code) ||
+    /^(?:\([^\n)]*\)|[A-Za-z_$][\w$]*)\s*=>/u.test(code)
   );
 }
 

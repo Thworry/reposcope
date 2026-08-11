@@ -69,6 +69,20 @@ describe("Markdown evidence", () => {
     ["export and command", "## Usage\nexport NODE_ENV=prod; npm start", false],
     ["URL command", "## Usage\ncurl https://example.test/api", false],
     ["standalone API call", "## Usage\nanalyze()", false],
+    ["await expression", "## Usage\nawait analyze()", false],
+    ["return expression", "## Usage\nreturn analyze()", false],
+    ["throw expression", '## Usage\nthrow new Error("failed")', false],
+    ["new expression", "## Usage\nnew Client()", false],
+    [
+      "call with trailing comment",
+      '## Usage\nconsole.log("ready") // display status',
+      false,
+    ],
+    [
+      "return with Python comment",
+      "## Usage\nreturn analyze() # display status",
+      false,
+    ],
     ["code fence", "## Usage\n```sh\nnpm start\n```", false],
     ["inline code only", "## Usage\n`npm start`", false],
     ["image only", "## Usage\n![Run diagram](run.png)", false],
@@ -90,6 +104,21 @@ describe("Markdown evidence", () => {
     [
       "English method call explanation",
       "## Usage\nInvoke client.scan() to inspect the repository.",
+      true,
+    ],
+    [
+      "URL inside API prose",
+      '## Usage\nCall analyze("https://example.test/repo") with the repository URL.',
+      true,
+    ],
+    [
+      "hash inside API prose",
+      '## Usage\nCall analyze("#public") to inspect the repository.',
+      true,
+    ],
+    [
+      "raw URL with fragment",
+      "## Usage\nOpen https://example.test/docs#usage to view the usage guide.",
       true,
     ],
     ["Chinese explanation", "## 使用\n输入公开仓库地址即可开始分析。", true],
