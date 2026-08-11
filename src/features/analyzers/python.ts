@@ -1332,7 +1332,7 @@ function topLevelBindingMetadata(
       addSetEvent(node.from, bindings);
     } else if (
       node.type === "DeleteStatement" &&
-      hasModuleScope(nodes, index)
+      hasDefiniteModuleExecution(nodes, index)
     ) {
       const names = node.children
         .filter((child) => nodes[child]?.type === "VariableName")

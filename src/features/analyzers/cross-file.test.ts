@@ -585,6 +585,83 @@ describe("cross-file duplicate metrics", () => {
   );
 
   it(
+    "streams a million irregular repeated-block candidates within fixed budgets",
+    { timeout: 5000 },
+    () => {
+      const originalSort = Array.prototype.sort;
+      let largestSortedArray = 0;
+      let indexedReads = 0;
+      const sortSpy = vi
+        .spyOn(Array.prototype, "sort")
+        .mockImplementation(function (
+          this: unknown[],
+          compareFunction?: (left: unknown, right: unknown) => number,
+        ): unknown[] {
+          largestSortedArray = Math.max(largestSortedArray, this.length);
+
+          return Reflect.apply(originalSort, this, [
+            compareFunction,
+          ]) as unknown[];
+        });
+      const shared = sequence("million-block", WINDOW_SIZE);
+      const files = Array.from({ length: 2 }, (_, fileIndex) => {
+        const tokens: string[] = [];
+
+        for (let copy = 0; copy < 1000; copy += 1) {
+          tokens.push(...shared);
+          tokens.push(
+            ...sequence(
+              `irregular-${String(fileIndex)}-${String(copy)}`,
+              1 + ((copy * 13 + fileIndex * 7) % 17),
+            ),
+          );
+        }
+
+        return tokenizedFile(
+          `src/million-${String(fileIndex)}.ts`,
+          new Proxy(tokens, {
+            get(target, property, receiver) {
+              if (typeof property === "string" && /^\d+$/u.test(property)) {
+                indexedReads += 1;
+                if (indexedReads > 6_000_000) {
+                  throw new Error(
+                    "general candidate stream exceeded its read budget",
+                  );
+                }
+              }
+
+              return Reflect.get(target, property, receiver) as unknown;
+            },
+          }),
+        );
+      });
+
+      try {
+        expect(computeDuplicateRatio(files)).toMatchObject({
+          duplicatedTokens: 100_000,
+          evidence: [
+            {
+              leftPath: "src/million-0.ts",
+              rightPath: "src/million-1.ts",
+              tokenCount: 50_000,
+            },
+          ],
+        });
+      } finally {
+        sortSpy.mockRestore();
+      }
+
+      const totalTokens = files.reduce(
+        (total, file) => total + file.normalizedTokens.length,
+        0,
+      );
+
+      expect(largestSortedArray).toBeLessThanOrEqual(totalTokens);
+      expect(indexedReads).toBeLessThanOrEqual(6_000_000);
+    },
+  );
+
+  it(
     "stops draining periodic pair sources once no 50-token range remains",
     { timeout: 5000 },
     () => {
@@ -855,6 +932,48 @@ describe("relative import graph metrics", () => {
     expect(findCircularImports(analyzed.files)).toEqual({
       components: [["pkg/__init__.py", "pkg/b.py"]],
       largestComponentSize: 2,
+    });
+  });
+
+  it("keeps a package shadow across a conditional delete", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\nif False:\n    del b\nfrom . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [],
+      largestComponentSize: 0,
+    });
+  });
+
+  it("keeps a package shadow across a try-body delete", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = object()\ntry:\n    del b\nexcept Exception:\n    pass\nfrom . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [],
+      largestComponentSize: 0,
     });
   });
 

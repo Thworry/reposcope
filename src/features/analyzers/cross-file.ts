@@ -54,19 +54,6 @@ interface CandidateHeapEntry {
   source: CandidateSource;
 }
 
-interface PositionRun {
-  start: number;
-  end: number;
-  step: number;
-}
-
-interface AlignedRunStarts {
-  leftStart: number;
-  rightStart: number;
-  step: number;
-  count: number;
-}
-
 interface ExactWindowGroup {
   representative: WindowOccurrence;
   occurrences: WindowOccurrence[];
@@ -80,11 +67,6 @@ interface GeneralPairGroups {
   leftFileIndex: number;
   rightFileIndex: number;
   groups: PreparedWindowGroup[];
-}
-
-interface CoveredInterval {
-  start: number;
-  end: number;
 }
 
 interface GraphFile {
@@ -202,6 +184,7 @@ function extendMatch(
   files: readonly DuplicateFile[],
   leftOccurrence: WindowOccurrence,
   rightOccurrence: WindowOccurrence,
+  windowVerified = false,
 ): DuplicateCandidate | null {
   let leftFileIndex = leftOccurrence.fileIndex;
   let leftStart = leftOccurrence.start;
@@ -222,13 +205,14 @@ function extendMatch(
   if (
     leftTokens === undefined ||
     rightTokens === undefined ||
-    !equalWindow(
-      leftTokens,
-      leftStart,
-      rightTokens,
-      rightStart,
-      DUPLICATE_WINDOW_SIZE,
-    )
+    (!windowVerified &&
+      !equalWindow(
+        leftTokens,
+        leftStart,
+        rightTokens,
+        rightStart,
+        DUPLICATE_WINDOW_SIZE,
+      ))
   ) {
     return null;
   }
@@ -254,22 +238,8 @@ function extendMatch(
   return { leftFileIndex, leftStart, rightFileIndex, rightStart, length };
 }
 
-function candidateKey(candidate: DuplicateCandidate): string {
-  return [
-    candidate.leftFileIndex,
-    candidate.leftStart,
-    candidate.rightFileIndex,
-    candidate.rightStart,
-    candidate.length,
-  ].join(":");
-}
-
 function filePairKey(leftFileIndex: number, rightFileIndex: number): string {
   return `${String(leftFileIndex)}:${String(rightFileIndex)}`;
-}
-
-function diagonalKey(candidate: DuplicateCandidate): string {
-  return `${filePairKey(candidate.leftFileIndex, candidate.rightFileIndex)}:${String(candidate.rightStart - candidate.leftStart)}`;
 }
 
 function equalTokenArrays(
@@ -609,237 +579,6 @@ function groupExactWindows(
   return groups;
 }
 
-function arithmeticRuns(starts: readonly number[]): PositionRun[] {
-  const runs: PositionRun[] = [];
-
-  for (let index = 0; index < starts.length;) {
-    const start = starts[index];
-
-    if (start === undefined) {
-      break;
-    }
-    const next = starts[index + 1];
-
-    if (next === undefined) {
-      runs.push({ start, end: start, step: 0 });
-      break;
-    }
-
-    const step = next - start;
-    let endIndex = index + 1;
-
-    while (
-      starts[endIndex + 1] !== undefined &&
-      (starts[endIndex + 1] ?? 0) - (starts[endIndex] ?? 0) === step
-    ) {
-      endIndex += 1;
-    }
-    runs.push({ start, end: starts[endIndex] ?? next, step });
-    index = endIndex + 1;
-  }
-
-  return runs;
-}
-
-function greatestCommonDivisor(left: number, right: number): number {
-  let first = Math.abs(left);
-  let second = Math.abs(right);
-
-  while (second !== 0) {
-    [first, second] = [second, first % second];
-  }
-
-  return first;
-}
-
-function extendedGreatestCommonDivisor(
-  left: number,
-  right: number,
-): { divisor: number; leftCoefficient: number; rightCoefficient: number } {
-  let oldRemainder = left;
-  let remainder = right;
-  let oldLeftCoefficient = 1;
-  let leftCoefficient = 0;
-  let oldRightCoefficient = 0;
-  let rightCoefficient = 1;
-
-  while (remainder !== 0) {
-    const quotient = Math.floor(oldRemainder / remainder);
-
-    [oldRemainder, remainder] = [
-      remainder,
-      oldRemainder - quotient * remainder,
-    ];
-    [oldLeftCoefficient, leftCoefficient] = [
-      leftCoefficient,
-      oldLeftCoefficient - quotient * leftCoefficient,
-    ];
-    [oldRightCoefficient, rightCoefficient] = [
-      rightCoefficient,
-      oldRightCoefficient - quotient * rightCoefficient,
-    ];
-  }
-
-  return {
-    divisor: oldRemainder,
-    leftCoefficient: oldLeftCoefficient,
-    rightCoefficient: oldRightCoefficient,
-  };
-}
-
-function runCount(run: PositionRun): number {
-  return run.step === 0 ? 1 : (run.end - run.start) / run.step + 1;
-}
-
-function startsForDelta(
-  leftRun: PositionRun,
-  rightRun: PositionRun,
-  delta: number,
-): AlignedRunStarts | null {
-  if (leftRun.step === 0 && rightRun.step === 0) {
-    return rightRun.start - leftRun.start === delta
-      ? {
-          leftStart: leftRun.start,
-          rightStart: rightRun.start,
-          step: 0,
-          count: 1,
-        }
-      : null;
-  }
-  if (leftRun.step === 0) {
-    const rightStart = leftRun.start + delta;
-
-    return rightStart >= rightRun.start &&
-      rightStart <= rightRun.end &&
-      (rightStart - rightRun.start) % rightRun.step === 0
-      ? { leftStart: leftRun.start, rightStart, step: 0, count: 1 }
-      : null;
-  }
-  if (rightRun.step === 0) {
-    const leftStart = rightRun.start - delta;
-
-    return leftStart >= leftRun.start &&
-      leftStart <= leftRun.end &&
-      (leftStart - leftRun.start) % leftRun.step === 0
-      ? { leftStart, rightStart: rightRun.start, step: 0, count: 1 }
-      : null;
-  }
-
-  const difference = delta - (rightRun.start - leftRun.start);
-  const coefficients = extendedGreatestCommonDivisor(
-    rightRun.step,
-    leftRun.step,
-  );
-
-  if (difference % coefficients.divisor !== 0) {
-    return null;
-  }
-
-  const multiplier = difference / coefficients.divisor;
-  const initialRightIndex = coefficients.leftCoefficient * multiplier;
-  const initialLeftIndex = -coefficients.rightCoefficient * multiplier;
-  const rightIndexStep = leftRun.step / coefficients.divisor;
-  const leftIndexStep = rightRun.step / coefficients.divisor;
-  const minimumShift = Math.max(
-    Math.ceil(-initialRightIndex / rightIndexStep),
-    Math.ceil(-initialLeftIndex / leftIndexStep),
-  );
-  const maximumShift = Math.min(
-    Math.floor((runCount(rightRun) - 1 - initialRightIndex) / rightIndexStep),
-    Math.floor((runCount(leftRun) - 1 - initialLeftIndex) / leftIndexStep),
-  );
-
-  if (minimumShift > maximumShift) {
-    return null;
-  }
-
-  const rightIndex = initialRightIndex + rightIndexStep * minimumShift;
-  const leftIndex = initialLeftIndex + leftIndexStep * minimumShift;
-
-  return {
-    leftStart: leftRun.start + leftIndex * leftRun.step,
-    rightStart: rightRun.start + rightIndex * rightRun.step,
-    step: (leftRun.step * rightRun.step) / coefficients.divisor,
-    count: maximumShift - minimumShift + 1,
-  };
-}
-
-function forEachRunPairSeed(
-  leftRun: PositionRun,
-  rightRun: PositionRun,
-  visit: (leftStart: number, rightStart: number) => number,
-): void {
-  const minimumDelta = rightRun.start - leftRun.end;
-  const maximumDelta = rightRun.end - leftRun.start;
-  const divisor = greatestCommonDivisor(leftRun.step, rightRun.step);
-
-  if (divisor === 0) {
-    visit(leftRun.start, rightRun.start);
-    return;
-  }
-
-  const residue = rightRun.start - leftRun.start;
-  for (
-    let delta = firstCongruentAtOrAfter(minimumDelta, residue, divisor);
-    delta <= maximumDelta;
-    delta += divisor
-  ) {
-    const starts = startsForDelta(leftRun, rightRun, delta);
-
-    if (starts !== null) {
-      let index = 0;
-
-      while (index < starts.count) {
-        const leftStart = starts.leftStart + starts.step * index;
-        const coveredEnd = visit(
-          leftStart,
-          starts.rightStart + starts.step * index,
-        );
-
-        if (starts.step === 0) {
-          break;
-        }
-        index = Math.max(
-          index + 1,
-          Math.floor((coveredEnd - starts.leftStart) / starts.step) + 1,
-        );
-      }
-    }
-  }
-}
-
-function coveredThrough(
-  coverage: ReadonlyMap<string, readonly CoveredInterval[]>,
-  candidate: DuplicateCandidate,
-): number | null {
-  let coveredEnd: number | null = null;
-
-  for (const interval of coverage.get(diagonalKey(candidate)) ?? []) {
-    if (
-      candidate.leftStart >= interval.start &&
-      candidate.leftStart <= interval.end
-    ) {
-      coveredEnd = Math.max(coveredEnd ?? interval.end, interval.end);
-    }
-  }
-
-  return coveredEnd;
-}
-
-function recordCoverage(
-  coverage: Map<string, CoveredInterval[]>,
-  candidate: DuplicateCandidate,
-): void {
-  const key = diagonalKey(candidate);
-  const intervals = coverage.get(key) ?? [];
-
-  intervals.push({
-    start: candidate.leftStart,
-    end: candidate.leftStart + candidate.length - DUPLICATE_WINDOW_SIZE,
-  });
-  coverage.set(key, intervals);
-}
-
 function candidateComparator(
   files: readonly DuplicateFile[],
 ): (left: DuplicateCandidate, right: DuplicateCandidate) => number {
@@ -942,17 +681,22 @@ function prepareGeneralPairGroups(
   );
 }
 
-function generalPairCandidateSource(
+function generalGroupCandidateSource(
   files: readonly DuplicateFile[],
-  pair: GeneralPairGroups,
+  leftFileIndex: number,
+  rightFileIndex: number,
+  group: PreparedWindowGroup,
   occupied: readonly (readonly boolean[])[],
 ): CandidateSource {
-  const { leftFileIndex, rightFileIndex } = pair;
-  const compare = candidateComparator(files);
-  let initialHeadReturned = false;
-  let buffered: DuplicateCandidate[] | null = null;
-  let bufferedIndex = 0;
+  const leftStarts = group.startsByFile.get(leftFileIndex) ?? [];
+  const rightStarts = group.startsByFile.get(rightFileIndex) ?? [];
+  let currentLength: number | null = null;
+  let leftCursor = 0;
+  let rightCursor = 0;
 
+  // Exact-window grouping proves the first 50 tokens match. Emitting only a
+  // maximal match's first window makes that candidate canonical, so later
+  // windows cannot duplicate it across groups.
   const candidateIsFree = (candidate: DuplicateCandidate): boolean =>
     rangeIsFree(
       occupied[leftFileIndex] ?? [],
@@ -964,89 +708,95 @@ function generalPairCandidateSource(
       candidate.rightStart,
       candidate.length,
     );
-  const scanCandidates = (
-    collect: boolean,
-  ): DuplicateCandidate | DuplicateCandidate[] | null => {
-    const coverage = new Map<string, CoveredInterval[]>();
-    const candidates: DuplicateCandidate[] = [];
-    const candidateKeys = new Set<string>();
-    let best: DuplicateCandidate | null = null;
+  const candidateAt = (
+    leftStart: number,
+    rightStart: number,
+  ): DuplicateCandidate | null => {
+    if (
+      !rangeIsFree(
+        occupied[leftFileIndex] ?? [],
+        leftStart,
+        DUPLICATE_WINDOW_SIZE,
+      ) ||
+      !rangeIsFree(
+        occupied[rightFileIndex] ?? [],
+        rightStart,
+        DUPLICATE_WINDOW_SIZE,
+      )
+    ) {
+      return null;
+    }
+    const candidate = extendMatch(
+      files,
+      { fileIndex: leftFileIndex, start: leftStart },
+      { fileIndex: rightFileIndex, start: rightStart },
+      true,
+    );
 
-    for (const group of pair.groups) {
-      const leftRuns = arithmeticRuns(
-        group.startsByFile.get(leftFileIndex) ?? [],
-      );
-      const rightRuns = arithmeticRuns(
-        group.startsByFile.get(rightFileIndex) ?? [],
-      );
+    if (
+      candidate === null ||
+      candidate.leftStart !== leftStart ||
+      candidate.rightStart !== rightStart ||
+      !candidateIsFree(candidate)
+    ) {
+      return null;
+    }
 
-      for (const leftRun of leftRuns) {
-        for (const rightRun of rightRuns) {
-          forEachRunPairSeed(leftRun, rightRun, (leftStart, rightStart) => {
-            const seed: DuplicateCandidate = {
-              leftFileIndex,
-              leftStart,
-              rightFileIndex,
-              rightStart,
-              length: DUPLICATE_WINDOW_SIZE,
-            };
-            const existingCoverageEnd = coveredThrough(coverage, seed);
+    return candidate;
+  };
+  const maximumFreeLength = (): number => {
+    let maximum = 0;
 
-            if (existingCoverageEnd !== null) {
-              return existingCoverageEnd;
-            }
-            const candidate = extendMatch(
-              files,
-              { fileIndex: leftFileIndex, start: leftStart },
-              { fileIndex: rightFileIndex, start: rightStart },
-            );
-
-            if (candidate === null) {
-              return leftStart;
-            }
-            recordCoverage(coverage, candidate);
-            if (candidateIsFree(candidate)) {
-              if (collect) {
-                const key = candidateKey(candidate);
-
-                if (!candidateKeys.has(key)) {
-                  candidateKeys.add(key);
-                  candidates.push(candidate);
-                }
-              } else if (best === null || compare(candidate, best) < 0) {
-                best = candidate;
-              }
-            }
-
-            return (
-              candidate.leftStart + candidate.length - DUPLICATE_WINDOW_SIZE
-            );
-          });
-        }
+    for (const leftStart of leftStarts) {
+      for (const rightStart of rightStarts) {
+        maximum = Math.max(
+          maximum,
+          candidateAt(leftStart, rightStart)?.length ?? 0,
+        );
       }
     }
 
-    return collect ? candidates.sort(compare) : best;
+    return maximum;
   };
 
   return {
     filePair: [leftFileIndex, rightFileIndex],
     next: () => {
-      if (!initialHeadReturned) {
-        initialHeadReturned = true;
-        return scanCandidates(false) as DuplicateCandidate | null;
-      }
-      if (buffered === null) {
-        buffered = scanCandidates(true) as DuplicateCandidate[];
-      }
-      while (bufferedIndex < buffered.length) {
-        const candidate = buffered[bufferedIndex++];
+      while (currentLength !== null || leftStarts.length > 0) {
+        if (currentLength === null) {
+          // Re-scan for the next occupied-aware length tier instead of storing
+          // or sorting the potentially quadratic occurrence cross product.
+          const maximum = maximumFreeLength();
 
-        if (candidate !== undefined && candidateIsFree(candidate)) {
-          return candidate;
+          if (maximum < DUPLICATE_WINDOW_SIZE) {
+            return null;
+          }
+          currentLength = maximum;
+          leftCursor = 0;
+          rightCursor = 0;
         }
+
+        while (leftCursor < leftStarts.length) {
+          const leftStart = leftStarts[leftCursor];
+          const rightStart = rightStarts[rightCursor];
+
+          rightCursor += 1;
+          if (rightCursor >= rightStarts.length) {
+            leftCursor += 1;
+            rightCursor = 0;
+          }
+          if (leftStart === undefined || rightStart === undefined) {
+            continue;
+          }
+          const candidate = candidateAt(leftStart, rightStart);
+
+          if (candidate?.length === currentLength) {
+            return candidate;
+          }
+        }
+        currentLength = null;
       }
-      buffered = [];
+
       return null;
     },
   };
@@ -1156,7 +906,17 @@ function duplicateCandidateSources(
     sources.push(singletonCandidateSource(candidate));
   }
   for (const pair of general) {
-    sources.push(generalPairCandidateSource(files, pair, occupied));
+    for (const group of pair.groups) {
+      sources.push(
+        generalGroupCandidateSource(
+          files,
+          pair.leftFileIndex,
+          pair.rightFileIndex,
+          group,
+          occupied,
+        ),
+      );
+    }
   }
 
   return sources;
