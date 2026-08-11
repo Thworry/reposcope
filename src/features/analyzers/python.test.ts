@@ -711,6 +711,136 @@ except Exception:
     },
   );
 
+  it.each([
+    [
+      "parenthesized delete target",
+      `b = None
+try:
+    del (b)
+    risky()
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "singleton tuple delete target",
+      `b = None
+try:
+    del (b,)
+    risky()
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "list delete target",
+      `b = None
+try:
+    del [b]
+    risky()
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+    [
+      "partially applied nested delete",
+      `b = None
+try:
+    del (b, missing)
+except Exception:
+    from . import b`,
+      [".b"],
+    ],
+  ] as const)(
+    "propagates %s effects in source order",
+    (_, source, relativeImportCandidates) => {
+      const result = analyzePython([
+        pythonSourceFile("pkg/__init__.py", source),
+      ]);
+
+      expect(result.files[0]).toMatchObject({
+        relativeImportCandidates,
+        topLevelDefinedNames: [],
+      });
+    },
+  );
+
+  it.each([
+    ["member target", "del holder.b"],
+    ["subscript target", "del holder[b]"],
+  ] as const)(
+    "treats an opaque %s without deleting nested names",
+    (_, deletion) => {
+      const result = analyzePython([
+        pythonSourceFile(
+          "pkg/__init__.py",
+          `b = None
+holder = object()
+try:
+    ${deletion}
+except Exception:
+    from . import b`,
+        ),
+      ]);
+
+      expect(result.files[0]?.relativeImportCandidates).toEqual([]);
+    },
+  );
+
+  it("preserves definite bindings on loop exceptional paths", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        `b = None
+try:
+    for item in [None]:
+        raise Exception()
+except Exception:
+    from . import b`,
+      ),
+    ]);
+
+    expect(result.files[0]).toMatchObject({
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["b"],
+    });
+  });
+
+  it.each([
+    [
+      "destructured for targets",
+      `for [b, (c,)] in rows:
+    from . import b, c`,
+      [],
+    ],
+    [
+      "match captures",
+      `match value:
+    case {"value": b, **rest}:
+        from . import b, rest`,
+      [],
+    ],
+    [
+      "exception aliases",
+      `try:
+    risky()
+except Exception as b:
+    from . import b`,
+      [],
+    ],
+  ] as const)(
+    "applies %s before imports in the entered body",
+    (_, source, relativeImportCandidates) => {
+      const result = analyzePython([
+        pythonSourceFile("pkg/__init__.py", source),
+      ]);
+
+      expect(result.files[0]?.relativeImportCandidates).toEqual(
+        relativeImportCandidates,
+      );
+    },
+  );
+
   it("fails conservatively instead of overflowing on deeply nested binding flow", () => {
     const depth = 300;
     const nestedBranches = Array.from(

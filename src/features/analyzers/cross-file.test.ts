@@ -975,6 +975,52 @@ describe("relative import graph metrics", () => {
     });
   });
 
+  it("retains a cycle after a nested delete target mutates before throwing", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "b = None\ntry:\n    del (b, missing)\nexcept Exception:\n    from . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(analyzed.files[0]).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: [],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
+  it.each([
+    [
+      "preserved loop state",
+      "b = None\ntry:\n    for item in [None]:\n        raise Exception()\nexcept Exception:\n    from . import b",
+    ],
+    ["for target", "for b in rows:\n    from . import b"],
+    [
+      "match capture",
+      'match value:\n    case {"value": b}:\n        from . import b',
+    ],
+    [
+      "exception alias",
+      "try:\n    risky()\nexcept Exception as b:\n    from . import b",
+    ],
+  ] as const)("suppresses false .b cycles for %s", (_, source) => {
+    const analyzed = analyzePython([
+      pythonSourceFile("pkg/__init__.py", source),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(analyzed.files[0]?.relativeImportCandidates).toEqual([]);
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [],
+      largestComponentSize: 0,
+    });
+  });
+
   it("joins caught exceptional prefixes before a later normal restoration", () => {
     const analyzed = analyzePython([
       pythonSourceFile(
