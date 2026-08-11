@@ -1230,6 +1230,7 @@ interface BindingFlowResult {
   exceptional: Set<string> | null;
   breaks?: Set<string> | null;
   continues?: Set<string> | null;
+  returns?: Set<string> | null;
   normalReachable?: boolean;
 }
 
@@ -1366,6 +1367,7 @@ function interpretBindingBlockFlow(
   let exceptional: Set<string> | null = null;
   let breaks: Set<string> | null = null;
   let continues: Set<string> | null = null;
+  let returns: Set<string> | null = null;
   let normalReachable = true;
 
   for (const child of context.nodes[blockIndex]?.children ?? []) {
@@ -1377,11 +1379,19 @@ function interpretBindingBlockFlow(
     exceptional = mergeBindingCompletionStates([exceptional, flow.exceptional]);
     breaks = mergeBindingCompletionStates([breaks, flow.breaks]);
     continues = mergeBindingCompletionStates([continues, flow.continues]);
+    returns = mergeBindingCompletionStates([returns, flow.returns]);
     normal = flow.normal;
     normalReachable = normalBindingFlowIsReachable(flow);
   }
 
-  return { normal, exceptional, breaks, continues, normalReachable };
+  return {
+    normal,
+    exceptional,
+    breaks,
+    continues,
+    returns,
+    normalReachable,
+  };
 }
 
 function interpretIfStatementFlow(
@@ -1396,6 +1406,7 @@ function interpretIfStatementFlow(
   let exceptional: Set<string> | null = null;
   let breaks: Set<string> | null = null;
   let continues: Set<string> | null = null;
+  let returns: Set<string> | null = null;
   let remainingPossible = true;
   let keywordIndex: number | null = null;
   let conditionChildren: number[] = [];
@@ -1436,6 +1447,7 @@ function interpretIfStatementFlow(
       ]);
       breaks = mergeBindingCompletionStates([breaks, flow.breaks]);
       continues = mergeBindingCompletionStates([continues, flow.continues]);
+      returns = mergeBindingCompletionStates([returns, flow.returns]);
       remainingPossible = false;
       continue;
     }
@@ -1470,6 +1482,7 @@ function interpretIfStatementFlow(
       ]);
       breaks = mergeBindingCompletionStates([breaks, flow.breaks]);
       continues = mergeBindingCompletionStates([continues, flow.continues]);
+      returns = mergeBindingCompletionStates([returns, flow.returns]);
     }
     if (truth === true) {
       remainingPossible = false;
@@ -1485,6 +1498,7 @@ function interpretIfStatementFlow(
     exceptional,
     breaks,
     continues,
+    returns,
     normalReachable: outcomes.length > 0,
   };
 }
@@ -1553,6 +1567,7 @@ function interpretTryStatementFlow(
   let exceptional = tryFlow.exceptional;
   let breaks = tryFlow.breaks ?? null;
   let continues = tryFlow.continues ?? null;
+  let returns = tryFlow.returns ?? null;
 
   if (elseBody !== null && normalReachable) {
     const elseFlow = interpretBindingBlockFlow(
@@ -1570,6 +1585,7 @@ function interpretTryStatementFlow(
     ]);
     breaks = mergeBindingCompletionStates([breaks, elseFlow.breaks]);
     continues = mergeBindingCompletionStates([continues, elseFlow.continues]);
+    returns = mergeBindingCompletionStates([returns, elseFlow.returns]);
   }
   const continuing = normalReachable ? [normal] : [];
 
@@ -1600,12 +1616,17 @@ function interpretTryStatementFlow(
         rawHandlerFlow.continues == null
           ? null
           : cloneBindingState(rawHandlerFlow.continues);
+      const handlerReturns =
+        rawHandlerFlow.returns == null
+          ? null
+          : cloneBindingState(rawHandlerFlow.returns);
 
       for (const name of handlerNames) {
         handlerNormal.delete(name);
         handlerExceptional?.delete(name);
         handlerBreaks?.delete(name);
         handlerContinues?.delete(name);
+        handlerReturns?.delete(name);
       }
       if (normalBindingFlowIsReachable(rawHandlerFlow)) {
         continuing.push(handlerNormal);
@@ -1616,6 +1637,7 @@ function interpretTryStatementFlow(
       ]);
       breaks = mergeBindingCompletionStates([breaks, handlerBreaks]);
       continues = mergeBindingCompletionStates([continues, handlerContinues]);
+      returns = mergeBindingCompletionStates([returns, handlerReturns]);
     }
   }
   normal = intersectBindingStates(continuing);
@@ -1623,7 +1645,7 @@ function interpretTryStatementFlow(
 
   if (finallyBody !== null) {
     const completions: {
-      kind: "normal" | "exceptional" | "break" | "continue";
+      kind: "normal" | "exceptional" | "break" | "continue" | "return";
       state: ReadonlySet<string>;
     }[] = [];
 
@@ -1639,11 +1661,15 @@ function interpretTryStatementFlow(
     if (continues !== null) {
       completions.push({ kind: "continue", state: continues });
     }
+    if (returns !== null) {
+      completions.push({ kind: "return", state: returns });
+    }
 
     const finalNormal: Set<string>[] = [];
     let finalExceptional: Set<string> | null = null;
     let finalBreaks: Set<string> | null = null;
     let finalContinues: Set<string> | null = null;
+    let finalReturns: Set<string> | null = null;
 
     for (const completion of completions) {
       const finalFlow = interpretBindingBlockFlow(
@@ -1665,6 +1691,10 @@ function interpretTryStatementFlow(
         finalContinues,
         finalFlow.continues,
       ]);
+      finalReturns = mergeBindingCompletionStates([
+        finalReturns,
+        finalFlow.returns,
+      ]);
       if (!normalBindingFlowIsReachable(finalFlow)) {
         continue;
       }
@@ -1680,9 +1710,14 @@ function interpretTryStatementFlow(
           finalBreaks,
           finalFlow.normal,
         ]);
-      } else {
+      } else if (completion.kind === "continue") {
         finalContinues = mergeBindingCompletionStates([
           finalContinues,
+          finalFlow.normal,
+        ]);
+      } else {
+        finalReturns = mergeBindingCompletionStates([
+          finalReturns,
           finalFlow.normal,
         ]);
       }
@@ -1693,6 +1728,7 @@ function interpretTryStatementFlow(
     exceptional = finalExceptional;
     breaks = finalBreaks;
     continues = finalContinues;
+    returns = finalReturns;
   }
 
   return {
@@ -1700,6 +1736,7 @@ function interpretTryStatementFlow(
     exceptional,
     breaks,
     continues,
+    returns,
     normalReachable,
   };
 }
@@ -2068,6 +2105,7 @@ function interpretLoopStatementFlow(
   const normalOutcomes: ReadonlySet<string>[] = [];
   let breaks: Set<string> | null = null;
   let continues: Set<string> | null = null;
+  let returns = bodyFlow.returns ?? null;
 
   if (elseBody !== undefined) {
     const elseFlow = interpretBindingBlockFlow(
@@ -2086,6 +2124,7 @@ function interpretLoopStatementFlow(
     ]);
     breaks = mergeBindingCompletionStates([breaks, elseFlow.breaks]);
     continues = mergeBindingCompletionStates([continues, elseFlow.continues]);
+    returns = mergeBindingCompletionStates([returns, elseFlow.returns]);
   } else {
     normalOutcomes.push(exhaustionState);
   }
@@ -2098,6 +2137,7 @@ function interpretLoopStatementFlow(
     exceptional,
     breaks,
     continues,
+    returns,
     normalReachable: normalOutcomes.length > 0,
   };
 }
@@ -2170,6 +2210,7 @@ function interpretMatchStatementFlow(
   ]);
   let breaks: Set<string> | null = null;
   let continues: Set<string> | null = null;
+  let returns: Set<string> | null = null;
 
   for (const clause of context.nodes[matchBody ?? -1]?.children ?? []) {
     const clauseNode = context.nodes[clause];
@@ -2208,6 +2249,7 @@ function interpretMatchStatementFlow(
     ]);
     breaks = mergeBindingCompletionStates([breaks, bodyFlow.breaks]);
     continues = mergeBindingCompletionStates([continues, bodyFlow.continues]);
+    returns = mergeBindingCompletionStates([returns, bodyFlow.returns]);
   }
 
   return {
@@ -2215,6 +2257,7 @@ function interpretMatchStatementFlow(
     exceptional,
     breaks,
     continues,
+    returns,
   };
 }
 
@@ -2255,9 +2298,11 @@ function interpretWithStatementFlow(
       normalBindingFlowIsReachable(bodyFlow) ? bodyFlow.normal : null,
       bodyFlow.breaks,
       bodyFlow.continues,
+      bodyFlow.returns,
     ]),
     breaks: bodyFlow.breaks ?? null,
     continues: bodyFlow.continues ?? null,
+    returns: bodyFlow.returns ?? null,
     normalReachable: normalBindingFlowIsReachable(bodyFlow),
   };
 }
@@ -2317,6 +2362,7 @@ function interpretBindingStatementFlow(
       ]),
       breaks: flow.breaks ?? null,
       continues: flow.continues ?? null,
+      returns: flow.returns ?? null,
       normalReachable: normalBindingFlowIsReachable(flow),
     };
   }
@@ -2381,9 +2427,12 @@ function interpretBindingStatementFlow(
   }
   if (node.type === "ReturnStatement" || node.type === "RaiseStatement") {
     applyNamedExpressions(context, [index], state);
-    const returnValue = node.children.find(
+    const returnValues = node.children.filter(
       (child) =>
         !["return", ",", "Comment"].includes(context.nodes[child]?.type ?? ""),
+    );
+    const returnMayThrow = returnValues.some(
+      (value) => !isDefinitelyNonThrowingAssignmentValue(context, value),
     );
 
     return {
@@ -2391,10 +2440,10 @@ function interpretBindingStatementFlow(
       exceptional:
         node.type === "RaiseStatement"
           ? intersectBindingStates([input, state])
-          : returnValue !== undefined &&
-              !isDefinitelyNonThrowingAssignmentValue(context, returnValue)
+          : returnMayThrow
             ? intersectBindingStates([input, state])
             : null,
+      returns: node.type === "ReturnStatement" ? state : null,
       normalReachable: false,
     };
   }

@@ -985,6 +985,80 @@ from . import b`,
     },
   );
 
+  it.each([
+    [
+      "normal finally preserves return until an outer finally breaks",
+      `for item in rows:
+    try:
+        try:
+            return None
+        finally:
+            pass
+    finally:
+        break
+else:
+    b = None
+from . import b`,
+    ],
+    [
+      "break in finally overrides return",
+      `for item in rows:
+    try:
+        return None
+    finally:
+        break
+else:
+    b = None
+from . import b`,
+    ],
+    [
+      "continue in finally overrides return before an outer break",
+      `for item in rows:
+    try:
+        try:
+            return None
+        finally:
+            continue
+    finally:
+        break
+else:
+    b = None
+from . import b`,
+    ],
+    [
+      "raise in finally overrides return and reaches a handler break",
+      `for item in rows:
+    try:
+        try:
+            return None
+        finally:
+            raise RuntimeError()
+    except RuntimeError:
+        break
+else:
+    b = None
+from . import b`,
+    ],
+    [
+      "return in finally overrides return before an outer break",
+      `for item in rows:
+    try:
+        try:
+            return None
+        finally:
+            return 1
+    finally:
+        break
+else:
+    b = None
+from . import b`,
+    ],
+  ] as const)("models parser-level %s", (_, source) => {
+    const result = analyzePython([pythonSourceFile("pkg/__init__.py", source)]);
+
+    expect(result.files[0]?.relativeImportCandidates).toEqual([".b"]);
+  });
+
   it("keeps bindings definite for an import reached inside loop else", () => {
     const result = analyzePython([
       pythonSourceFile(
