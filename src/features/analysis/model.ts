@@ -46,6 +46,67 @@ export type SourceLanguage =
 export type FileCategory =
   "documentation" | "manifest" | "configuration" | "source" | "test";
 
+export type FileSkipReason =
+  | "excluded"
+  | "binary"
+  | "oversized"
+  | "unsupported"
+  | "budget"
+  | "invalid-entry";
+
+export interface NormalizedTreeFile {
+  path: string;
+  sha: string;
+  size: number;
+  mode: "100644" | "100755";
+}
+
+export interface NormalizedTree {
+  files: NormalizedTreeFile[];
+  complete: boolean;
+  skippedEntries: Array<{
+    path: string;
+    reason: "invalid-entry";
+  }>;
+}
+
+export interface FileClassification {
+  eligible: boolean;
+  language: SourceLanguage;
+  category: FileCategory;
+  deep: boolean;
+  isTest: boolean;
+  treeEvidence?: "lockfile" | "generated-directory";
+  skipReason?: "excluded" | "binary" | "oversized" | "unsupported";
+}
+
+export interface SelectedFile extends NormalizedTreeFile, FileClassification {
+  eligible: true;
+  priority: 1 | 2 | 3 | 4 | 5 | 6;
+  topLevelArea: string;
+}
+
+export interface SelectionLimits {
+  maxFiles?: number;
+  maxBytes?: number;
+  maxFileBytes?: number;
+}
+
+export interface SelectionPlan {
+  treeComplete: boolean;
+  selected: SelectedFile[];
+  eligibleFiles: number;
+  eligibleBytes: number;
+  eligibleSourceBytes: number;
+  unsupportedFiles: number;
+  unsupportedBytes: number;
+  selectedFiles: number;
+  selectedBytes: number;
+  limitReached: boolean;
+  skipped: Array<{ path: string; reason: FileSkipReason }>;
+  skipCounts: Record<FileSkipReason, number>;
+}
+
 export interface FetchedTextFile {
   path: string;
   text: string;
