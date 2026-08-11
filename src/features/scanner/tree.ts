@@ -1,10 +1,18 @@
 import type { NormalizedTree, NormalizedTreeFile } from "../analysis/model";
 import type { RawTreeEntry } from "../github/raw-model";
+import { toPathComparisonKey } from "./file-registry";
 
 const SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function comparePath(left: string, right: string): number {
+  return (
+    compareText(toPathComparisonKey(left), toPathComparisonKey(right)) ||
+    compareText(left, right)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -28,7 +36,14 @@ function assertPath(value: unknown): string {
       codePoint === undefined ||
       codePoint <= 31 ||
       (codePoint >= 127 && codePoint <= 159) ||
-      (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+      codePoint === 0x061c ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      codePoint === 0x2028 ||
+      codePoint === 0x2029 ||
+      (codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069)
     );
   });
 
@@ -74,7 +89,7 @@ export function normalizeTree(
 
   const files: NormalizedTreeFile[] = [];
   const skippedEntries: NormalizedTree["skippedEntries"] = [];
-  const paths = new Set<string>();
+  const pathKeys = new Set<string>();
 
   for (const rawEntry of entries as readonly unknown[]) {
     if (!isRecord(rawEntry)) {
@@ -83,11 +98,12 @@ export function normalizeTree(
 
     const path = assertPath(rawEntry.path);
     const sha = assertSha(rawEntry.sha);
+    const pathKey = toPathComparisonKey(path);
 
-    if (paths.has(path)) {
+    if (pathKeys.has(pathKey)) {
       throw new Error("Duplicate tree path");
     }
-    paths.add(path);
+    pathKeys.add(pathKey);
 
     if (rawEntry.type === "tree") {
       if (rawEntry.mode !== "040000") {
@@ -125,9 +141,14 @@ export function normalizeTree(
 
   files.sort(
     (left, right) =>
-      compareText(left.path, right.path) || compareText(left.sha, right.sha),
+      compareText(
+        toPathComparisonKey(left.path),
+        toPathComparisonKey(right.path),
+      ) ||
+      compareText(left.sha, right.sha) ||
+      compareText(left.path, right.path),
   );
-  skippedEntries.sort((left, right) => compareText(left.path, right.path));
+  skippedEntries.sort((left, right) => comparePath(left.path, right.path));
 
   return { files, complete: !truncated, skippedEntries };
 }

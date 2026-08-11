@@ -76,6 +76,29 @@ describe("selectFiles", () => {
     ).toBeGreaterThan(1);
   });
 
+  it("does not mutate the normalized tree and orders case-insensitively", () => {
+    const tree = normalizeTree(
+      [
+        { path: "zeta.md", mode: "100644", type: "blob", sha: sha(1), size: 1 },
+        {
+          path: "Alpha.md",
+          mode: "100644",
+          type: "blob",
+          sha: sha(2),
+          size: 1,
+        },
+      ],
+      false,
+    );
+    const before = structuredClone(tree);
+
+    expect(selectFiles(tree).selected.map((file) => file.path)).toEqual([
+      "Alpha.md",
+      "zeta.md",
+    ]);
+    expect(tree).toEqual(before);
+  });
+
   it("reports eligible, unsupported, selected, and skipped byte/file accounting", () => {
     const plan = selectFiles(normalizeTree(SELECTION_TREE_ENTRIES, true), {
       maxFiles: 8,
@@ -84,8 +107,9 @@ describe("selectFiles", () => {
     });
 
     expect(plan.treeComplete).toBe(false);
-    expect(plan.eligibleFiles).toBe(11);
-    expect(plan.eligibleBytes).toBe(1_440);
+    expect(plan.eligibleFiles).toBe(12);
+    expect(plan.eligibleBytes).toBe(1_560);
+    expect(plan.eligibleSourceBytes).toBe(920);
     expect(plan.unsupportedFiles).toBe(1);
     expect(plan.unsupportedBytes).toBe(120);
     expect(plan.selectedFiles).toBe(8);
@@ -95,6 +119,8 @@ describe("selectFiles", () => {
     expect(plan.skipped).toHaveLength(
       Object.values(plan.skipCounts).reduce((total, count) => total + count, 0),
     );
+    expect(plan.eligibleBytes).toBe(plan.eligibleSourceBytes + 640);
+    expect(plan.selectedBytes).toBeLessThanOrEqual(plan.eligibleBytes);
   });
 
   it("does not double-count excluded recognized source as unsupported", () => {
@@ -174,6 +200,96 @@ describe("selectFiles", () => {
     expect(plan.skipCounts.oversized).toBe(1);
     expect(plan.skipCounts.budget).toBe(1);
     expect(plan.limitReached).toBe(true);
+  });
+
+  it("allows the exact default per-file boundary and rejects the next byte", () => {
+    const plan = selectFiles(
+      normalizeTree(
+        [
+          {
+            path: "exact.ts",
+            mode: "100644",
+            type: "blob",
+            sha: sha(1),
+            size: 256 * 1024,
+          },
+          {
+            path: "over.ts",
+            mode: "100644",
+            type: "blob",
+            sha: sha(2),
+            size: 256 * 1024 + 1,
+          },
+        ],
+        false,
+      ),
+    );
+
+    expect(plan.selected.map((file) => file.path)).toEqual(["exact.ts"]);
+    expect(plan.skipCounts.oversized).toBe(1);
+  });
+
+  it("allows exactly 10 MiB and budgets the next declared byte", () => {
+    const entries: RawTreeEntry[] = Array.from(
+      { length: 40 },
+      (_value, index) => ({
+        path: `src/area-${String(index).padStart(2, "0")}/file.ts`,
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha: sha(index + 1),
+        size: 256 * 1024,
+      }),
+    );
+    entries.push({
+      path: "src/zz-extra/file.ts",
+      mode: "100644",
+      type: "blob",
+      sha: sha(41),
+      size: 1,
+    });
+
+    const plan = selectFiles(normalizeTree(entries, false));
+
+    expect(plan.selectedFiles).toBe(40);
+    expect(plan.selectedBytes).toBe(10 * 1024 * 1024);
+    expect(plan.skipCounts.budget).toBe(1);
+  });
+
+  it("keeps tier-six documentation key-sorted instead of round-robin sampling it", () => {
+    const plan = selectFiles(
+      normalizeTree(
+        [
+          {
+            path: "a/one.md",
+            mode: "100644",
+            type: "blob",
+            sha: sha(1),
+            size: 1,
+          },
+          {
+            path: "a/two.md",
+            mode: "100644",
+            type: "blob",
+            sha: sha(2),
+            size: 1,
+          },
+          {
+            path: "b/zero.md",
+            mode: "100644",
+            type: "blob",
+            sha: sha(3),
+            size: 1,
+          },
+        ],
+        false,
+      ),
+    );
+
+    expect(plan.selected.map((file) => file.path)).toEqual([
+      "a/one.md",
+      "a/two.md",
+      "b/zero.md",
+    ]);
   });
 
   it("validates custom limits instead of silently accepting unsafe values", () => {

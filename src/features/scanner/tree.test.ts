@@ -37,6 +37,24 @@ describe("normalizeTree", () => {
     expect(entries).toEqual(snapshot);
   });
 
+  it("sorts by a case-insensitive normalized key while preserving original paths", () => {
+    const entries = [
+      { path: "z.ts", mode: "100644", type: "blob", sha: sha("c"), size: 1 },
+      { path: "B.ts", mode: "100644", type: "blob", sha: sha("b"), size: 1 },
+      { path: "a.ts", mode: "100644", type: "blob", sha: sha("a"), size: 1 },
+    ] as const satisfies readonly RawTreeEntry[];
+
+    const first = normalizeTree(entries, false);
+    const second = normalizeTree([...entries].reverse(), false);
+
+    expect(first.files.map((file) => file.path)).toEqual([
+      "a.ts",
+      "B.ts",
+      "z.ts",
+    ]);
+    expect(second).toEqual(first);
+  });
+
   it("excludes symlinks and submodules explicitly", () => {
     const entries = [
       {
@@ -73,6 +91,15 @@ describe("normalizeTree", () => {
     ["backslash", "src\\a.ts"],
     ["NUL", "src/\0a.ts"],
     ["control", "src/\u001fa.ts"],
+    ["Arabic letter mark", "src/\u061ca.ts"],
+    ["left-to-right mark", "src/\u200ea.ts"],
+    ["right-to-left mark", "src/\u200fa.ts"],
+    ["line separator", "src/\u2028a.ts"],
+    ["paragraph separator", "src/\u2029a.ts"],
+    ["bidi embedding", "src/\u202aa.ts"],
+    ["bidi override", "src/\u202ea.ts"],
+    ["bidi isolate", "src/\u2066a.ts"],
+    ["bidi isolate terminator", "src/\u2069a.ts"],
   ])("rejects a hostile %s path", (_label, path) => {
     expect(() =>
       normalizeTree(
@@ -146,6 +173,44 @@ describe("normalizeTree", () => {
         false,
       ),
     ).toThrow("Duplicate tree path");
+    expect(() =>
+      normalizeTree(
+        [
+          {
+            path: "Src/File.ts",
+            mode: "100644",
+            type: "blob",
+            sha: sha("a"),
+            size: 1,
+          },
+          {
+            path: "src/file.TS",
+            mode: "100644",
+            type: "blob",
+            sha: sha("b"),
+            size: 2,
+          },
+        ],
+        false,
+      ),
+    ).toThrow("Duplicate tree path");
+  });
+
+  it("accepts ordinary Unicode and emoji paths", () => {
+    expect(
+      normalizeTree(
+        [
+          {
+            path: "src/质量😀.ts",
+            mode: "100644",
+            type: "blob",
+            sha: sha("a"),
+            size: 1,
+          },
+        ],
+        false,
+      ).files[0]?.path,
+    ).toBe("src/质量😀.ts");
   });
 
   it("rejects malformed SHA and non-boolean truncation evidence", () => {

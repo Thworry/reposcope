@@ -91,20 +91,12 @@ export const EXCLUDED_PATH_SEGMENTS = Object.freeze([
   "venv",
 ] as const);
 
-const GENERATED_PATH_SEGMENTS = new Set<string>([
-  "dist",
-  "build",
-  "out",
-  "coverage",
-  ".coverage",
-  ".cache",
-  ".next",
-  ".nuxt",
-  "target",
-  "bin",
-  "obj",
-  "__pycache__",
-]);
+const VERSION_CONTROL_PATH_SEGMENTS = new Set<string>([".git", ".hg", ".svn"]);
+const GENERATED_PATH_SEGMENTS = new Set<string>(
+  EXCLUDED_PATH_SEGMENTS.filter(
+    (segment) => !VERSION_CONTROL_PATH_SEGMENTS.has(segment),
+  ),
+);
 
 export const PACKAGE_MANIFEST_BASENAMES = Object.freeze([
   "package.json",
@@ -150,7 +142,7 @@ export const CI_PATHS = Object.freeze([
   ".gitlab-ci.yml",
   ".circleci/config.yml",
   "azure-pipelines.yml",
-  "jenkinsfile",
+  "Jenkinsfile",
   ".travis.yml",
   "bitbucket-pipelines.yml",
   "appveyor.yml",
@@ -167,8 +159,8 @@ export const DEPENDENCY_UPDATE_PATHS = Object.freeze([
 ] as const);
 
 export const ISSUE_AND_PR_TEMPLATE_PATHS = Object.freeze([
-  ".github/issue_template/",
-  ".github/pull_request_template/",
+  ".github/ISSUE_TEMPLATE/",
+  ".github/PULL_REQUEST_TEMPLATE/",
   ".github/pull_request_template.md",
 ] as const);
 
@@ -378,8 +370,13 @@ const MANIFEST_NAMES = new Set<string>(
 const LOCKFILE_NAMES = new Set<string>(
   LOCKFILE_BASENAMES.map((name) => name.toLowerCase()),
 );
-const CI_NAMES = new Set<string>(CI_PATHS);
+const CI_NAMES = new Set<string>(
+  CI_PATHS.map((path) => toPathComparisonKey(path)),
+);
 const DEPENDENCY_UPDATE_NAMES = new Set<string>(DEPENDENCY_UPDATE_PATHS);
+const ISSUE_AND_PR_TEMPLATE_KEYS = ISSUE_AND_PR_TEMPLATE_PATHS.map((path) =>
+  toPathComparisonKey(path),
+);
 const DOCUMENTATION_EXTENSION_SET = new Set<string>(DOCUMENTATION_EXTENSIONS);
 const EXCLUDED_SEGMENT_SET = new Set<string>(EXCLUDED_PATH_SEGMENTS);
 const JS_EXTENSIONS = new Set<string>([".js", ".jsx", ".mjs", ".cjs"]);
@@ -397,7 +394,11 @@ const TEST_SEGMENTS = new Set<string>([
 const MAX_FILE_BYTES = 256 * 1024;
 
 function lowerParts(path: string): string[] {
-  return path.split("/").map((segment) => segment.toLowerCase());
+  return toPathComparisonKey(path).split("/");
+}
+
+export function toPathComparisonKey(path: string): string {
+  return path.toLowerCase();
 }
 
 function basenameOf(path: string): string {
@@ -411,14 +412,16 @@ function extensionOf(path: string): string {
   return dot <= 0 ? "" : basename.slice(dot).toLowerCase();
 }
 
-function documentStem(basename: string): string {
+function documentStem(basename: string): string | null {
   const extension = DOCUMENTATION_EXTENSIONS.find((candidate) =>
     basename.endsWith(candidate),
   );
 
-  return extension === undefined
-    ? basename
-    : basename.slice(0, -extension.length);
+  if (extension !== undefined) {
+    return basename.slice(0, -extension.length);
+  }
+
+  return basename.includes(".") ? null : basename;
 }
 
 function isScopedDocument(
@@ -430,19 +433,19 @@ function isScopedDocument(
   const parts = lowerParts(path);
   const basename = parts.at(-1) ?? "";
   const directory = parts.slice(0, -1).join("/");
+  const stem = documentStem(basename);
 
   return (
+    stem !== null &&
     scopes.includes(directory) &&
     prefixes.some((prefix) =>
-      match === "exact"
-        ? documentStem(basename) === prefix
-        : documentStem(basename).startsWith(prefix),
+      match === "exact" ? stem === prefix : stem.startsWith(prefix),
     )
   );
 }
 
 export function isPriorityDocumentation(path: string): boolean {
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
 
   return Object.values(PRIORITY_DOCUMENT_RULES).some((rule) =>
     isScopedDocument(lower, rule.scopes, rule.prefixes, rule.match),
@@ -450,7 +453,7 @@ export function isPriorityDocumentation(path: string): boolean {
 }
 
 export function isManifestPath(path: string): boolean {
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
   const basename = basenameOf(lower);
 
   if (MANIFEST_NAMES.has(basename)) {
@@ -464,11 +467,11 @@ export function isManifestPath(path: string): boolean {
 }
 
 export function isLockfilePath(path: string): boolean {
-  return LOCKFILE_NAMES.has(basenameOf(path).toLowerCase());
+  return LOCKFILE_NAMES.has(basenameOf(toPathComparisonKey(path)));
 }
 
 export function isConfigurationPath(path: string): boolean {
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
   const basename = basenameOf(lower);
 
   return (
@@ -476,7 +479,7 @@ export function isConfigurationPath(path: string): boolean {
       (lower.endsWith(".yml") || lower.endsWith(".yaml"))) ||
     CI_NAMES.has(lower) ||
     DEPENDENCY_UPDATE_NAMES.has(lower) ||
-    ISSUE_AND_PR_TEMPLATE_PATHS.some((candidate) =>
+    ISSUE_AND_PR_TEMPLATE_KEYS.some((candidate) =>
       candidate.endsWith("/")
         ? lower.startsWith(candidate)
         : lower === candidate,
@@ -524,7 +527,7 @@ function generatedTreeEvidence(
 }
 
 function sourceLanguage(path: string): SourceLanguage {
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
   const extension = extensionOf(lower);
 
   if (lower.endsWith(".pyi") || extension === ".py") {
@@ -545,7 +548,7 @@ function sourceLanguage(path: string): SourceLanguage {
 }
 
 function isTestPath(path: string, language: SourceLanguage): boolean {
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
   const parts = lower.split("/");
   const basename = parts.at(-1) ?? "";
 
@@ -580,7 +583,7 @@ export function classifyFile(path: string, size: number): FileClassification {
     throw new Error("Invalid file size");
   }
 
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
   const extension = extensionOf(lower);
   const language = sourceLanguage(path);
   const isTest = isTestPath(path, language);
@@ -600,7 +603,15 @@ export function classifyFile(path: string, size: number): FileClassification {
     };
   }
 
-  if (/(?:^|[._-])min(?:[._-]|$)/u.test(basenameOf(lower))) {
+  const basename = basenameOf(lower);
+  const minifiedExtension = extensionOf(lower);
+  const minifiedStem = basename.slice(0, -minifiedExtension.length);
+  const isRecognizedTextExtension =
+    RECOGNIZED_EXTENSION_SET.has(minifiedExtension) ||
+    DOCUMENTATION_EXTENSION_SET.has(minifiedExtension) ||
+    minifiedExtension === ".pyi";
+
+  if (isRecognizedTextExtension && /.+(?:[._-])min$/u.test(minifiedStem)) {
     return {
       eligible: false,
       language,
@@ -640,6 +651,8 @@ export function classifyFile(path: string, size: number): FileClassification {
     classification = baseClassification("none", "manifest", false, false);
   } else if (isConfigurationPath(path)) {
     classification = baseClassification("none", "configuration", false, false);
+  } else if (isPriorityDocumentation(path)) {
+    classification = baseClassification("none", "documentation", false, false);
   } else if (language === "recognized-unsupported") {
     classification = {
       eligible: false,
@@ -682,7 +695,7 @@ export function classifyFile(path: string, size: number): FileClassification {
 }
 
 export function isConventionalEntryPoint(path: string): boolean {
-  const lower = path.toLowerCase();
+  const lower = toPathComparisonKey(path);
   const basename = basenameOf(lower);
   const stem = basename.replace(/(?:\.d)?\.[^.]+$/u, "");
   const topLevel = !lower.includes("/");

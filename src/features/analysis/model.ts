@@ -95,8 +95,11 @@ export interface SelectionLimits {
 export interface SelectionPlan {
   treeComplete: boolean;
   selected: SelectedFile[];
+  /** Selectable evidence plus recognized unsupported source visible in the tree. */
   eligibleFiles: number;
+  /** Declared bytes for every file counted by eligibleFiles. */
   eligibleBytes: number;
+  /** Declared supported and recognized-unsupported source bytes. */
   eligibleSourceBytes: number;
   unsupportedFiles: number;
   unsupportedBytes: number;

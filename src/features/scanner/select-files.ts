@@ -11,6 +11,7 @@ import {
   classifyFile,
   isConventionalEntryPoint,
   isPriorityDocumentation,
+  toPathComparisonKey,
 } from "./file-registry";
 
 const HARD_LIMITS = Object.freeze({
@@ -48,7 +49,14 @@ function compareFile(
   left: NormalizedTreeFile,
   right: NormalizedTreeFile,
 ): number {
-  return compareText(left.path, right.path) || compareText(left.sha, right.sha);
+  return (
+    compareText(
+      toPathComparisonKey(left.path),
+      toPathComparisonKey(right.path),
+    ) ||
+    compareText(left.sha, right.sha) ||
+    compareText(left.path, right.path)
+  );
 }
 
 function resolveLimits(limits: SelectionLimits): ResolvedSelectionLimits {
@@ -70,7 +78,8 @@ function resolveLimits(limits: SelectionLimits): ResolvedSelectionLimits {
 }
 
 function stemOf(path: string): string {
-  const basename = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+  const normalized = toPathComparisonKey(path);
+  const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
   const withoutExtension = basename.replace(/(?:\.d)?\.[^.]+$/u, "");
 
   return withoutExtension
@@ -80,7 +89,7 @@ function stemOf(path: string): string {
 }
 
 function topLevelArea(path: string): string {
-  const parts = path.toLowerCase().split("/");
+  const parts = toPathComparisonKey(path).split("/");
   const directories = parts.slice(0, -1);
   const wrappers = new Set([
     "src",
@@ -194,9 +203,21 @@ function orderedCandidates(candidates: readonly Candidate[]): Candidate[] {
   }
 
   for (const priority of [5, 6] as const) {
+    const atPriority = candidates.filter(
+      (candidate) => candidate.priority === priority,
+    );
+
+    if (priority === 6) {
+      ordered.push(
+        ...atPriority
+          .filter((candidate) => candidate.language === "none")
+          .sort(compareFile),
+      );
+    }
+
     ordered.push(
       ...roundRobin(
-        candidates.filter((candidate) => candidate.priority === priority),
+        atPriority.filter((candidate) => candidate.language !== "none"),
       ),
     );
   }
@@ -288,25 +309,27 @@ export function selectFiles(
       classification.language === "recognized-unsupported" &&
       classification.skipReason === "unsupported",
   );
-  const eligibleBytes = candidates.reduce(
+  const unsupportedBytes = unsupported.reduce(
+    (total, item) => total + item.file.size,
+    0,
+  );
+  const selectableBytes = candidates.reduce(
     (total, file) => total + file.size,
     0,
   );
+  const eligibleBytes = selectableBytes + unsupportedBytes;
   const eligibleSourceBytes = candidates
     .filter((file) => file.language !== "none")
-    .reduce((total, file) => total + file.size, 0);
+    .reduce((total, file) => total + file.size, unsupportedBytes);
 
   return {
     treeComplete: tree.complete,
     selected,
-    eligibleFiles: candidates.length,
+    eligibleFiles: candidates.length + unsupported.length,
     eligibleBytes,
     eligibleSourceBytes,
     unsupportedFiles: unsupported.length,
-    unsupportedBytes: unsupported.reduce(
-      (total, item) => total + item.file.size,
-      0,
-    ),
+    unsupportedBytes,
     selectedFiles: selected.length,
     selectedBytes,
     limitReached: skipCounts.oversized > 0 || skipCounts.budget > 0,
