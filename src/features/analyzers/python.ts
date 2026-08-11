@@ -1148,6 +1148,7 @@ function isTypeCheckingOnlyImport(
 function collectRelativeImports(
   nodes: readonly PythonNode[],
   text: string,
+  priorPackageBindings?: ReadonlyMap<string, number>,
 ): { definite: string[]; candidates: string[] } {
   const imports = new Set<string>();
   const candidates = new Set<string>();
@@ -1165,6 +1166,16 @@ function collectRelativeImports(
       imports.add(definite);
     }
     for (const candidate of relative.candidates) {
+      const importedName = /^\.+(.+)$/u.exec(candidate)?.[1];
+      const importOffset = nodes[index]?.from ?? 0;
+
+      if (
+        importedName !== undefined &&
+        (priorPackageBindings?.get(importedName) ?? Number.POSITIVE_INFINITY) <
+          importOffset
+      ) {
+        continue;
+      }
       candidates.add(candidate);
     }
   }
@@ -1198,18 +1209,54 @@ function hasModuleScope(nodes: readonly PythonNode[], index: number): boolean {
   return false;
 }
 
-function topLevelDefinedNames(
+function hasDefiniteModuleExecution(
+  nodes: readonly PythonNode[],
+  index: number,
+): boolean {
+  if (!hasModuleScope(nodes, index)) {
+    return false;
+  }
+
+  let current = index;
+  while (current !== 0) {
+    const parent = nodes[current]?.parent ?? null;
+
+    if (parent === null) {
+      return false;
+    }
+    if (nodes[parent]?.type === "Body") {
+      const owner = nodes[parent].parent;
+
+      if (owner !== null && nodes[owner]?.type !== "Script") {
+        return false;
+      }
+    }
+    if (nodes[parent]?.type === "Script") {
+      return true;
+    }
+    current = parent;
+  }
+
+  return true;
+}
+
+function topLevelDefinedNameBindings(
   nodes: readonly PythonNode[],
   text: string,
-): string[] {
-  const names = new Set<string>();
+): Map<string, number> {
+  const names = new Map<string, number>();
   const addCandidates = (candidates: ReadonlySet<number>): void => {
     for (const candidate of candidates) {
       if (
-        hasModuleScope(nodes, candidate) &&
+        hasDefiniteModuleExecution(nodes, candidate) &&
         !isTypeCheckingOnlyImport(nodes, candidate, text)
       ) {
-        names.add(nodeTextAt(nodes, candidate, text));
+        const name = nodeTextAt(nodes, candidate, text);
+        const offset = nodes[candidate]?.from ?? 0;
+
+        if (offset < (names.get(name) ?? Number.POSITIVE_INFINITY)) {
+          names.set(name, offset);
+        }
       }
     }
   };
@@ -1222,50 +1269,40 @@ function topLevelDefinedNames(
     }
     if (
       (node.type === "FunctionDefinition" || node.type === "ClassDefinition") &&
-      hasModuleScope(nodes, index) &&
+      hasDefiniteModuleExecution(nodes, index) &&
       !isTypeCheckingOnlyImport(nodes, index, text)
     ) {
       const name = firstDirectVariable(nodes, index);
 
       if (name !== null) {
-        names.add(nodeTextAt(nodes, name, text));
+        const value = nodeTextAt(nodes, name, text);
+        const offset = nodes[name]?.from ?? 0;
+
+        if (offset < (names.get(value) ?? Number.POSITIVE_INFINITY)) {
+          names.set(value, offset);
+        }
       }
-    } else if (
-      node.type === "AssignStatement" ||
-      node.type === "NamedExpression"
-    ) {
+    } else if (node.type === "AssignStatement") {
       const bindings = new Set<number>();
 
       collectAssignmentBindings(nodes, index, bindings);
       addCandidates(bindings);
-    } else if (
-      node.type === "ForStatement" ||
-      COMPREHENSION_CONTAINERS.has(node.type)
-    ) {
-      const bindings = new Set<number>();
-
-      collectForBindings(nodes, index, bindings);
-      addCandidates(bindings);
-    } else if (node.type === "WithStatement" || node.type === "TryStatement") {
-      const bindings = new Set<number>();
-
-      collectAsBindings(nodes, index, bindings);
-      addCandidates(bindings);
     } else if (node.type === "ImportStatement") {
+      if (relativePythonImports(nodes, index, text).candidates.length > 0) {
+        continue;
+      }
       const bindings = new Set<number>();
 
       collectImportBindings(nodes, index, text, bindings);
       addCandidates(bindings);
-    } else if (node.type === "CapturePattern") {
-      const name = firstDirectVariable(nodes, index);
-
-      if (name !== null) {
-        addCandidates(new Set([name]));
-      }
     }
   }
 
-  return [...names].sort();
+  return names;
+}
+
+function topLevelDefinedNames(bindings: ReadonlyMap<string, number>): string[] {
+  return [...bindings.keys()].sort();
 }
 
 function normalizedTokens(
@@ -1382,8 +1419,15 @@ function analyzeParsedFile(
   nodes: readonly PythonNode[],
   output: LanguageAnalysis,
 ): void {
-  const relativeImports = collectRelativeImports(nodes, file.text);
-  const definedNames = topLevelDefinedNames(nodes, file.text);
+  const definedNameBindings = topLevelDefinedNameBindings(nodes, file.text);
+  const relativeImports = collectRelativeImports(
+    nodes,
+    file.text,
+    /(?:^|\/)__init__\.pyi?$/iu.test(file.path)
+      ? definedNameBindings
+      : undefined,
+  );
+  const definedNames = topLevelDefinedNames(definedNameBindings);
 
   if (isStubPath(file.path)) {
     output.files.push({

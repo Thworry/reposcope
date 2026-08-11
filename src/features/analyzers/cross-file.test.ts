@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type {
   DuplicateMetrics,
@@ -457,6 +457,78 @@ describe("cross-file duplicate metrics", () => {
     },
   );
 
+  it("preserves disconnected maximal matches on one periodic diagonal", () => {
+    const left = Array.from(
+      { length: 117 },
+      (_, index) => `p${String(index % 20)}`,
+    );
+    const right = Array.from(
+      { length: 118 },
+      (_, index) => `p${String((index + 19) % 20)}`,
+    );
+
+    left[63] = "left-break";
+    right[67] = "right-break";
+    const files = [
+      tokenizedFile("src/a.ts", left),
+      tokenizedFile("src/b.ts", right),
+    ];
+
+    expect(bruteForceDuplicateRatio(files)).toMatchObject({
+      duplicatedTokens: 226,
+      evidence: [
+        {
+          leftPath: "src/a.ts",
+          rightPath: "src/b.ts",
+          tokenCount: 113,
+        },
+      ],
+    });
+    expect(computeDuplicateRatio(files)).toEqual(
+      bruteForceDuplicateRatio(files),
+    );
+  });
+
+  it(
+    "does not materialize candidates for every periodic file-pair delta",
+    { timeout: 5000 },
+    () => {
+      const originalSort = Array.prototype.sort;
+      let largestSortedArray = 0;
+      const sortSpy = vi
+        .spyOn(Array.prototype, "sort")
+        .mockImplementation(function (
+          this: unknown[],
+          compareFunction?: (left: unknown, right: unknown) => number,
+        ): unknown[] {
+          largestSortedArray = Math.max(largestSortedArray, this.length);
+
+          return Reflect.apply(originalSort, this, [
+            compareFunction,
+          ]) as unknown[];
+        });
+      const files = Array.from({ length: 20 }, (_, fileIndex) =>
+        tokenizedFile(
+          `src/${String(fileIndex).padStart(2, "0")}.ts`,
+          Array.from({ length: 5000 + fileIndex }, (_, tokenIndex) =>
+            tokenIndex % 2 === 0 ? "identifier" : ";",
+          ),
+        ),
+      );
+
+      try {
+        const result = computeDuplicateRatio(files);
+
+        expect(result.totalEligibleTokens).toBe(100_190);
+        expect(result.duplicatedTokens).toBe(100_180);
+      } finally {
+        sortSpy.mockRestore();
+      }
+
+      expect(largestSortedArray).toBeLessThanOrEqual(100_190);
+    },
+  );
+
   it.each([
     [
       "period seven",
@@ -595,6 +667,61 @@ describe("relative import graph metrics", () => {
     expect(
       analyzed.files.find((file) => file.path === "pkg/__init__.py"),
     ).toMatchObject({ topLevelDefinedNames: ["b"] });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [],
+      largestComponentSize: 0,
+    });
+  });
+
+  it("does not treat conditional package bindings as definite submodule shadows", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile("pkg/__init__.py", "if False:\n    b = object()"),
+      pythonSourceFile("pkg/a.py", "from . import b"),
+      pythonSourceFile("pkg/b.py", "from . import a"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({ topLevelDefinedNames: [] });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/a.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
+  it("retains a package initializer's own from-dot submodule edge", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "from . import b\nb = object()\nINIT_VALUE = 1",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({
+      relativeImportCandidates: [".b"],
+      topLevelDefinedNames: ["INIT_VALUE", "b"],
+    });
+    expect(findCircularImports(analyzed.files)).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py"]],
+      largestComponentSize: 2,
+    });
+  });
+
+  it("suppresses only from-dot candidates shadowed before an initializer import", () => {
+    const analyzed = analyzePython([
+      pythonSourceFile(
+        "pkg/__init__.py",
+        "INIT_VALUE = 1\nb = object()\nfrom . import b",
+      ),
+      pythonSourceFile("pkg/b.py", "from . import INIT_VALUE"),
+    ]);
+
+    expect(
+      analyzed.files.find((file) => file.path === "pkg/__init__.py"),
+    ).toMatchObject({ relativeImportCandidates: [] });
     expect(findCircularImports(analyzed.files)).toEqual({
       components: [],
       largestComponentSize: 0,
