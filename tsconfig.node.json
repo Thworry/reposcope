@@ -19,5 +19,11 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["vite.config.ts", "eslint.config.js", "scripts/**/*.mjs"]
+  "include": [
+    "vite.config.ts",
+    "playwright.config.ts",
+    "eslint.config.js",
+    "scripts/**/*.mjs",
+    "e2e/**/*.ts"
+  ]
 }

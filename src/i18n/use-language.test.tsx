@@ -42,6 +42,19 @@ describe("useLanguage", () => {
     expect(getInitialLanguage(["zh-Hans-CN"], "pirate")).toBe("zh-CN");
   });
 
+  it("uses the browser fallback when the stored hook value is invalid", () => {
+    vi.spyOn(window.navigator, "languages", "get").mockReturnValue([
+      "zh-CN",
+      "en",
+    ]);
+    window.localStorage.setItem("reposcope:language", "pirate");
+
+    render(<LanguageHarness />);
+
+    expect(screen.getByText("zh-CN")).toBeVisible();
+    expect(document.documentElement.lang).toBe("zh-CN");
+  });
+
   it("does not throw when storage reads fail", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new DOMException("Storage denied", "SecurityError");
