@@ -756,7 +756,10 @@ function bindingIdentifiers(
   const result = new Set<number>();
   const scopeDeclarations = functionScopeDeclarations(nodes, text);
 
-  const localLexicalOwner = (index: number): LexicalOwner | null => {
+  const localLexicalOwner = (
+    index: number,
+    skipComprehensions = false,
+  ): LexicalOwner | null => {
     let parent = nodes[index]?.parent ?? null;
     let crossedSignature = false;
 
@@ -765,7 +768,10 @@ function bindingIdentifiers(
 
       if (type === "ParamList" || type === "TypeDef") {
         crossedSignature = true;
-      } else if (COMPREHENSION_CONTAINERS.has(type ?? "")) {
+      } else if (
+        !skipComprehensions &&
+        COMPREHENSION_CONTAINERS.has(type ?? "")
+      ) {
         return { kind: "comprehension", index: parent };
       } else if (type === "FunctionDefinition" || type === "LambdaExpression") {
         if (crossedSignature) {
@@ -785,9 +791,12 @@ function bindingIdentifiers(
     return null;
   };
 
-  const addLocalBindings = (candidates: ReadonlySet<number>): void => {
+  const addLocalBindings = (
+    candidates: ReadonlySet<number>,
+    skipComprehensions = false,
+  ): void => {
     for (const candidate of candidates) {
-      const owner = localLexicalOwner(candidate);
+      const owner = localLexicalOwner(candidate, skipComprehensions);
 
       if (owner === null) {
         continue;
@@ -825,7 +834,7 @@ function bindingIdentifiers(
       const candidates = new Set<number>();
 
       collectAssignmentBindings(nodes, index, candidates);
-      addLocalBindings(candidates);
+      addLocalBindings(candidates, node.type === "NamedExpression");
     } else if (
       node.type === "ForStatement" ||
       COMPREHENSION_CONTAINERS.has(node.type)

@@ -102,6 +102,94 @@ match value:
     expect(result.ambiguousIdentifierOccurrences).toBe(1);
   });
 
+  it("excludes module-bound comprehension walrus targets", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/module-comprehension-walrus.py",
+        "values = [(ab := item) for cd in rows]",
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(1);
+    expect(result.ambiguousIdentifierOccurrences).toBe(1);
+  });
+
+  it("applies global declarations to comprehension walrus targets", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/global-comprehension-walrus.py",
+        `def choose(rows):
+    global ab
+    values = [(ab := item) for cd in rows]
+    return values`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(4);
+    expect(result.ambiguousIdentifierOccurrences).toBe(1);
+  });
+
+  it("applies nonlocal declarations to nested comprehension walrus targets", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/nonlocal-comprehension-walrus.py",
+        `def outer(rows):
+    ab = None
+
+    def inner():
+        nonlocal ab
+        values = [(ab := item) for cd in rows]
+        return values
+
+    return inner`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(6);
+    expect(result.ambiguousIdentifierOccurrences).toBe(2);
+  });
+
+  it("counts a function-local comprehension walrus target exactly once", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/local-comprehension-walrus.py",
+        `def choose(rows):
+    values = [(ab := item) for cd in rows]
+    return ab, values`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(5);
+    expect(result.ambiguousIdentifierOccurrences).toBe(2);
+  });
+
+  it("keeps comprehension walrus targets local to their containing lambda", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/lambda-comprehension-walrus.py",
+        `def choose(rows):
+    global ab
+    callback = lambda: [(ab := item) for cd in rows]
+    return callback`,
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(5);
+    expect(result.ambiguousIdentifierOccurrences).toBe(2);
+  });
+
+  it("keeps nested comprehension iteration targets comprehension-local", () => {
+    const result = analyzePython([
+      pythonSourceFile(
+        "src/nested-comprehension-targets.py",
+        "values = [[ef for ef in row] for cd in rows]",
+      ),
+    ]);
+
+    expect(result.identifierOccurrences).toBe(2);
+    expect(result.ambiguousIdentifierOccurrences).toBe(2);
+  });
+
   it("counts only local lexical bindings outside class, module, and type-alias scopes", () => {
     const result = analyzePython([
       pythonSourceFile(
