@@ -776,6 +776,20 @@ function declarationFile(path: string): boolean {
   return path.toLocaleLowerCase("en-US").endsWith(".d.ts");
 }
 
+function collectRelativeImports(ast: ReturnType<typeof parse>): string[] {
+  const imports = new Set<string>();
+
+  walk(ast.program, (node) => {
+    const specifier = relativeSpecifier(node);
+
+    if (specifier !== null) {
+      imports.add(specifier);
+    }
+  });
+
+  return [...imports].sort();
+}
+
 function analyzeParsedFile(
   file: FetchedTextFile,
   parsed: ParseSuccess,
@@ -788,7 +802,7 @@ function analyzeParsedFile(
       logicalLines: 0,
       isTest: file.isTest,
       normalizedTokens: [],
-      relativeImports: [],
+      relativeImports: collectRelativeImports(parsed.ast),
     });
     return;
   }
@@ -884,7 +898,9 @@ export function analyzeJavaScriptTypeScript(
       continue;
     }
 
-    output.parsedBytes += file.bytes;
+    if (!declarationFile(file.path)) {
+      output.parsedBytes += file.bytes;
+    }
     analyzeParsedFile(file, parsed, output);
   }
 

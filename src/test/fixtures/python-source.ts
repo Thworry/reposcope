@@ -93,3 +93,8 @@ class AB:
 `;
 
 export const malformedPythonSource = "def broken(value:\n    return value";
+
+export const pythonStubImportSource = `from .runtime import RuntimeValue
+from .model import Model
+
+class DeclaredValue(RuntimeValue): ...`;

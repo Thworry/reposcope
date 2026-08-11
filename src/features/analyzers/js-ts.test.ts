@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bindingCoverageSource,
   compactChoiceSource,
+  declarationImportSource,
   JAVASCRIPT_TYPESCRIPT_EXTENSIONS,
   malformedSource,
   nestedTestSource,
@@ -194,10 +195,12 @@ class Container { in() {} if() {} do() {} }`,
     ]);
   });
 
-  it("excludes declaration-file denominators while retaining its path for resolution", () => {
+  it("excludes declaration-file denominators while retaining runtime imports for resolution", () => {
     const declarations = sourceFile(
       "src/types.d.ts",
-      "export declare function q(x: number): number;",
+      `${declarationImportSource}
+import type { Model } from "./model";
+export type { Shape } from "./shape";`,
     );
     const result = analyzeJavaScriptTypeScript([declarations]);
 
@@ -208,13 +211,18 @@ class Container { in() {} if() {} do() {} }`,
         logicalLines: 0,
         isTest: false,
         normalizedTokens: [],
-        relativeImports: [],
+        relativeImports: [
+          "./runtime",
+          "./runtime-all",
+          "./runtime-equals",
+          "./runtime-export",
+        ],
       },
     ]);
     expect(result.functions).toEqual([]);
     expect(result.identifierOccurrences).toBe(0);
     expect(result.exportedDeclarations).toBe(0);
-    expect(result.parsedBytes).toBe(declarations.bytes);
+    expect(result.parsedBytes).toBe(0);
   });
 
   it("associates JSDoc only with the preceding nonblank exported declaration", () => {

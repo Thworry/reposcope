@@ -204,6 +204,36 @@ export interface LanguageAnalysis {
   }>;
 }
 
+export interface TokenizedFile {
+  path: string;
+  isTest: boolean;
+  normalizedTokens: readonly string[];
+}
+
+export interface ImportingFile {
+  path: string;
+  language: "javascript" | "typescript" | "python";
+  relativeImports: readonly string[];
+}
+
+export interface DuplicatePathPairEvidence {
+  leftPath: string;
+  rightPath: string;
+  tokenCount: number;
+}
+
+export interface DuplicateMetrics {
+  totalEligibleTokens: number;
+  duplicatedTokens: number;
+  ratio: number;
+  evidence: DuplicatePathPairEvidence[];
+}
+
+export interface ImportCycleMetrics {
+  components: string[][];
+  largestComponentSize: number;
+}
+
 export interface CoverageSummary {
   treeComplete: boolean;
   eligibleFiles: number;

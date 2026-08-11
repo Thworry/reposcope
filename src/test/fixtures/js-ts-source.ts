@@ -93,6 +93,12 @@ class IJ { kl(mn) { return mn; } }
 
 export const malformedSource = "export function broken( {";
 
+export const declarationImportSource = `import { runtimeValue } from "./runtime";
+import runtimeEquals = require("./runtime-equals");
+export { runtimeExport } from "./runtime-export";
+export * from "./runtime-all";
+export declare const declaredValue: typeof runtimeValue;`;
+
 export const nestedTestSource = `
 export function outer(flag: boolean) {
   if (flag) {
