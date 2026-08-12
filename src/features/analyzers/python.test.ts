@@ -464,6 +464,43 @@ def choose(value: Model) -> Shared: ...`,
     expect(result.identifierOccurrences).toBe(0);
   });
 
+  it("preserves binding and evidence aggregation across source and stub files", () => {
+    const source = pythonSourceFile(
+      "src/usage.py",
+      `def choose(long_name):
+    """Documented."""
+    values = [(xy := item) for cd in rows]
+    return f"{f'{xy + 1}'}"`,
+    );
+    const stub = pythonSourceFile(
+      "src/model.pyi",
+      "from .types import Model\n",
+    );
+    const result = analyzePython([source, stub]);
+
+    expect(result.files[0]).toEqual({
+      path: "src/model.pyi",
+      language: "python",
+      logicalLines: 0,
+      isTest: false,
+      normalizedTokens: [],
+      relativeImports: [".types"],
+      relativeImportCandidates: [],
+      topLevelDefinedNames: ["Model"],
+    });
+    expect(result.files[1]?.normalizedTokens).toEqual(
+      expect.arrayContaining(["TEMPLATE", "xy", "+", "NUMBER"]),
+    );
+    expect(result).toMatchObject({
+      identifierOccurrences: 5,
+      ambiguousIdentifierOccurrences: 2,
+      exportedDeclarations: 1,
+      documentedExports: 1,
+      parsedBytes: source.bytes,
+      parseFailures: [],
+    });
+  });
+
   it("counts only top-level public APIs and direct public methods with first-statement docstrings", () => {
     const result = analyzePython([
       pythonSourceFile(
