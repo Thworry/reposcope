@@ -31,7 +31,7 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --maxWorkers=1 --no-file-parallelism",
     "test:e2e": "playwright test",
     "check:bundle": "node --test scripts/check-bundle-size.test.mjs && node scripts/check-bundle-size.mjs",
     "check:lighthouse": "lhci autorun",

@@ -331,6 +331,16 @@ describe("open-source repository contract", () => {
     expect(packageManifest.version).toBe("0.1.1");
   });
 
+  it("isolates instrumented coverage from cross-suite CPU contention", () => {
+    const packageManifest = JSON.parse(read("package.json")) as {
+      scripts?: Record<string, unknown>;
+    };
+
+    expect(packageManifest.scripts?.["test:coverage"]).toBe(
+      "vitest run --coverage --maxWorkers=1 --no-file-parallelism",
+    );
+  });
+
   it("documents public tree and dimension contracts without overclaiming", () => {
     const model = read("src/features/analysis/model.ts");
 
