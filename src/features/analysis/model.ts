@@ -68,8 +68,9 @@ export interface NormalizedTreeFile {
 
 /**
  * Deterministically ordered ordinary blobs from a validated recursive tree.
- * `complete` is false when GitHub reported truncation; rejected entries retain
- * only their path and bounded reason, never arbitrary remote payload fields.
+ * `complete` is false when GitHub reported truncation.
+ * Only shape-valid symlinks and submodules become skip evidence.
+ * Malformed or duplicate tree entries fail closed by throwing.
  */
 export interface NormalizedTree {
   files: NormalizedTreeFile[];
@@ -340,7 +341,11 @@ export interface RuleResult {
   references: FileReference[];
 }
 
-/** Ordered rules and normalized score for one applicable quality dimension. */
+/**
+ * One quality dimension's ordered rules and earned/available point totals.
+ * `score` is a rounded percentage when applicable points exist.
+ * `score` is `null` when no rule contributes applicable points.
+ */
 export interface DimensionResult {
   key: DimensionKey;
   earned: number;

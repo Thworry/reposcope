@@ -331,6 +331,19 @@ describe("open-source repository contract", () => {
     expect(packageManifest.version).toBe("0.1.1");
   });
 
+  it("documents public tree and dimension contracts without overclaiming", () => {
+    const model = read("src/features/analysis/model.ts");
+
+    for (const contract of [
+      "Only shape-valid symlinks and submodules become skip evidence.",
+      "Malformed or duplicate tree entries fail closed by throwing.",
+      "One quality dimension's ordered rules and earned/available point totals.",
+      "`score` is `null` when no rule contributes applicable points.",
+    ] as const) {
+      expect(model).toContain(contract);
+    }
+  });
+
   it("publishes every ruleset signal and reproducibility boundary", () => {
     const methodology = read("docs/methodology.md");
 
