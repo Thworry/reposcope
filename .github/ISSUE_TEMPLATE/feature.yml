@@ -1,0 +1,62 @@
+name: Feature proposal
+description: Propose a focused improvement to RepoScope's public contract.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem and the evidence for changing the product. Score changes must be deterministic and must not be tuned for one repository.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who needs this, and what cannot they do or understand today?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Rule or report area
+      options:
+        - Documentation and onboarding
+        - Operability evidence
+        - Code readability
+        - Complexity and structure
+        - Testing and automation
+        - Maintenance health
+        - Confidence and coverage
+        - Acquisition, limits, or privacy
+        - Bilingual UI or accessibility
+        - Development and deployment
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: State deterministic inputs, outputs, boundaries, and failure behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: bilingual-impact
+    attributes:
+      label: English and Chinese impact
+      description: List affected application-owned copy and how semantic parity will be preserved.
+    validations:
+      required: true
+  - type: textarea
+    id: methodology-impact
+    attributes:
+      label: Methodology and compatibility impact
+      description: Identify affected rule IDs, thresholds, weights, applicability, confidence, limits, ruleset version, tests, or documentation. Write “none” only with a reason.
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Boundary confirmation
+      options:
+        - label: The proposal does not require private repository data, a user token, remote code execution, or hidden source persistence.
+          required: true

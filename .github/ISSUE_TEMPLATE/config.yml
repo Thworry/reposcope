@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private vulnerability report
+    url: https://github.com/Thworry/reposcope/security/advisories/new
+    about: Report security vulnerabilities privately; do not disclose them in a public issue.
+  - name: Support and usage guidance
+    url: https://github.com/Thworry/reposcope/blob/main/SUPPORT.md
+    about: Review support scope and troubleshooting guidance before filing an issue.

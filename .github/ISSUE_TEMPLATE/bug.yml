@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a reproducible problem using public, non-sensitive data.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not include secrets, tokens, private source, personal data, or unpatched vulnerability details. Use private vulnerability reporting for security issues.
+  - type: input
+    id: repository-url
+    attributes:
+      label: Public repository URL
+      description: Provide the public GitHub repository URL that reproduces the issue, or say “fixture only”.
+      placeholder: https://github.com/owner/repository
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chromium 140 on macOS
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: Interface language
+      options:
+        - English
+        - 简体中文
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: Describe the expected visible behavior, score boundary, request count, or accessibility outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Describe what happened. Remove secrets and sensitive source from screenshots or logs.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open …
+        2. Enter …
+        3. Observe …
+    validations:
+      required: true
+  - type: checkboxes
+    id: public-only
+    attributes:
+      label: Data safety confirmation
+      options:
+        - label: This report contains public-only data and no secret, token, private source, personal data, or vulnerability detail.
+          required: true
