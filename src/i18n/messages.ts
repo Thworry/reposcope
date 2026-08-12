@@ -23,6 +23,20 @@ const baseEn = {
   analysisRunning: "Analysis running",
   examplesLabel: "Try a public example",
   methodology: "Read methodology 1.0.0",
+  methodologyIndex: "VERSIONED METHOD",
+  methodologyHeading: "Methodology 1.0.0",
+  methodologyIntro:
+    "RepoScope applies a deterministic ruleset to public GitHub evidence. Its six dimensions are documentation (15), operability (20), readability (20), complexity (20), testing (15), and maintenance (10).",
+  methodologyScope:
+    "Every repository receives a general inspection. JavaScript, TypeScript, and Python can also receive deep parser metrics; unsupported languages retain general results with lower confidence.",
+  methodologySampling:
+    "A scan pins one commit, ranks eligible text deterministically, and stops at 200 files, 10 MiB of decoded text, or 256 KiB for one file.",
+  methodologyExclusions:
+    "Binary, minified, vendored, generated, dependency, build, coverage, cache, and version-control paths are excluded.",
+  methodologyBoundary:
+    "Repository source is untrusted text and is never executed. No login, token, backend, AI service, analytics, or publisher computer participates.",
+  methodologyLimitations:
+    "Scores describe detected evidence and sampled coverage. Heuristics and approximate duplication do not prove that software works, is secure, or is safe to adopt.",
   scanIndex: "LIVE INSPECTION",
   scanHeading: "Repository scan in progress",
   scanProgressLabel: "Repository scan progress",
@@ -62,6 +76,20 @@ const baseZh = {
   analysisRunning: "正在分析",
   examplesLabel: "试用公开示例",
   methodology: "查看方法说明 1.0.0",
+  methodologyIndex: "版本化方法",
+  methodologyHeading: "方法说明 1.0.0",
+  methodologyIntro:
+    "RepoScope 使用确定性的版本化规则检查公开 GitHub 证据。六个维度分别为文档（15）、可运行性证据（20）、可读性（20）、复杂度（20）、测试（15）和维护健康度（10）。",
+  methodologyScope:
+    "所有项目都会接受通用检查；JavaScript、TypeScript 和 Python 还可获得深度解析指标。不支持的语言会保留通用结果，并降低置信度。",
+  methodologySampling:
+    "检查会固定到一个提交，按确定性顺序选择文本，并在 200 个文件、10 MiB 解码文本或单文件 256 KiB 的边界停止。",
+  methodologyExclusions:
+    "二进制、压缩、供应商、生成、依赖、构建、覆盖率、缓存和版本控制路径会被排除。",
+  methodologyBoundary:
+    "项目源码始终被视为不可信文本且绝不执行；无需登录、令牌、后端或 AI 服务，也不使用分析统计或发布者的电脑。",
+  methodologyLimitations:
+    "评分只描述已检测证据和抽样覆盖。启发式指标与近似重复率不能证明软件可运行、安全或值得采用。",
   scanIndex: "实时检验",
   scanHeading: "正在检查项目",
   scanProgressLabel: "项目检查进度",

@@ -139,6 +139,27 @@ export function App() {
             <p>{copy.privacy}</p>
             <a href="#methodology">{copy.methodology}</a>
           </aside>
+
+          <section
+            id="methodology"
+            className="landing-methodology"
+            aria-labelledby="methodology-heading"
+          >
+            <p className="section-index">
+              03 / {copy.methodologyIndex} · 1.0.0
+            </p>
+            <h2 id="methodology-heading">{copy.methodologyHeading}</h2>
+            <p className="landing-methodology__intro">
+              {copy.methodologyIntro}
+            </p>
+            <ul>
+              <li>{copy.methodologyScope}</li>
+              <li>{copy.methodologySampling}</li>
+              <li>{copy.methodologyExclusions}</li>
+              <li>{copy.methodologyBoundary}</li>
+              <li>{copy.methodologyLimitations}</li>
+            </ul>
+          </section>
         </section>
 
         {analysis.status === "running" ? (

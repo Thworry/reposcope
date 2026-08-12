@@ -1,3 +1,8 @@
+/// <reference types="node" />
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
@@ -17,6 +22,12 @@ import type { RepositoryAnalysisController } from "./features/analysis/use-repos
 import { App } from "./App";
 
 const { hookMock } = vi.hoisted(() => ({ hookMock: vi.fn() }));
+
+const appCss = readFileSync(join(process.cwd(), "src/styles/app.css"), "utf8");
+const globalCss = readFileSync(
+  join(process.cwd(), "src/styles/global.css"),
+  "utf8",
+);
 
 vi.mock("./features/analysis/use-repository-analysis", () => ({
   useRepositoryAnalysis: hookMock,
@@ -96,14 +107,39 @@ describe("App", () => {
     expect(screen.getByText(/read-only\. no login or token/i)).toBeVisible();
     expect(
       screen.getByRole("link", { name: /methodology 1\.0\.0/i }),
+    ).toHaveAttribute("href", "#methodology");
+    expect(
+      screen.getByRole("heading", { name: "Methodology 1.0.0" }),
     ).toBeVisible();
+    expect(document.querySelector("#methodology")).toContainElement(
+      screen.getByText(/six dimensions are documentation \(15\)/i),
+    );
 
     await user.click(screen.getByRole("button", { name: "简体中文" }));
 
     expect(
       screen.getByText("在依赖一个公开项目之前，先看清它。"),
     ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "方法说明 1.0.0" }),
+    ).toBeVisible();
     expect(analyzeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps document width fluid and declares narrow single-column reflow", () => {
+    expect(globalCss).not.toMatch(/(?:html|body)\s*\{[^}]*min-width\s*:/isu);
+    expect(appCss).toMatch(
+      /\.site-header\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/isu,
+    );
+    expect(appCss).toMatch(
+      /\.language-switcher\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/isu,
+    );
+    expect(appCss).toMatch(
+      /\.repository-form__action-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/isu,
+    );
+    expect(appCss).toMatch(
+      /\.site-header,\s*\.landing__intro,\s*\.repository-form,\s*\.repository-form__field,\s*\.repository-form__action-row,\s*\.privacy-note,\s*\.scan-progress\s*\{[^}]*min-width:\s*0/isu,
+    );
   });
 
   it("auto-starts one valid shared-query analysis and never records it again", async () => {

@@ -5,14 +5,25 @@
 }
 
 .site-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: var(--space-4);
   width: min(100% - 2rem, var(--content-wide));
   min-height: 5rem;
   margin-inline: auto;
+  padding-block: var(--space-4);
   border-bottom: 1px solid var(--color-rule-strong);
+}
+
+.site-header,
+.landing__intro,
+.repository-form,
+.repository-form__field,
+.repository-form__action-row,
+.privacy-note,
+.scan-progress {
+  min-width: 0;
 }
 
 .brand {
@@ -27,15 +38,16 @@
 }
 
 .language-switcher {
-  display: inline-flex;
-  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
   border: 1px solid var(--color-rule-strong);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
 }
 
 .language-switcher button {
-  min-width: var(--target-min);
+  min-width: 0;
   min-height: var(--target-min);
   padding: 0.5rem 0.75rem;
   border: 0;
@@ -126,6 +138,7 @@ main {
 
 .repository-form__action-row {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
 }
 
@@ -151,6 +164,7 @@ main {
 
 .primary-action,
 .secondary-action {
+  min-width: 0;
   min-height: var(--target-min);
   border-radius: var(--radius-sm);
   font-weight: 750;
@@ -201,6 +215,7 @@ main {
 }
 
 .repository-form__examples button {
+  min-width: 0;
   min-height: var(--target-min);
   padding-inline: var(--space-2);
   border: 0;
@@ -242,6 +257,56 @@ main {
   font-weight: 700;
 }
 
+.landing-methodology {
+  max-width: 58rem;
+  margin-top: var(--space-7);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--color-rule-strong);
+  scroll-margin-top: var(--space-5);
+}
+
+.landing-methodology .section-index {
+  margin-bottom: var(--space-3);
+}
+
+.landing-methodology h2 {
+  max-width: 24ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 5vw, 3rem);
+  line-height: 1.15;
+}
+
+.landing-methodology__intro {
+  max-width: var(--content-reading);
+  margin: var(--space-4) 0 0;
+  color: var(--color-muted);
+}
+
+.landing-methodology ul {
+  display: grid;
+  gap: 0;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--color-rule);
+}
+
+.landing-methodology li {
+  position: relative;
+  padding: var(--space-4) 0 var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-rule);
+  color: var(--color-muted);
+}
+
+.landing-methodology li::before {
+  position: absolute;
+  top: var(--space-4);
+  left: 0;
+  color: var(--color-accent);
+  content: "—";
+}
+
 .scan-progress {
   margin-bottom: var(--space-8);
   padding: var(--space-5);
@@ -250,9 +315,9 @@ main {
 }
 
 .scan-progress__header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: flex-start;
-  justify-content: space-between;
   gap: var(--space-4);
   padding-bottom: var(--space-5);
   border-bottom: 1px solid var(--color-rule);
@@ -344,6 +409,22 @@ main {
   font-size: var(--text-sm);
 }
 
+@media (min-width: 32rem) {
+  .site-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding-block: 0;
+  }
+
+  .language-switcher {
+    width: auto;
+  }
+
+  .scan-progress__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
 @media (min-width: 42rem) {
   .repository-form {
     padding: var(--space-6);
@@ -392,7 +473,8 @@ main {
   }
 
   .repository-form,
-  .privacy-note {
+  .privacy-note,
+  .landing-methodology {
     margin-left: clamp(0rem, 8vw, 8rem);
   }
 

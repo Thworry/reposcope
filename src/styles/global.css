@@ -7,14 +7,12 @@
 }
 
 html {
-  min-width: 20rem;
   background: var(--color-canvas);
   scroll-behavior: smooth;
   text-size-adjust: 100%;
 }
 
 body {
-  min-width: 20rem;
   min-height: 100dvh;
   margin: 0;
   overflow-wrap: anywhere;
