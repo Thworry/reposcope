@@ -832,7 +832,7 @@ Add exact requirements to `repository-files.test.ts`:
 
 ```ts
 expect(read("CHANGELOG.md")).toMatch(/^## \[Unreleased\]$/mu);
-expect(read("CHANGELOG.md")).toMatch(/^## \[0\.1\.1\] - 2026-08-12$/mu);
+expect(read("CHANGELOG.md")).toMatch(/^## \[0\.1\.1\] - 2026-08-13$/mu);
 expect(read("CHANGELOG.md")).toMatch(/^## \[0\.1\.0\] - 2026-08-12$/mu);
 
 for (const [english, chinese] of [
@@ -895,7 +895,7 @@ All notable changes to RepoScope are documented in this file.
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-08-12
+## [0.1.1] - 2026-08-13
 
 ### Changed
 
