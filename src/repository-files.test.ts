@@ -196,7 +196,7 @@ const RULE_DOCUMENTATION = {
   "maintenance.generated-directories": [
     "No committed dependency/build/cache directory appears in the tree",
     "1",
-    "One or more such directories: 0",
+    "Exactly one such directory: 0",
   ],
 } as const satisfies Record<RuleId, readonly [string, string, string]>;
 
@@ -323,6 +323,9 @@ describe("open-source repository contract", () => {
     ]) {
       expect(methodology).toContain(prerequisite);
     }
+    expect(methodology).toContain(
+      "Two or more such directories: `failed` with 0 points.",
+    );
   });
 
   it("documents the fixed architecture, limits, cache, CSP, and threats", () => {

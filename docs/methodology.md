@@ -100,18 +100,20 @@ The ratio rule is `not-applicable` when the tree has no supported-language sourc
 
 ### Maintenance health
 
-| Rule ID                             | Observable signal                                                 | Full |                         Partial |
-| ----------------------------------- | ----------------------------------------------------------------- | ---: | ------------------------------: |
-| `maintenance.activity`              | Not archived and `pushed_at` is within 180 exact UTC days         |    2 |                 181–365 days: 1 |
-| `maintenance.lockfile`              | Recognized dependency lockfile exists                             |    2 |                               — |
-| `maintenance.dependency-updates`    | Dependabot or Renovate configuration exists                       |    1 |                               — |
-| `maintenance.templates`             | Issue or pull-request templates exist                             |    1 |                               — |
-| `maintenance.security`              | Security policy exists                                            |    1 |                               — |
-| `maintenance.code-of-conduct`       | Code of conduct exists                                            |    1 |                               — |
-| `maintenance.version-history`       | Version-history file has a version heading                        |    1 |                               — |
-| `maintenance.generated-directories` | No committed dependency/build/cache directory appears in the tree |    1 | One or more such directories: 0 |
+| Rule ID                             | Observable signal                                                 | Full |                       Partial |
+| ----------------------------------- | ----------------------------------------------------------------- | ---: | ----------------------------: |
+| `maintenance.activity`              | Not archived and `pushed_at` is within 180 exact UTC days         |    2 |               181–365 days: 1 |
+| `maintenance.lockfile`              | Recognized dependency lockfile exists                             |    2 |                             — |
+| `maintenance.dependency-updates`    | Dependabot or Renovate configuration exists                       |    1 |                             — |
+| `maintenance.templates`             | Issue or pull-request templates exist                             |    1 |                             — |
+| `maintenance.security`              | Security policy exists                                            |    1 |                             — |
+| `maintenance.code-of-conduct`       | Code of conduct exists                                            |    1 |                             — |
+| `maintenance.version-history`       | Version-history file has a version heading                        |    1 |                             — |
+| `maintenance.generated-directories` | No committed dependency/build/cache directory appears in the tree |    1 | Exactly one such directory: 0 |
 
 Activity uses exact elapsed 24-hour days in UTC and the report's explicit analysis timestamp.
+
+For `maintenance.generated-directories`, the exactly-one case is `partial` with 0 points, preserving the state distinction even though both non-passing states earn no points. Two or more such directories: `failed` with 0 points.
 
 ## Confidence
 
