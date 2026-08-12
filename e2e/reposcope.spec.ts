@@ -14,6 +14,70 @@ const GITHUB_RATE_LIMIT_DOCS =
   "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api";
 const TYPESCRIPT_SCORES = [53, 70, 100, 100, 60, 30] as const;
 const PYTHON_SCORES = [53, 50, 100, 100, 33, 30] as const;
+const EXPECTED_TYPESCRIPT_MARKDOWN = [
+  "# RepoScope improvement checklist",
+  "",
+  "- Repository: owner/repo",
+  `- Commit: ${COMMIT_SHA}`,
+  "- Ruleset: 1.0.0",
+  "- Confidence: 100% (High confidence)",
+  "- Scope: complete dimensions, not preliminary; 8 selected · 8 fetched · 6 parsed",
+  "",
+  "## Ordered improvements",
+  "",
+  "1. **High priority** `maintenance.lockfile`",
+  "   - Evidence: Recognized dependency lockfile present: No.",
+  "   - Action: Commit the standard dependency lockfile when the project ecosystem uses one.",
+  "2. **High priority** `maintenance.code-of-conduct`",
+  "   - Evidence: Code of conduct present: No.",
+  "   - Action: Add a code of conduct for community participation.",
+  "3. **High priority** `maintenance.dependency-updates`",
+  "   - Evidence: Automated dependency-update configuration present: No.",
+  "   - Action: Configure Dependabot or Renovate for routine dependency updates.",
+  "4. **High priority** `maintenance.security`",
+  "   - Evidence: Security policy present: No.",
+  "   - Action: Add a SECURITY policy with a private vulnerability-reporting path.",
+  "5. **High priority** `maintenance.templates`",
+  "   - Evidence: Issue or pull-request templates present: No.",
+  "   - Action: Add issue or pull-request templates that request actionable context.",
+  "6. **High priority** `maintenance.version-history`",
+  "   - Evidence: Versioned changelog or release-notes file present: No.",
+  "   - Action: Record user-visible changes in a versioned history file.",
+  "7. **Medium priority** `testing.ci`",
+  "   - Evidence: Recognized continuous-integration configuration present: No.",
+  "   - Action: Add a CI workflow that runs repository checks automatically.",
+  "8. **Medium priority** `documentation.architecture`",
+  "   - Evidence: Explicit architecture evidence: No; named source areas: 1.",
+  "   - Action: Explain the architecture, code map, or at least three top-level source areas.",
+  "9. **Medium priority** `documentation.contributing`",
+  "   - Evidence: Contribution guide present: No.",
+  "   - Action: Add a CONTRIBUTING guide with a practical contributor path.",
+  "10. **Medium priority** `documentation.usage`",
+  "   - Evidence: Usage heading: Yes; command or concrete example: No.",
+  "   - Action: Add a usage section with a command or concrete example.",
+  "11. **Medium priority** `operability.entry-point`",
+  "   - Evidence: Structured entry point: No; conventional entry path: Yes.",
+  "   - Action: Declare an application, CLI, or library entry point in the manifest.",
+  "12. **Medium priority** `operability.example`",
+  "   - Evidence: Concrete example: No; prose usage description: Yes.",
+  "   - Action: Add a demo, sample, or concrete API usage example.",
+  "13. **Medium priority** `testing.test-source-ratio`",
+  "   - Evidence: Test files: 1; supported non-test source files: 5.",
+  "   - Action: Grow the test-file ratio toward at least one test file per four supported source files.",
+  "14. **Medium priority** `operability.configuration`",
+  "   - Evidence: Configuration example or section present: No.",
+  "   - Action: Document configuration and provide a safe example file where useful.",
+  "15. **Medium priority** `testing.coverage`",
+  "   - Evidence: Coverage configuration or command present: No.",
+  "   - Action: Add coverage-tool configuration or a coverage command.",
+  "16. **Low priority** `documentation.license`",
+  "   - Evidence: License file: No; API license metadata: Yes.",
+  "   - Action: Add a recognized license file that states the project terms.",
+  "17. **Low priority** `operability.version-history`",
+  "   - Evidence: Versioned history file: No; manifest version only: Yes.",
+  "   - Action: Maintain a changelog or release-notes file with version headings.",
+  "",
+].join("\n");
 
 interface RuntimeMonitor {
   assertClean(): Promise<void>;
@@ -113,6 +177,30 @@ async function expectBoundedRequests(
   expect(ledger.rawGets()).toHaveLength(expectedRaw);
   expect(ledger.rawGets().length).toBeLessThanOrEqual(200);
   await ledger.assertComplete({ rest: 3, raw: expectedRaw });
+}
+
+function expectAnalyzerChunks(
+  ledger: RequestLedger,
+  expected: { jsTs: boolean; python: boolean },
+): void {
+  const chunks = ledger.analyzerChunks();
+  const jsTsChunks = chunks.filter((path) => /\/js-ts-[^/]+\.js$/u.test(path));
+  const pythonChunks = chunks.filter((path) =>
+    /\/python-[^/]+\.js$/u.test(path),
+  );
+  const unexpectedChunks = chunks.filter(
+    (path) =>
+      !/\/js-ts-[^/]+\.js$/u.test(path) && !/\/python-[^/]+\.js$/u.test(path),
+  );
+
+  expect(jsTsChunks.length > 0, `JS/TS chunks: ${JSON.stringify(chunks)}`).toBe(
+    expected.jsTs,
+  );
+  expect(
+    pythonChunks.length > 0,
+    `Python chunks: ${JSON.stringify(chunks)}`,
+  ).toBe(expected.python);
+  expect(unexpectedChunks).toEqual([]);
 }
 
 async function expectNoSeriousAxeViolations(page: Page): Promise<void> {
@@ -296,6 +384,7 @@ test("English landing submits by keyboard, announces progress, and cancels", asy
     blockFirstRest: true,
   });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await expectNoSeriousAxeViolations(page);
   await page
     .getByLabel("Public GitHub repository URL")
@@ -316,6 +405,7 @@ test("English landing submits by keyboard, announces progress, and cancels", asy
     page.getByRole("heading", { name: "Repository scan in progress" }),
   ).toBeHidden();
   expect(ledger.rawGets()).toHaveLength(0);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   ledger.releaseFirstRest();
   await ledger.assertComplete({ rest: 1, raw: 0 });
   await runtime.assertClean();
@@ -328,6 +418,7 @@ test("Chinese language persists and switching a report does not refetch", async 
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page);
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await page.getByRole("button", { name: "简体中文" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     "公开项目",
@@ -347,6 +438,7 @@ test("Chinese language persists and switching a report does not refetch", async 
   await expect(page.getByText("Dimension scores")).toBeVisible();
   expect(ledger.restGets()).toHaveLength(counts.rest);
   expect(ledger.rawGets()).toHaveLength(counts.raw);
+  expectAnalyzerChunks(ledger, { jsTs: true, python: false });
   await ledger.assertComplete({ rest: 3, raw: 8 });
   await runtime.assertClean();
 });
@@ -361,6 +453,7 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page);
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 8);
@@ -372,9 +465,7 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
   ).toContainText("100% · High confidence");
   expect(await dimensionScores(page)).toEqual(TYPESCRIPT_SCORES);
   await expect(page.locator("time")).toHaveAttribute("datetime", FIXED_NOW);
-  expect(
-    ledger.analyzerChunks().some((path) => /\/js-ts-[^/]+\.js$/u.test(path)),
-  ).toBe(true);
+  expectAnalyzerChunks(ledger, { jsTs: true, python: false });
   await expect(
     page.getByRole("heading", { name: "Dimension scores" }),
   ).toBeVisible();
@@ -393,9 +484,8 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
     .getByRole("button", { name: "Copy improvement checklist" })
     .click();
   await expect(page.getByText("Copied", { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-    `# RepoScope improvement checklist\n\n- Repository: owner/repo\n- Commit: ${COMMIT_SHA}\n- Ruleset: 1.0.0\n- Confidence: 100% (High confidence)\n- Scope: complete dimensions, not preliminary; 8 selected · 8 fetched · 6 parsed`,
-  );
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toBe(EXPECTED_TYPESCRIPT_MARKDOWN);
   await expect(page).toHaveURL("http://127.0.0.1:4173/?repo=owner%2Frepo");
   await expectNoSeriousAxeViolations(page);
   await expectResponsiveTargets(page, testInfo);
@@ -419,6 +509,7 @@ test("complete Python report loads only the Python deep analyzer", async ({
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page, { kind: "python" });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 8);
@@ -427,12 +518,7 @@ test("complete Python report loads only the Python deep analyzer", async ({
   );
   expect(await dimensionScores(page)).toEqual(PYTHON_SCORES);
   await expect(page.locator("time")).toHaveAttribute("datetime", FIXED_NOW);
-  expect(ledger.analyzerChunks().some((path) => /\/python-/u.test(path))).toBe(
-    true,
-  );
-  expect(ledger.analyzerChunks().some((path) => /\/js-ts-/u.test(path))).toBe(
-    false,
-  );
+  expectAnalyzerChunks(ledger, { jsTs: false, python: true });
   await expect(
     page.locator(".dimension-score__header strong", {
       hasText: "Unavailable",
@@ -448,6 +534,7 @@ test("unsupported Go remains a preliminary general-only report", async ({
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page, { kind: "go" });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 2);
@@ -461,6 +548,7 @@ test("unsupported Go remains a preliminary general-only report", async ({
   const confidencePercent = /(?<percent>\d+)%/u.exec(confidence ?? "")?.groups
     ?.percent;
   expect(Number(confidencePercent ?? 101)).toBeLessThanOrEqual(60);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await runtime.assertClean();
 });
 
@@ -471,6 +559,7 @@ test("truncated trees expose partial scope below high confidence", async ({
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page, { kind: "partial" });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 8);
@@ -487,6 +576,7 @@ test("truncated trees expose partial scope below high confidence", async ({
   await expect(page.locator(".report-summary__scope")).toContainText(
     /selected.*fetched.*parsed/u,
   );
+  expectAnalyzerChunks(ledger, { jsTs: true, python: false });
   await runtime.assertClean();
 });
 
@@ -499,6 +589,7 @@ test("invalid input and not-found errors are specific without speculation", asyn
     kind: "not-found",
   });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await page
     .getByLabel("Public GitHub repository URL")
     .fill("https://gitlab.com/owner/repo");
@@ -513,6 +604,7 @@ test("invalid input and not-found errors are specific without speculation", asyn
   await expect(error).toContainText("not found or is not public");
   await expect(error).not.toContainText(/private|deleted/u);
   expect(ledger.restGets()).toHaveLength(1);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await ledger.assertComplete({ rest: 1, raw: 0 });
   await runtime.assertClean();
 });
@@ -526,6 +618,7 @@ test("rate limits show a fixed localized reset and safe official link", async ({
     kind: "rate-limit",
   });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   const error = page.getByRole("alert");
   await expect(error).toContainText(
@@ -539,6 +632,7 @@ test("rate limits show a fixed localized reset and safe official link", async ({
     "GitHub rate limit resets at Aug 11, 2026, 01:00:00 PM UTC.",
   );
   expect(ledger.restGets()).toHaveLength(1);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await ledger.assertComplete({ rest: 1, raw: 0 });
   await runtime.assertClean();
 });
@@ -550,6 +644,7 @@ test("hostile repository strings stay inert text", async ({
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page, { kind: "hostile" });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expectReport(page);
   await expect(
@@ -562,6 +657,7 @@ test("hostile repository strings stay inert text", async ({
     page.getByText(/<img src=x onerror=alert\(1\)>\.ts/u).first(),
   ).toBeVisible();
   expect(ledger.restGets()).toHaveLength(3);
+  expectAnalyzerChunks(ledger, { jsTs: true, python: false });
   await ledger.assertComplete({ rest: 3, raw: 9 });
   await runtime.assertClean();
 });
@@ -576,11 +672,13 @@ test("cancellation yields to a newer run and failed refresh preserves its report
     failRestAttempt: 5,
   });
   await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expect(
     page.getByRole("button", { name: "Cancel analysis" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Cancel analysis" }).click();
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   ledger.releaseFirstRest();
   await submitRepository(page);
   await expectReport(page);
@@ -593,6 +691,7 @@ test("cancellation yields to a newer run and failed refresh preserves its report
     page.getByText(/Refresh failed\. Showing the report from/u),
   ).toBeVisible();
   expect(ledger.restGets()).toHaveLength(5);
+  expectAnalyzerChunks(ledger, { jsTs: true, python: false });
   await ledger.assertComplete({ rest: 5, raw: 8 });
   await runtime.assertClean();
 });
