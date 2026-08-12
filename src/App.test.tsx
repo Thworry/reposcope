@@ -266,4 +266,51 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Cancel analysis" }));
     expect(cancelMock).toHaveBeenCalledOnce();
   });
+
+  it("renders a successful report, reuses the sole methodology target, and refreshes public data", async () => {
+    const refreshMock = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    controller = {
+      ...controller,
+      status: "success",
+      report: validReport({ owner: "owner", repo: "repo" }),
+      refresh: refreshMock,
+    };
+
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "owner/repo" }),
+    ).toBeVisible();
+    expect(document.querySelectorAll("#methodology")).toHaveLength(1);
+    expect(screen.getAllByRole("region", { name: "Methodology" })).toHaveLength(
+      1,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Refresh public data" }),
+    );
+    expect(refreshMock).toHaveBeenCalledOnce();
+  });
+
+  it("shows a safe refresh error and stale timestamp without clearing the prior report or URL", () => {
+    window.history.replaceState(null, "", "?repo=owner%2Frepo");
+    const report = validReport({ owner: "owner", repo: "repo" });
+    controller = {
+      ...controller,
+      status: "error",
+      report,
+      error: { kind: "network" },
+    };
+
+    render(<App />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /network request failed/i,
+    );
+    expect(
+      screen.getByRole("heading", { level: 2, name: "owner/repo" }),
+    ).toBeVisible();
+    expect(screen.getByText(/showing the report from/i)).toBeVisible();
+    expect(window.location.search).toBe("?repo=owner%2Frepo");
+  });
 });

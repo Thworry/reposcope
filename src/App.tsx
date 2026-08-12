@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { LanguageSwitcher } from "./components/language-switcher";
+import { ErrorPanel } from "./components/error-panel";
+import { ReportView } from "./components/report-view";
 import { RepositoryForm } from "./components/repository-form";
 import { ScanProgress } from "./components/scan-progress";
 import { StatusAnnouncer } from "./components/status-announcer";
@@ -11,7 +13,7 @@ import {
   toCanonicalRepositoryUrl,
   toShareSearch,
 } from "./features/repository/repo-url";
-import { messages, type AppMessageKey } from "./i18n/messages";
+import { formatMessage, messages, type AppMessageKey } from "./i18n/messages";
 import { useLanguage } from "./i18n/use-language";
 import "./styles/app.css";
 
@@ -33,6 +35,21 @@ function sameRepository(
     left.repo.toLocaleLowerCase("en-US") ===
       right.repo.toLocaleLowerCase("en-US")
   );
+}
+
+function formatStaleTimestamp(value: string, language: "en" | "zh-CN"): string {
+  const timestamp = new Date(value);
+  if (!Number.isFinite(timestamp.getTime())) return value;
+
+  return new Intl.DateTimeFormat(language, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(timestamp);
 }
 
 export function App() {
@@ -140,26 +157,28 @@ export function App() {
             <a href="#methodology">{copy.methodology}</a>
           </aside>
 
-          <section
-            id="methodology"
-            className="landing-methodology"
-            aria-labelledby="methodology-heading"
-          >
-            <p className="section-index">
-              03 / {copy.methodologyIndex} · 1.0.0
-            </p>
-            <h2 id="methodology-heading">{copy.methodologyHeading}</h2>
-            <p className="landing-methodology__intro">
-              {copy.methodologyIntro}
-            </p>
-            <ul>
-              <li>{copy.methodologyScope}</li>
-              <li>{copy.methodologySampling}</li>
-              <li>{copy.methodologyExclusions}</li>
-              <li>{copy.methodologyBoundary}</li>
-              <li>{copy.methodologyLimitations}</li>
-            </ul>
-          </section>
+          {analysis.report === null ? (
+            <section
+              id="methodology"
+              className="landing-methodology"
+              aria-labelledby="methodology-heading"
+            >
+              <p className="section-index">
+                03 / {copy.methodologyIndex} · 1.0.0
+              </p>
+              <h2 id="methodology-heading">{copy.methodologyHeading}</h2>
+              <p className="landing-methodology__intro">
+                {copy.methodologyIntro}
+              </p>
+              <ul>
+                <li>{copy.methodologyScope}</li>
+                <li>{copy.methodologySampling}</li>
+                <li>{copy.methodologyExclusions}</li>
+                <li>{copy.methodologyBoundary}</li>
+                <li>{copy.methodologyLimitations}</li>
+              </ul>
+            </section>
+          ) : null}
         </section>
 
         {analysis.status === "running" ? (
@@ -171,6 +190,37 @@ export function App() {
             }}
           />
         ) : null}
+
+        {analysis.error === null ? null : (
+          <ErrorPanel
+            error={analysis.error}
+            language={language}
+            onRetry={() => {
+              void analysis.refresh();
+            }}
+          />
+        )}
+
+        {analysis.status === "error" && analysis.report !== null ? (
+          <p className="stale-report" role="status">
+            {formatMessage(language, "staleReport", {
+              timestamp: formatStaleTimestamp(
+                analysis.report.repository.analyzedAt,
+                language,
+              ),
+            })}
+          </p>
+        ) : null}
+
+        {analysis.report === null ? null : (
+          <ReportView
+            report={analysis.report}
+            language={language}
+            onRefresh={() => {
+              void analysis.refresh();
+            }}
+          />
+        )}
       </main>
 
       <StatusAnnouncer message={announcement} />

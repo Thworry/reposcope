@@ -1,4 +1,9 @@
-import type { Language } from "../features/analysis/model";
+import type {
+  AnalysisReport,
+  Language,
+  LocalizedDescriptor,
+  MessageArgument,
+} from "../features/analysis/model";
 import type { RuleId } from "../features/rules/rules";
 
 const baseEn = {
@@ -53,6 +58,163 @@ const baseEn = {
   "phase.selecting": "Plan inspection scope",
   "phase.fetching": "Download public text",
   "phase.analyzing": "Parse and score",
+  reportIndex: "GUIDED PROJECT REPORT",
+  reportOverallScore: "Overall score",
+  reportOverallStrong: "Strong evidence",
+  reportOverallSolid: "Solid foundation",
+  reportOverallNeedsAttention: "Needs attention",
+  reportOverallLimited: "Limited evidence",
+  reportGeneralOnly: "General-only",
+  reportPreliminary: "Preliminary",
+  reportConfidence: "Confidence",
+  confidenceHigh: "High confidence",
+  confidenceMedium: "Medium confidence",
+  confidenceLow: "Low confidence",
+  reportScope: "{selected} selected · {fetched} fetched · {parsed} parsed",
+  reportCommit: "Inspected commit",
+  reportAnalyzedAt: "Scanned",
+  reportDefaultBranch: "Default branch",
+  reportRepositoryLink: "Open repository on GitHub",
+  dimensionIndex: "02 / SIX DIMENSIONS",
+  dimensionsHeading: "Dimension scores",
+  dimensionDocumentation: "Documentation and onboarding",
+  dimensionOperability: "Operability evidence",
+  dimensionReadability: "Code readability",
+  dimensionComplexity: "Complexity and structure",
+  dimensionTesting: "Testing and automation",
+  dimensionMaintenance: "Maintenance health",
+  dimensionDocumentationDescription:
+    "README, onboarding, licensing, contribution, and architecture evidence.",
+  dimensionOperabilityDescription:
+    "Detected entry points, commands, examples, configuration, and release evidence—not execution proof.",
+  dimensionReadabilityDescription:
+    "Parsed function size, nesting, naming heuristics, and adjacent documentation.",
+  dimensionComplexityDescription:
+    "Parsed branching, file size, approximate duplication, and resolved internal cycles.",
+  dimensionTestingDescription:
+    "Detected test files, automation, commands, static checks, and coverage configuration—not test results.",
+  dimensionMaintenanceDescription:
+    "Recent activity and detected maintenance, policy, template, and dependency-update files.",
+  scoreOutOf: "{score} / 100",
+  scoreAccessible: "{dimension}: {score} out of 100",
+  unavailable: "Unavailable",
+  strengthsIndex: "03 / EVIDENCE-BACKED STRENGTHS",
+  strengthsHeading: "What the project already does well",
+  noStrengths:
+    "No passed rule with concrete evidence was selected as a strength.",
+  strengthItem: "Strength: {ruleId}",
+  improvementsIndex: "04 / PRIORITIZED IMPROVEMENTS",
+  improvementsHeading: "What to improve next",
+  noImprovements:
+    "No failed or partial rule with concrete evidence needs action.",
+  improvementItem: "Improvement: {ruleId}",
+  priorityHigh: "High priority",
+  priorityMedium: "Medium priority",
+  priorityLow: "Low priority",
+  lostPoints: "{points} points available",
+  evidenceLabel: "Evidence",
+  suggestedAction: "Suggested action",
+  referencesLabel: "References",
+  coverageIndex: "05 / INSPECTION COVERAGE",
+  coverageHeading: "Coverage and limits",
+  coverageSelected: "Selected files",
+  coverageFetched: "Fetched files",
+  coverageParsed: "Parsed files",
+  coverageSkipped: "Skipped files",
+  coverageFailed: "Failed files",
+  coverageUnsupported: "Unsupported files",
+  coverageEligibleBytes: "Eligible bytes",
+  coverageSelectedBytes: "Selected bytes",
+  coverageFetchedBytes: "Fetched bytes",
+  coverageParsedBytes: "Parsed bytes",
+  coverageEligibleSourceBytes: "Eligible source bytes",
+  coverageParsedSupportedBytes: "Parsed supported bytes",
+  coveragePartialTree: "Partial GitHub tree",
+  coverageLimitReached: "Inspection limit reached",
+  coverageComplete: "Available tree inspected within configured limits",
+  coverageDetails: "Skipped and failed file details",
+  coverageSkippedReason: "Skipped: {reason}",
+  coverageFailureReason: "{stage} failed: {reason}",
+  coverageStageFetch: "Fetch",
+  coverageStageParse: "Parse",
+  skipExcluded: "excluded path",
+  skipBinary: "binary or invalid text",
+  skipOversized: "oversized file",
+  skipUnsupported: "unsupported source",
+  skipBudget: "inspection budget",
+  skipInvalidEntry: "invalid tree entry",
+  failureNotFound: "not found",
+  failureRateLimit: "rate limit",
+  failureNetwork: "network",
+  failureApi: "GitHub API",
+  failureInvalidResponse: "invalid response",
+  failureFileLimit: "file limit",
+  failureInvalidText: "invalid text",
+  failureTimeout: "timeout",
+  failureBudget: "inspection budget",
+  failureSyntax: "syntax parse",
+  evidenceIndex: "06 / RULE EVIDENCE",
+  evidenceExplorerHeading: "Evidence explorer",
+  evidenceDisclosure: "Filter and inspect versioned rule evidence",
+  dimensionFilter: "Dimension",
+  severityFilter: "Severity",
+  stateFilter: "State",
+  filterAll: "All",
+  statePassed: "Passed",
+  statePartial: "Partial",
+  stateFailed: "Failed",
+  stateNotApplicable: "Not applicable",
+  severityNotPrioritized: "Not prioritized",
+  rulesShownOne: "{count} rule shown",
+  rulesShownMany: "{count} rules shown",
+  noEvidenceMatches: "No evidence matches these filters.",
+  noActionForRule: "No improvement is suggested for this rule state.",
+  fileLine: "{path}, line {start}",
+  fileLineRange: "{path}, lines {start}–{end}",
+  copyChecklist: "Copy improvement checklist",
+  copyWorking: "Copying",
+  copySuccess: "Copied",
+  copyFailure: "Copy failed",
+  refreshPublicData: "Refresh public data",
+  methodologyReportIndex: "07 / VERSIONED METHOD",
+  methodologyRegion: "Methodology",
+  methodologyDisclosure: "Weights, thresholds, exclusions, and limitations",
+  methodologyWeights: "Dimension weights",
+  methodologyOverallThresholds:
+    "Overall labels: 85–100 strong evidence; 70–84 solid foundation; 50–69 needs attention; 0–49 limited evidence.",
+  methodologyConfidenceThresholds:
+    "Confidence labels: 80–100 high; 60–79 medium; 0–59 low. Confidence is separate from quality.",
+  methodologyApplicability:
+    "Not-applicable points are removed. An unavailable dimension is shown as unavailable, and general-only reports are preliminary and not directly comparable with complete reports.",
+  methodologyCompleteLink: "Read the complete versioned methodology",
+  staleReport: "Refresh failed. Showing the report from {timestamp}.",
+  errorIndex: "ERROR / SAFE RECOVERY",
+  errorHeading: "Analysis could not be completed",
+  errorInvalidUrl: "Enter a valid public GitHub repository URL and try again.",
+  errorNotFound: "The repository was not found or is not public.",
+  errorRateLimit: "GitHub's public API rate limit has been reached.",
+  errorRateReset: "GitHub rate limit resets at {timestamp}.",
+  errorRateResetUnknown: "GitHub did not provide a valid reset time.",
+  errorEmpty: "This repository has no source tree to inspect.",
+  errorNetwork: "The network request failed. Check your connection and retry.",
+  errorApi:
+    "GitHub could not complete the request. Retry when the service is available.",
+  errorInvalidResponse:
+    "GitHub returned an unexpected response. Retry the analysis.",
+  errorWorker: "The browser analysis worker stopped. Start a clean retry.",
+  retryAnalysis: "Retry analysis",
+  rateLimitDocumentation: "GitHub rate-limit documentation",
+  markdownTitle: "RepoScope improvement checklist",
+  markdownRepository: "Repository",
+  markdownCommit: "Commit",
+  markdownRuleset: "Ruleset",
+  markdownConfidence: "Confidence",
+  markdownScope: "Scope",
+  markdownImprovements: "Ordered improvements",
+  markdownNoImprovements: "No prioritized improvements were detected.",
+  markdownEvidence: "Evidence",
+  markdownAction: "Action",
+  markdownReferences: "References",
 } as const;
 
 const baseZh = {
@@ -105,6 +267,159 @@ const baseZh = {
   "phase.selecting": "规划检查范围",
   "phase.fetching": "下载公开文本",
   "phase.analyzing": "解析并评分",
+  reportIndex: "引导式项目报告",
+  reportOverallScore: "综合评分",
+  reportOverallStrong: "证据较强",
+  reportOverallSolid: "基础扎实",
+  reportOverallNeedsAttention: "需要关注",
+  reportOverallLimited: "证据有限",
+  reportGeneralOnly: "仅通用分析",
+  reportPreliminary: "初步报告",
+  reportConfidence: "置信度",
+  confidenceHigh: "高可信度",
+  confidenceMedium: "中可信度",
+  confidenceLow: "低可信度",
+  reportScope:
+    "已选择 {selected} 个 · 已获取 {fetched} 个 · 已解析 {parsed} 个",
+  reportCommit: "检查的提交",
+  reportAnalyzedAt: "检查时间",
+  reportDefaultBranch: "默认分支",
+  reportRepositoryLink: "在 GitHub 打开项目",
+  dimensionIndex: "02 / 六项维度",
+  dimensionsHeading: "维度评分",
+  dimensionDocumentation: "文档与上手体验",
+  dimensionOperability: "可运行性证据",
+  dimensionReadability: "代码可读性",
+  dimensionComplexity: "复杂度与结构",
+  dimensionTesting: "测试与自动化",
+  dimensionMaintenance: "维护健康度",
+  dimensionDocumentationDescription: "README、上手说明、许可、贡献和架构证据。",
+  dimensionOperabilityDescription:
+    "检测到的入口、命令、示例、配置和版本证据，不代表实际运行验证。",
+  dimensionReadabilityDescription:
+    "已解析的函数长度、嵌套、命名启发式指标和相邻文档。",
+  dimensionComplexityDescription:
+    "已解析的分支、文件长度、近似重复和可解析的内部循环依赖。",
+  dimensionTestingDescription:
+    "检测到的测试文件、自动化、命令、静态检查和覆盖率配置，不代表测试结果。",
+  dimensionMaintenanceDescription:
+    "近期活动，以及检测到的维护、政策、模板和依赖更新文件。",
+  scoreOutOf: "{score} / 100",
+  scoreAccessible: "{dimension}：100 分中得 {score} 分",
+  unavailable: "不可用",
+  strengthsIndex: "03 / 有证据支持的优点",
+  strengthsHeading: "项目已经做得好的地方",
+  noStrengths: "没有通过且带有具体证据的规则入选优点。",
+  strengthItem: "优点：{ruleId}",
+  improvementsIndex: "04 / 优先改进事项",
+  improvementsHeading: "下一步改进什么",
+  noImprovements: "没有需要行动且带有具体证据的失败或部分通过规则。",
+  improvementItem: "改进：{ruleId}",
+  priorityHigh: "高优先级",
+  priorityMedium: "中优先级",
+  priorityLow: "低优先级",
+  lostPoints: "可得 {points} 分",
+  evidenceLabel: "证据",
+  suggestedAction: "建议行动",
+  referencesLabel: "引用位置",
+  coverageIndex: "05 / 检查覆盖范围",
+  coverageHeading: "覆盖范围与边界",
+  coverageSelected: "已选择文件",
+  coverageFetched: "已获取文件",
+  coverageParsed: "已解析文件",
+  coverageSkipped: "已跳过文件",
+  coverageFailed: "失败文件",
+  coverageUnsupported: "不支持文件",
+  coverageEligibleBytes: "符合条件的字节",
+  coverageSelectedBytes: "已选择字节",
+  coverageFetchedBytes: "已获取字节",
+  coverageParsedBytes: "已解析字节",
+  coverageEligibleSourceBytes: "符合条件的源码字节",
+  coverageParsedSupportedBytes: "已解析支持语言字节",
+  coveragePartialTree: "GitHub 文件树不完整",
+  coverageLimitReached: "已达到检查边界",
+  coverageComplete: "可用文件树已在配置边界内完成检查",
+  coverageDetails: "已跳过和失败的文件详情",
+  coverageSkippedReason: "已跳过：{reason}",
+  coverageFailureReason: "{stage}失败：{reason}",
+  coverageStageFetch: "获取",
+  coverageStageParse: "解析",
+  skipExcluded: "排除路径",
+  skipBinary: "二进制或无效文本",
+  skipOversized: "文件过大",
+  skipUnsupported: "不支持的源码",
+  skipBudget: "检查预算",
+  skipInvalidEntry: "无效文件树条目",
+  failureNotFound: "未找到",
+  failureRateLimit: "频率限制",
+  failureNetwork: "网络",
+  failureApi: "GitHub API",
+  failureInvalidResponse: "无效响应",
+  failureFileLimit: "文件边界",
+  failureInvalidText: "无效文本",
+  failureTimeout: "超时",
+  failureBudget: "检查预算",
+  failureSyntax: "语法解析",
+  evidenceIndex: "06 / 规则证据",
+  evidenceExplorerHeading: "证据浏览器",
+  evidenceDisclosure: "筛选并检查版本化规则证据",
+  dimensionFilter: "维度",
+  severityFilter: "优先级",
+  stateFilter: "状态",
+  filterAll: "全部",
+  statePassed: "通过",
+  statePartial: "部分通过",
+  stateFailed: "失败",
+  stateNotApplicable: "不适用",
+  severityNotPrioritized: "未列入改进优先级",
+  rulesShownOne: "显示 {count} 条规则",
+  rulesShownMany: "显示 {count} 条规则",
+  noEvidenceMatches: "没有符合筛选条件的证据。",
+  noActionForRule: "此规则状态没有改进建议。",
+  fileLine: "{path}，第 {start} 行",
+  fileLineRange: "{path}，第 {start}–{end} 行",
+  copyChecklist: "复制改进清单",
+  copyWorking: "正在复制",
+  copySuccess: "已复制",
+  copyFailure: "复制失败",
+  refreshPublicData: "刷新公开数据",
+  methodologyReportIndex: "07 / 版本化方法",
+  methodologyRegion: "方法说明",
+  methodologyDisclosure: "权重、阈值、排除项与限制",
+  methodologyWeights: "维度权重",
+  methodologyOverallThresholds:
+    "综合标签：85–100 为证据较强；70–84 为基础扎实；50–69 为需要关注；0–49 为证据有限。",
+  methodologyConfidenceThresholds:
+    "置信度标签：80–100 为高；60–79 为中；0–59 为低。置信度与质量相互独立。",
+  methodologyApplicability:
+    "不适用的分值会被移除；无适用分值的维度显示为不可用。仅通用分析属于初步报告，不能与完整报告直接比较。",
+  methodologyCompleteLink: "阅读完整的版本化方法说明",
+  staleReport: "刷新失败，当前显示 {timestamp} 生成的报告。",
+  errorIndex: "错误 / 安全恢复",
+  errorHeading: "未能完成分析",
+  errorInvalidUrl: "请输入有效的公开 GitHub 项目网址后重试。",
+  errorNotFound: "未找到该项目，或该项目不是公开项目。",
+  errorRateLimit: "已达到 GitHub 公开 API 的频率限制。",
+  errorRateReset: "GitHub 频率限制将在 {timestamp} 重置。",
+  errorRateResetUnknown: "GitHub 未提供有效的重置时间。",
+  errorEmpty: "这个项目没有可供检查的源码文件树。",
+  errorNetwork: "网络请求失败，请检查网络连接后重试。",
+  errorApi: "GitHub 暂时无法完成请求，请在服务可用时重试。",
+  errorInvalidResponse: "GitHub 返回了异常响应，请重新分析。",
+  errorWorker: "浏览器分析进程已停止，请进行一次全新重试。",
+  retryAnalysis: "重新分析",
+  rateLimitDocumentation: "GitHub 频率限制文档",
+  markdownTitle: "RepoScope 改进清单",
+  markdownRepository: "项目",
+  markdownCommit: "提交",
+  markdownRuleset: "规则版本",
+  markdownConfidence: "置信度",
+  markdownScope: "范围",
+  markdownImprovements: "按优先级排序的改进事项",
+  markdownNoImprovements: "未检测到优先改进事项。",
+  markdownEvidence: "证据",
+  markdownAction: "行动",
+  markdownReferences: "引用位置",
 } as const satisfies Record<keyof typeof baseEn, string>;
 
 interface BilingualTemplate {
@@ -531,3 +846,143 @@ export const messages: Record<Language, Record<AppMessageKey, string>> = {
   en: { ...baseEn, ...buildRuleMessages("en") },
   "zh-CN": { ...baseZh, ...buildRuleMessages("zh") },
 };
+
+function formatArgument(language: Language, value: MessageArgument): string {
+  if (typeof value === "boolean") {
+    if (language === "zh-CN") return value ? "是" : "否";
+    return value ? "Yes" : "No";
+  }
+  if (typeof value === "number") {
+    return new Intl.NumberFormat(language).format(value);
+  }
+  return value;
+}
+
+export function formatMessage(
+  language: Language,
+  key: AppMessageKey,
+  args: Readonly<Record<string, MessageArgument>> = {},
+): string {
+  return messages[language][key].replace(
+    /\{([A-Za-z][A-Za-z0-9]*)\}/gu,
+    (placeholder, name: string) => {
+      const value = args[name];
+      return value === undefined
+        ? placeholder
+        : formatArgument(language, value);
+    },
+  );
+}
+
+export function formatLocalizedDescriptor(
+  language: Language,
+  descriptor: LocalizedDescriptor,
+): string {
+  if (!(descriptor.key in messages[language])) {
+    return descriptor.key;
+  }
+  return formatMessage(
+    language,
+    descriptor.key as AppMessageKey,
+    descriptor.args,
+  );
+}
+
+function escapeMarkdown(value: string): string {
+  return value.replace(/([\\`*_[\]<>#])/gu, "\\$1");
+}
+
+function referenceText(
+  path: string,
+  startLine?: number,
+  endLine?: number,
+): string {
+  if (startLine === undefined) return path;
+  if (endLine !== undefined && endLine > startLine) {
+    return `${path}:L${String(startLine)}-L${String(endLine)}`;
+  }
+  return `${path}:L${String(startLine)}`;
+}
+
+export function buildImprovementMarkdown(
+  report: AnalysisReport,
+  language: Language,
+): string {
+  const copy = messages[language];
+  const scopeLabels =
+    language === "zh-CN"
+      ? [
+          ...(report.overall.generalOnly ? ["仅通用分析"] : ["完整维度"]),
+          ...(report.overall.preliminary ? ["初步报告"] : ["非初步报告"]),
+        ]
+      : [
+          ...(report.overall.generalOnly
+            ? ["general-only"]
+            : ["complete dimensions"]),
+          ...(report.overall.preliminary
+            ? ["preliminary"]
+            : ["not preliminary"]),
+        ];
+  const confidenceKey = {
+    high: "confidenceHigh",
+    medium: "confidenceMedium",
+    low: "confidenceLow",
+  } as const;
+  const priorityKey = {
+    high: "priorityHigh",
+    medium: "priorityMedium",
+    low: "priorityLow",
+  } as const;
+  const separator = language === "zh-CN" ? "：" : ": ";
+  const lines = [
+    `# ${copy.markdownTitle}`,
+    "",
+    `- ${copy.markdownRepository}${separator}${escapeMarkdown(report.repository.fullName)}`,
+    `- ${copy.markdownCommit}${separator}${escapeMarkdown(report.repository.commitSha)}`,
+    `- ${copy.markdownRuleset}${separator}${escapeMarkdown(report.rulesetVersion)}`,
+    `- ${copy.markdownConfidence}${separator}${String(report.confidence.percent)}% (${copy[confidenceKey[report.confidence.label]]})`,
+    `- ${copy.markdownScope}${separator}${scopeLabels.join(language === "zh-CN" ? "、" : ", ")}; ${formatMessage(
+      language,
+      "reportScope",
+      {
+        selected: report.coverage.selectedFiles,
+        fetched: report.coverage.fetchedFiles,
+        parsed: report.coverage.parsedFiles,
+      },
+    )}`,
+    "",
+    `## ${copy.markdownImprovements}`,
+    "",
+  ];
+
+  if (report.weaknesses.length === 0) {
+    lines.push(copy.markdownNoImprovements);
+  } else {
+    report.weaknesses.slice(0, 39).forEach((improvement, index) => {
+      lines.push(
+        `${String(index + 1)}. **${copy[priorityKey[improvement.severity]]}** \`${escapeMarkdown(improvement.ruleId)}\``,
+        `   - ${copy.markdownEvidence}${separator}${escapeMarkdown(formatLocalizedDescriptor(language, improvement.evidence))}`,
+        `   - ${copy.markdownAction}${separator}${escapeMarkdown(formatLocalizedDescriptor(language, improvement.recommendation))}`,
+      );
+      if (improvement.references.length > 0) {
+        lines.push(
+          `   - ${copy.markdownReferences}${separator}${improvement.references
+            .slice(0, 20)
+            .map(
+              (reference) =>
+                `\`${escapeMarkdown(
+                  referenceText(
+                    reference.path,
+                    reference.startLine,
+                    reference.endLine,
+                  ),
+                )}\``,
+            )
+            .join(", ")}`,
+        );
+      }
+    });
+  }
+
+  return `${lines.join("\n")}\n`;
+}
