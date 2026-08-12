@@ -26,16 +26,26 @@ export async function analyzeRepository(
   options: AnalyzeRepositoryOptions = {},
 ): Promise<AnalysisReport> {
   const now = options.nowMs ?? Date.now;
+  const startedAtMs = now();
+  if (
+    !Number.isSafeInteger(startedAtMs) ||
+    startedAtMs < 0 ||
+    !Number.isFinite(new Date(startedAtMs).getTime())
+  ) {
+    throw new RepositoryAnalysisError({ kind: "worker" });
+  }
+  const analyzedAt = new Date(startedAtMs).toISOString();
   throwIfAborted(options.signal);
 
   if (options.force !== true) {
-    const cached = getCachedReport(ref, now());
+    const cached = getCachedReport(ref, startedAtMs);
 
     if (cached !== null) return cached;
   }
 
   const runner = options.runner ?? runAnalysis;
   const runOptions: RunAnalysisOptions = {
+    analyzedAt,
     ...(options.onProgress === undefined
       ? {}
       : { onProgress: options.onProgress }),

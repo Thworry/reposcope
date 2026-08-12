@@ -12,7 +12,7 @@ import type { AnalysisReport } from "../analysis/model";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
 import type { WorkerEvent } from "./protocol";
-import { runAnalysis } from "./worker-client";
+import { RepositoryAnalysisError, runAnalysis } from "./worker-client";
 
 class FakeWorker extends EventTarget {
   readonly postMessage = vi.fn();
@@ -61,11 +61,21 @@ describe("runAnalysis", () => {
     const onProgress = vi.fn();
     const run = runAnalysis(
       { owner: "example", repo: "project" },
-      { onProgress, workerFactory: () => worker as unknown as Worker },
+      {
+        onProgress,
+        workerFactory: () => worker as unknown as Worker,
+        analyzedAt: "2026-08-11T12:00:00.000Z",
+      },
     );
     const start = worker.postMessage.mock.calls[0]?.[0] as {
       requestId: number;
     };
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: "start",
+      requestId: start.requestId,
+      ref: { owner: "example", repo: "project" },
+      analyzedAt: "2026-08-11T12:00:00.000Z",
+    });
     const progress: WorkerEvent = {
       type: "progress",
       requestId: start.requestId,
@@ -104,6 +114,21 @@ describe("runAnalysis", () => {
       expect.objectContaining({ type: "cancel" }),
     );
     expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a non-canonical injected analysis timestamp before posting", () => {
+    const worker = new FakeWorker();
+
+    expect(() =>
+      runAnalysis(
+        { owner: "example", repo: "project" },
+        {
+          analyzedAt: "not-a-time",
+          workerFactory: () => worker as unknown as Worker,
+        },
+      ),
+    ).toThrow(RepositoryAnalysisError);
+    expect(worker.postMessage).not.toHaveBeenCalled();
   });
 
   it("rejects malformed matching events without exposing their payload", async () => {

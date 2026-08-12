@@ -15,6 +15,7 @@ import type { WorkerEvent } from "./protocol";
 
 const sha = "a".repeat(40);
 const ref: RepoRef = { owner: "example", repo: "project" };
+const analyzedAt = "2026-08-11T12:00:00.000Z";
 
 function emptyLanguage(): LanguageAnalysis {
   return {
@@ -161,10 +162,11 @@ describe("executeAnalysis", () => {
       active -= 1;
       return { path, text: "export const value = 1", bytes: 10 };
     });
+    dependencies.now = vi.fn(() => Date.parse("2030-01-01T00:00:00.000Z"));
     const { events, emit } = eventCollector();
 
     await executeAnalysis(
-      { type: "start", requestId: 7, ref },
+      { type: "start", requestId: 7, ref, analyzedAt },
       dependencies,
       emit,
     );
@@ -174,6 +176,7 @@ describe("executeAnalysis", () => {
     expect(dependencies.fetchFile).toHaveBeenCalledTimes(9);
     expect(dependencies.loadJavaScriptTypeScript).toHaveBeenCalledOnce();
     expect(dependencies.loadPython).not.toHaveBeenCalled();
+    expect(completedReport(events).repository.analyzedAt).toBe(analyzedAt);
     const phases = events
       .filter((event) => event.type === "progress")
       .map((event) => event.progress.phase);
@@ -202,7 +205,7 @@ describe("executeAnalysis", () => {
     const { events, emit } = eventCollector();
 
     await executeAnalysis(
-      { type: "start", requestId: 8, ref },
+      { type: "start", requestId: 8, ref, analyzedAt },
       dependencies,
       emit,
     );
@@ -251,7 +254,7 @@ describe("executeAnalysis", () => {
     const { events, emit } = eventCollector();
 
     await executeAnalysis(
-      { type: "start", requestId: 81, ref },
+      { type: "start", requestId: 81, ref, analyzedAt },
       dependencies,
       emit,
     );
@@ -273,7 +276,7 @@ describe("executeAnalysis", () => {
     const { events, emit } = eventCollector();
 
     await executeAnalysis(
-      { type: "start", requestId: 82, ref },
+      { type: "start", requestId: 82, ref, analyzedAt },
       dependencies,
       emit,
     );
@@ -293,7 +296,7 @@ describe("executeAnalysis", () => {
     const { events, emit } = eventCollector();
 
     await executeAnalysis(
-      { type: "start", requestId: 9, ref },
+      { type: "start", requestId: 9, ref, analyzedAt },
       dependencies,
       emit,
     );
@@ -325,7 +328,7 @@ describe("executeAnalysis", () => {
       dependencies.now = Date.now;
       const { events, emit } = eventCollector();
       const execution = executeAnalysis(
-        { type: "start", requestId: 10, ref },
+        { type: "start", requestId: 10, ref, analyzedAt },
         dependencies,
         emit,
       );
@@ -371,7 +374,7 @@ describe("executeAnalysis", () => {
     });
     const { events, emit } = eventCollector();
     const execution = executeAnalysis(
-      { type: "start", requestId: 11, ref },
+      { type: "start", requestId: 11, ref, analyzedAt },
       dependencies,
       emit,
     );

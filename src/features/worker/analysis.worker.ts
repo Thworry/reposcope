@@ -205,6 +205,66 @@ function progress(
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
+  const actual = Object.keys(value);
+
+  return actual.length === keys.length && keys.every((key) => key in value);
+}
+
+function validAnalyzedAt(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match =
+    /^(?<seconds>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(?<fraction>\d{1,3}))?Z$/u.exec(
+      value,
+    );
+  const seconds = match?.groups?.seconds;
+  const fraction = match?.groups?.fraction ?? "";
+  const parsed = Date.parse(value);
+
+  return (
+    seconds !== undefined &&
+    Number.isFinite(parsed) &&
+    new Date(parsed).toISOString() === `${seconds}.${fraction.padEnd(3, "0")}Z`
+  );
+}
+
+function validRequestId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
+}
+
+function validRef(value: unknown): value is RepoRef {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["owner", "repo"]) &&
+    typeof value.owner === "string" &&
+    value.owner.length > 0 &&
+    typeof value.repo === "string" &&
+    value.repo.length > 0
+  );
+}
+
+function validWorkerCommand(value: unknown): value is WorkerCommand {
+  if (!isRecord(value) || !validRequestId(value.requestId)) return false;
+
+  if (value.type === "cancel") {
+    return hasExactKeys(value, ["type", "requestId"]);
+  }
+
+  return (
+    value.type === "start" &&
+    hasExactKeys(value, ["type", "requestId", "ref", "analyzedAt"]) &&
+    validRef(value.ref) &&
+    validAnalyzedAt(value.analyzedAt)
+  );
+}
+
 export async function executeAnalysis(
   command: WorkerCommand,
   dependencies: AnalysisDependencies = productionDependencies,
@@ -406,7 +466,7 @@ export async function executeAnalysis(
       skipped: runtimeSkipped,
       failures,
     };
-    const analyzedAt = new Date(dependencies.now()).toISOString();
+    const { analyzedAt } = command;
     const scored = dependencies.score({
       repository: snapshot.repository,
       general,
@@ -455,37 +515,35 @@ function installWorkerEntry(): void {
   }
 
   const active = new Map<number, AbortController>();
-  globalThis.addEventListener(
-    "message",
-    (event: MessageEvent<WorkerCommand>) => {
-      const command = event.data;
+  globalThis.addEventListener("message", (event: MessageEvent<unknown>) => {
+    const command = event.data;
+    if (!validWorkerCommand(command)) return;
 
-      if (command.type === "cancel") {
-        active
-          .get(command.requestId)
-          ?.abort(new DOMException("analysis-cancelled", "AbortError"));
-        active.delete(command.requestId);
-        return;
-      }
-
-      const controller = new AbortController();
+    if (command.type === "cancel") {
       active
         .get(command.requestId)
-        ?.abort(new DOMException("analysis-replaced", "AbortError"));
-      active.set(command.requestId, controller);
-      void executeAnalysis(
-        command,
-        { ...productionDependencies, signal: controller.signal },
-        (workerEvent) => {
-          globalThis.postMessage(workerEvent);
-        },
-      ).finally(() => {
-        if (active.get(command.requestId) === controller) {
-          active.delete(command.requestId);
-        }
-      });
-    },
-  );
+        ?.abort(new DOMException("analysis-cancelled", "AbortError"));
+      active.delete(command.requestId);
+      return;
+    }
+
+    const controller = new AbortController();
+    active
+      .get(command.requestId)
+      ?.abort(new DOMException("analysis-replaced", "AbortError"));
+    active.set(command.requestId, controller);
+    void executeAnalysis(
+      command,
+      { ...productionDependencies, signal: controller.signal },
+      (workerEvent) => {
+        globalThis.postMessage(workerEvent);
+      },
+    ).finally(() => {
+      if (active.get(command.requestId) === controller) {
+        active.delete(command.requestId);
+      }
+    });
+  });
 }
 
 installWorkerEntry();

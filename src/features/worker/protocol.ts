@@ -23,7 +23,12 @@ export interface SerializableAnalysisError {
 }
 
 export type WorkerCommand =
-  | { type: "start"; requestId: number; ref: RepoRef }
+  | {
+      type: "start";
+      requestId: number;
+      ref: RepoRef;
+      analyzedAt: string;
+    }
   | { type: "cancel"; requestId: number };
 
 export type WorkerEvent =

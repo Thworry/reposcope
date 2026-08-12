@@ -4,6 +4,7 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
   COMMIT_SHA,
   FIXED_NOW,
+  installExternalRequestGuard,
   installGitHubRoutes,
   type RequestLedger,
 } from "./fixtures";
@@ -11,18 +12,19 @@ import {
 const APP_PATH = "/";
 const GITHUB_RATE_LIMIT_DOCS =
   "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api";
+const TYPESCRIPT_SCORES = [53, 70, 100, 100, 60, 30] as const;
+const PYTHON_SCORES = [53, 50, 100, 100, 33, 30] as const;
 
 interface RuntimeMonitor {
-  assertClean(): void;
+  assertClean(): Promise<void>;
 }
 
-function monitorRuntime(page: Page): RuntimeMonitor {
+async function monitorRuntime(
+  context: Parameters<typeof installExternalRequestGuard>[0],
+  page: Page,
+): Promise<RuntimeMonitor> {
   const failures: string[] = [];
-  const allowedHosts = new Set([
-    "127.0.0.1:4173",
-    "api.github.com",
-    "raw.githubusercontent.com",
-  ]);
+  const assertExternalRequests = await installExternalRequestGuard(context);
 
   page.on("pageerror", (error) => {
     failures.push(`page error: ${error.message}`);
@@ -32,18 +34,10 @@ function monitorRuntime(page: Page): RuntimeMonitor {
       failures.push(`console ${message.type()}: ${message.text()}`);
     }
   });
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      !allowedHosts.has(url.host)
-    ) {
-      failures.push(`unexpected external host: ${url.href}`);
-    }
-  });
 
   return {
-    assertClean: () => {
+    assertClean: async () => {
+      await assertExternalRequests();
       expect(failures, failures.join("\n")).toEqual([]);
     },
   };
@@ -98,14 +92,27 @@ async function expectReport(page: Page, name = "owner/repo"): Promise<void> {
   });
 }
 
-function expectBoundedRequests(
+async function dimensionScores(page: Page): Promise<number[]> {
+  const values = await page
+    .locator(".dimension-score__header strong")
+    .allTextContents();
+
+  return values.map((value) => {
+    const score = /(?<score>\d+)\s*\/\s*100/u.exec(value)?.groups?.score;
+    if (score === undefined)
+      throw new Error(`Missing dimension score: ${value}`);
+    return Number(score);
+  });
+}
+
+async function expectBoundedRequests(
   ledger: RequestLedger,
   expectedRaw: number,
-): void {
+): Promise<void> {
   expect(ledger.restGets()).toHaveLength(3);
   expect(ledger.rawGets()).toHaveLength(expectedRaw);
   expect(ledger.rawGets().length).toBeLessThanOrEqual(200);
-  ledger.assertComplete();
+  await ledger.assertComplete({ rest: 3, raw: expectedRaw });
 }
 
 async function expectNoSeriousAxeViolations(page: Page): Promise<void> {
@@ -275,15 +282,19 @@ async function expectReducedMotion(page: Page): Promise<void> {
   }
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ context, page }) => {
+  await context.clearCookies();
   await installFixedClock(page);
 });
 
 test("English landing submits by keyboard, announces progress, and cancels", async ({
+  context,
   page,
 }, testInfo) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { delayFirstRestMs: 1_500 });
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, {
+    blockFirstRest: true,
+  });
   await gotoLanding(page);
   await expectNoSeriousAxeViolations(page);
   await page
@@ -305,15 +316,17 @@ test("English landing submits by keyboard, announces progress, and cancels", asy
     page.getByRole("heading", { name: "Repository scan in progress" }),
   ).toBeHidden();
   expect(ledger.rawGets()).toHaveLength(0);
-  ledger.assertComplete();
-  runtime.assertClean();
+  ledger.releaseFirstRest();
+  await ledger.assertComplete({ rest: 1, raw: 0 });
+  await runtime.assertClean();
 });
 
 test("Chinese language persists and switching a report does not refetch", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page);
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page);
   await gotoLanding(page);
   await page.getByRole("button", { name: "简体中文" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
@@ -334,7 +347,8 @@ test("Chinese language persists and switching a report does not refetch", async 
   await expect(page.getByText("Dimension scores")).toBeVisible();
   expect(ledger.restGets()).toHaveLength(counts.rest);
   expect(ledger.rawGets()).toHaveLength(counts.raw);
-  runtime.assertClean();
+  await ledger.assertComplete({ rest: 3, raw: 8 });
+  await runtime.assertClean();
 });
 
 test("complete TypeScript report is bounded, shareable, responsive, and accessible", async ({
@@ -344,12 +358,23 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: "http://127.0.0.1:4173",
   });
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page);
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page);
   await gotoLanding(page);
   await submitRepository(page);
   await expectReport(page);
-  expectBoundedRequests(ledger, 8);
+  await expectBoundedRequests(ledger, 8);
+  await expect(page.locator(".report-summary__score strong")).toHaveText(
+    "74 / 100",
+  );
+  await expect(
+    page.locator(".report-summary__metadata > div").first(),
+  ).toContainText("100% · High confidence");
+  expect(await dimensionScores(page)).toEqual(TYPESCRIPT_SCORES);
+  await expect(page.locator("time")).toHaveAttribute("datetime", FIXED_NOW);
+  expect(
+    ledger.analyzerChunks().some((path) => /\/js-ts-[^/]+\.js$/u.test(path)),
+  ).toBe(true);
   await expect(
     page.getByRole("heading", { name: "Dimension scores" }),
   ).toBeVisible();
@@ -359,13 +384,19 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
     }),
   ).toHaveCount(0);
   await expect(
-    page.locator(`a[href*="/blob/${COMMIT_SHA}/"]`).first(),
-  ).toBeVisible();
+    page.getByRole("link", { name: "src/index.ts, lines 4–7" }).first(),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/src/index.ts#L4-L7`,
+  );
   await page
     .getByRole("button", { name: "Copy improvement checklist" })
     .click();
   await expect(page.getByText("Copied", { exact: true })).toBeVisible();
-  await expect(page).toHaveURL(/\?repo=owner%2Frepo$/u);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+    `# RepoScope improvement checklist\n\n- Repository: owner/repo\n- Commit: ${COMMIT_SHA}\n- Ruleset: 1.0.0\n- Confidence: 100% (High confidence)\n- Scope: complete dimensions, not preliminary; 8 selected · 8 fetched · 6 parsed`,
+  );
+  await expect(page).toHaveURL("http://127.0.0.1:4173/?repo=owner%2Frepo");
   await expectNoSeriousAxeViolations(page);
   await expectResponsiveTargets(page, testInfo);
   await expectKeyboardFocus(page);
@@ -378,18 +409,24 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
     path: testInfo.outputPath("complete-report.png"),
     fullPage: true,
   });
-  runtime.assertClean();
+  await runtime.assertClean();
 });
 
 test("complete Python report loads only the Python deep analyzer", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { kind: "python" });
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, { kind: "python" });
   await gotoLanding(page);
   await submitRepository(page);
   await expectReport(page);
-  expectBoundedRequests(ledger, 8);
+  await expectBoundedRequests(ledger, 8);
+  await expect(page.locator(".report-summary__score strong")).toHaveText(
+    "66 / 100",
+  );
+  expect(await dimensionScores(page)).toEqual(PYTHON_SCORES);
+  await expect(page.locator("time")).toHaveAttribute("datetime", FIXED_NOW);
   expect(ledger.analyzerChunks().some((path) => /\/python-/u.test(path))).toBe(
     true,
   );
@@ -401,18 +438,19 @@ test("complete Python report loads only the Python deep analyzer", async ({
       hasText: "Unavailable",
     }),
   ).toHaveCount(0);
-  runtime.assertClean();
+  await runtime.assertClean();
 });
 
 test("unsupported Go remains a preliminary general-only report", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { kind: "go" });
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, { kind: "go" });
   await gotoLanding(page);
   await submitRepository(page);
   await expectReport(page);
-  expectBoundedRequests(ledger, 2);
+  await expectBoundedRequests(ledger, 2);
   await expect(page.getByText("General-only", { exact: true })).toBeVisible();
   await expect(page.getByText("Preliminary", { exact: true })).toBeVisible();
   await expect(page.getByText("Unavailable", { exact: true })).toHaveCount(2);
@@ -423,18 +461,19 @@ test("unsupported Go remains a preliminary general-only report", async ({
   const confidencePercent = /(?<percent>\d+)%/u.exec(confidence ?? "")?.groups
     ?.percent;
   expect(Number(confidencePercent ?? 101)).toBeLessThanOrEqual(60);
-  runtime.assertClean();
+  await runtime.assertClean();
 });
 
 test("truncated trees expose partial scope below high confidence", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { kind: "partial" });
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, { kind: "partial" });
   await gotoLanding(page);
   await submitRepository(page);
   await expectReport(page);
-  expectBoundedRequests(ledger, 8);
+  await expectBoundedRequests(ledger, 8);
   await expect(
     page.getByText("Partial GitHub tree", { exact: true }),
   ).toBeVisible();
@@ -448,14 +487,17 @@ test("truncated trees expose partial scope below high confidence", async ({
   await expect(page.locator(".report-summary__scope")).toContainText(
     /selected.*fetched.*parsed/u,
   );
-  runtime.assertClean();
+  await runtime.assertClean();
 });
 
 test("invalid input and not-found errors are specific without speculation", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { kind: "not-found" });
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, {
+    kind: "not-found",
+  });
   await gotoLanding(page);
   await page
     .getByLabel("Public GitHub repository URL")
@@ -471,15 +513,18 @@ test("invalid input and not-found errors are specific without speculation", asyn
   await expect(error).toContainText("not found or is not public");
   await expect(error).not.toContainText(/private|deleted/u);
   expect(ledger.restGets()).toHaveLength(1);
-  ledger.assertComplete();
-  runtime.assertClean();
+  await ledger.assertComplete({ rest: 1, raw: 0 });
+  await runtime.assertClean();
 });
 
 test("rate limits show a fixed localized reset and safe official link", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { kind: "rate-limit" });
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, {
+    kind: "rate-limit",
+  });
   await gotoLanding(page);
   await submitRepository(page);
   const error = page.getByRole("alert");
@@ -490,14 +535,20 @@ test("rate limits show a fixed localized reset and safe official link", async ({
   await expect(
     error.getByRole("link", { name: "GitHub rate-limit documentation" }),
   ).toHaveAttribute("href", GITHUB_RATE_LIMIT_DOCS);
+  await expect(error).toContainText(
+    "GitHub rate limit resets at Aug 11, 2026, 01:00:00 PM UTC.",
+  );
   expect(ledger.restGets()).toHaveLength(1);
-  ledger.assertComplete();
-  runtime.assertClean();
+  await ledger.assertComplete({ rest: 1, raw: 0 });
+  await runtime.assertClean();
 });
 
-test("hostile repository strings stay inert text", async ({ page }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, { kind: "hostile" });
+test("hostile repository strings stay inert text", async ({
+  context,
+  page,
+}) => {
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, { kind: "hostile" });
   await gotoLanding(page);
   await submitRepository(page);
   await expectReport(page);
@@ -511,16 +562,17 @@ test("hostile repository strings stay inert text", async ({ page }) => {
     page.getByText(/<img src=x onerror=alert\(1\)>\.ts/u).first(),
   ).toBeVisible();
   expect(ledger.restGets()).toHaveLength(3);
-  ledger.assertComplete();
-  runtime.assertClean();
+  await ledger.assertComplete({ rest: 3, raw: 9 });
+  await runtime.assertClean();
 });
 
 test("cancellation yields to a newer run and failed refresh preserves its report", async ({
+  context,
   page,
 }) => {
-  const runtime = monitorRuntime(page);
-  const ledger = installGitHubRoutes(page, {
-    delayFirstRestMs: 1_000,
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, {
+    blockFirstRest: true,
     failRestAttempt: 5,
   });
   await gotoLanding(page);
@@ -529,6 +581,7 @@ test("cancellation yields to a newer run and failed refresh preserves its report
     page.getByRole("button", { name: "Cancel analysis" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Cancel analysis" }).click();
+  ledger.releaseFirstRest();
   await submitRepository(page);
   await expectReport(page);
   await page.getByRole("button", { name: "Refresh public data" }).click();
@@ -540,6 +593,6 @@ test("cancellation yields to a newer run and failed refresh preserves its report
     page.getByText(/Refresh failed\. Showing the report from/u),
   ).toBeVisible();
   expect(ledger.restGets()).toHaveLength(5);
-  ledger.assertComplete();
-  runtime.assertClean();
+  await ledger.assertComplete({ rest: 5, raw: 8 });
+  await runtime.assertClean();
 });

@@ -66,6 +66,10 @@ describe("analyzeRepository", () => {
         { runner, nowMs: () => 1_000 },
       ),
     ).resolves.toEqual(report);
+    expect(runner).toHaveBeenLastCalledWith(
+      { owner: "example", repo: "project" },
+      { analyzedAt: "1970-01-01T00:00:01.000Z" },
+    );
     await analyzeRepository(
       { owner: "EXAMPLE", repo: "PROJECT" },
       { runner, nowMs: () => 1_001 },
@@ -76,6 +80,18 @@ describe("analyzeRepository", () => {
       { force: true, runner, nowMs: () => 1_002 },
     );
     expect(runner).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an invalid internal clock before starting a worker", async () => {
+    const runner = vi.fn();
+
+    await expect(
+      analyzeRepository(
+        { owner: "example", repo: "project" },
+        { runner, nowMs: () => Number.NaN },
+      ),
+    ).rejects.toMatchObject({ detail: { kind: "worker" } });
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it("preserves caller aborts and cancels the worker", async () => {

@@ -1,4 +1,4 @@
-import type { Page, Request, Route } from "@playwright/test";
+import type { BrowserContext, Page, Request, Route } from "@playwright/test";
 
 import commitJson from "./fixtures/commit.json" with { type: "json" };
 import repositoryJson from "./fixtures/repository.json" with { type: "json" };
@@ -27,7 +27,7 @@ export interface FixtureOptions {
   kind?: FixtureKind;
   owner?: string;
   repo?: string;
-  delayFirstRestMs?: number;
+  blockFirstRest?: boolean;
   failRestAttempt?: number;
 }
 
@@ -35,7 +35,8 @@ export interface RequestLedger {
   restGets(): readonly string[];
   rawGets(): readonly string[];
   analyzerChunks(): readonly string[];
-  assertComplete(): void;
+  releaseFirstRest(): void;
+  assertComplete(expected?: { rest: number; raw: number }): Promise<void>;
 }
 
 interface FixtureData {
@@ -138,24 +139,48 @@ function rawPath(url: URL, owner: string, repo: string): string | null {
     .join("/");
 }
 
-async function wait(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+
+  return { promise, resolve };
 }
 
-export function installGitHubRoutes(
+export async function installGitHubRoutes(
+  context: BrowserContext,
   page: Page,
   options: FixtureOptions = {},
-): RequestLedger {
+): Promise<RequestLedger> {
   const kind = options.kind ?? "typescript";
   const owner = options.owner ?? "owner";
   const repo = options.repo ?? "repo";
   const data = dataFor(kind, owner, repo);
+  const encodedOwner = encodeURIComponent(owner);
+  const encodedRepo = encodeURIComponent(repo);
+  const repositoryUrl = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}`;
+  const commitUrl = `${repositoryUrl}/commits/main`;
+  const treeUrl = `${repositoryUrl}/git/trees/${TREE_SHA}?recursive=1`;
+  const expectedRawUrls = new Set(
+    Object.keys(data.sources).map(
+      (path) =>
+        `https://raw.githubusercontent.com/${encodedOwner}/${encodedRepo}/${COMMIT_SHA}/${path
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`,
+    ),
+  );
   const rest: string[] = [];
   const raw: string[] = [];
   const chunks: string[] = [];
   const routeFailures: string[] = [];
+  const pending = new Set<Promise<void>>();
+  const firstRest = deferred();
+  let handlerStarts = 0;
+  let handlerFinishes = 0;
   let restAttempt = 0;
-  let delayed = false;
+  let blocked = false;
 
   const observe = (request: Request): void => {
     const url = new URL(request.url());
@@ -165,92 +190,183 @@ export function installGitHubRoutes(
   };
   page.on("request", observe);
 
-  void page.route("https://api.github.com/**", async (route: Route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    rest.push(url.href);
-    restAttempt += 1;
-
-    if (request.method() !== "GET") {
-      routeFailures.push(
-        `unexpected GitHub method: ${request.method()} ${url.href}`,
-      );
-      await route.abort("blockedbyclient");
-      return;
-    }
-    if (!delayed && options.delayFirstRestMs !== undefined) {
-      delayed = true;
-      await wait(options.delayFirstRestMs);
-    }
-    if (options.failRestAttempt === restAttempt) {
-      await route.fulfill(jsonResponse({ message: "fixture failure" }, 500));
-      return;
-    }
-
-    const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-    if (url.pathname === base) {
-      if (kind === "not-found") {
-        await route.fulfill(jsonResponse({ message: "Not Found" }, 404));
-      } else if (kind === "rate-limit") {
-        await route.fulfill(jsonResponse({ message: "rate limit" }, 403));
-      } else {
-        await route.fulfill(jsonResponse(data.repository));
+  function tracked(
+    handler: (route: Route) => Promise<void>,
+  ): (route: Route) => Promise<void> {
+    return async (route) => {
+      handlerStarts += 1;
+      const operation = handler(route);
+      pending.add(operation);
+      try {
+        await operation;
+      } finally {
+        pending.delete(operation);
+        handlerFinishes += 1;
       }
-      return;
-    }
-    if (url.pathname === `${base}/commits/main`) {
-      await route.fulfill(jsonResponse(commitJson));
-      return;
-    }
-    if (
-      url.pathname === `${base}/git/trees/${TREE_SHA}` &&
-      url.search === "?recursive=1"
-    ) {
-      await route.fulfill(jsonResponse(data.tree));
-      return;
-    }
+    };
+  }
 
-    routeFailures.push(`unmatched GitHub REST route: ${url.href}`);
-    await route.abort("blockedbyclient");
-  });
+  await context.route(
+    "https://api.github.com/**",
+    tracked(async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      rest.push(url.href);
+      restAttempt += 1;
 
-  void page.route("https://raw.githubusercontent.com/**", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    raw.push(url.href);
-    const path = rawPath(url, owner, repo);
+      if (request.method() !== "GET") {
+        routeFailures.push(
+          `unexpected GitHub method: ${request.method()} ${url.href}`,
+        );
+        await route.abort("blockedbyclient");
+        return;
+      }
+      if (url.search !== "" && url.href !== treeUrl) {
+        routeFailures.push(`unexpected GitHub REST query: ${url.href}`);
+        await route.abort("blockedbyclient");
+        return;
+      }
+      if (!blocked && options.blockFirstRest === true) {
+        blocked = true;
+        await firstRest.promise;
+      }
+      if (options.failRestAttempt === restAttempt) {
+        await route.fulfill(jsonResponse({ message: "fixture failure" }, 500));
+        return;
+      }
 
-    if (
-      request.method() !== "GET" ||
-      path === null ||
-      !(path in data.sources)
-    ) {
-      routeFailures.push(
-        `unmatched GitHub raw route: ${request.method()} ${url.href}`,
-      );
+      if (url.href === repositoryUrl) {
+        if (kind === "not-found") {
+          await route.fulfill(jsonResponse({ message: "Not Found" }, 404));
+        } else if (kind === "rate-limit") {
+          await route.fulfill(jsonResponse({ message: "rate limit" }, 403));
+        } else {
+          await route.fulfill(jsonResponse(data.repository));
+        }
+        return;
+      }
+      if (url.href === commitUrl) {
+        await route.fulfill(jsonResponse(commitJson));
+        return;
+      }
+      if (url.href === treeUrl) {
+        await route.fulfill(jsonResponse(data.tree));
+        return;
+      }
+
+      routeFailures.push(`unmatched GitHub REST route: ${url.href}`);
       await route.abort("blockedbyclient");
-      return;
-    }
+    }),
+  );
 
-    const source = data.sources[path];
-    if (source === undefined) {
-      routeFailures.push(`missing raw fixture: ${path}`);
-      await route.abort("blockedbyclient");
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "text/plain",
-      body: source,
-    });
-  });
+  await context.route(
+    "https://raw.githubusercontent.com/**",
+    tracked(async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      raw.push(url.href);
+      const path = rawPath(url, owner, repo);
+
+      if (
+        request.method() !== "GET" ||
+        path === null ||
+        !(path in data.sources) ||
+        !expectedRawUrls.has(url.href)
+      ) {
+        routeFailures.push(
+          `unmatched GitHub raw route: ${request.method()} ${url.href}`,
+        );
+        await route.abort("blockedbyclient");
+        return;
+      }
+
+      const source = data.sources[path];
+      if (source === undefined) {
+        routeFailures.push(`missing raw fixture: ${path}`);
+        await route.abort("blockedbyclient");
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "text/plain",
+        body: source,
+      });
+    }),
+  );
 
   return {
     restGets: () => rest,
     rawGets: () => raw,
     analyzerChunks: () => chunks,
-    assertComplete: () => {
-      if (routeFailures.length > 0) throw new Error(routeFailures.join("\n"));
+    releaseFirstRest: () => {
+      firstRest.resolve();
     },
+    assertComplete: async (expected) => {
+      await Promise.allSettled([...pending]);
+      if (routeFailures.length > 0) throw new Error(routeFailures.join("\n"));
+      if (pending.size > 0)
+        throw new Error("GitHub route handlers still pending");
+      if (handlerStarts !== handlerFinishes) {
+        throw new Error(
+          `GitHub route lifecycle mismatch: ${String(handlerStarts)} started, ${String(handlerFinishes)} finished`,
+        );
+      }
+      if (expected !== undefined) {
+        if (rest.length !== expected.rest || raw.length !== expected.raw) {
+          throw new Error(
+            `request count mismatch: REST ${String(rest.length)}/${String(expected.rest)}, raw ${String(raw.length)}/${String(expected.raw)}`,
+          );
+        }
+      }
+    },
+  };
+}
+
+export async function installExternalRequestGuard(
+  context: BrowserContext,
+): Promise<() => Promise<void>> {
+  const failures: string[] = [];
+  const pending = new Set<Promise<void>>();
+  let handlerStarts = 0;
+  let handlerFinishes = 0;
+
+  await context.route("**/*", async (route) => {
+    handlerStarts += 1;
+    const operation = (async () => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (
+        url.protocol === "data:" ||
+        url.protocol === "blob:" ||
+        (url.protocol === "http:" && url.host === "127.0.0.1:4173")
+      ) {
+        await route.continue();
+        return;
+      }
+
+      failures.push(
+        `unexpected external request: ${request.method()} ${url.href}`,
+      );
+      await route.abort("blockedbyclient");
+    })();
+    pending.add(operation);
+    try {
+      await operation;
+    } finally {
+      pending.delete(operation);
+      handlerFinishes += 1;
+    }
+  });
+
+  return async () => {
+    await Promise.allSettled([...pending]);
+    if (failures.length > 0) throw new Error(failures.join("\n"));
+    if (pending.size > 0)
+      throw new Error("External route handlers still pending");
+    if (handlerStarts !== handlerFinishes) {
+      throw new Error(
+        `External route lifecycle mismatch: ${String(handlerStarts)} started, ${String(handlerFinishes)} finished`,
+      );
+    }
   };
 }

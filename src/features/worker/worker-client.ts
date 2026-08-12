@@ -19,6 +19,7 @@ export class RepositoryAnalysisError extends Error {
 export interface RunAnalysisOptions {
   onProgress?: (progress: ScanProgress) => void;
   workerFactory?: () => Worker;
+  analyzedAt?: string;
 }
 
 export interface AnalysisRun {
@@ -141,6 +142,10 @@ export function runAnalysis(
   ref: RepoRef,
   options: RunAnalysisOptions = {},
 ): AnalysisRun {
+  const analyzedAt = options.analyzedAt ?? new Date(Date.now()).toISOString();
+  if (!validIsoTimestamp(analyzedAt)) {
+    throw new RepositoryAnalysisError({ kind: "worker" });
+  }
   const requestId = nextRequestId;
   nextRequestId += 1;
   const worker = options.workerFactory?.() ?? createWorker();
@@ -226,7 +231,12 @@ export function runAnalysis(
   worker.addEventListener("error", onWorkerError);
   worker.addEventListener("messageerror", onWorkerError);
 
-  const command: WorkerCommand = { type: "start", requestId, ref };
+  const command: WorkerCommand = {
+    type: "start",
+    requestId,
+    ref,
+    analyzedAt,
+  };
   try {
     worker.postMessage(command);
   } catch {
