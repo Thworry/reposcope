@@ -832,8 +832,8 @@ Add exact requirements to `repository-files.test.ts`:
 
 ```ts
 expect(read("CHANGELOG.md")).toMatch(/^## \[Unreleased\]$/mu);
-expect(read("CHANGELOG.md")).toMatch(/^## \[0\.1\.1\] - 2026-08-13$/mu);
-expect(read("CHANGELOG.md")).toMatch(/^## \[0\.1\.0\] - 2026-08-12$/mu);
+expect(read("CHANGELOG.md")).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
+expect(read("CHANGELOG.md")).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
 
 for (const [english, chinese] of [
   ["## Install and run locally", "## 安装并在本地运行"],
@@ -895,15 +895,16 @@ All notable changes to RepoScope are documented in this file.
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-08-13
+## 0.1.1 - 2026-08-13
 
 ### Changed
 
 - Split Python and cross-file analyzers into cohesive private modules while preserving ruleset 1.0.0 and report semantics.
 - Added useful documentation for stable cross-module APIs.
 - Expanded bilingual installation and report walkthrough guidance.
+- Isolated instrumented performance tests from cross-suite CPU contention in release gates.
 
-## [0.1.0] - 2026-08-12
+## 0.1.0 - 2026-08-12
 
 ### Added
 

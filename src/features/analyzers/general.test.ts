@@ -219,7 +219,10 @@ describe("general repository evidence", () => {
       fetchedTextFile("package.json", validPackageJson, {
         category: "manifest",
       }),
-      fetchedTextFile("CHANGELOG.md", "# Changes\n\n## v1.2.0\n\n- Stable"),
+      fetchedTextFile(
+        "CHANGELOG.md",
+        "# Changes\n\n## 0.1.1 - 2026-08-13\n\n- Stable",
+      ),
       fetchedTextFile("src/index.ts", "export const value = 1;", {
         language: "typescript",
         category: "source",

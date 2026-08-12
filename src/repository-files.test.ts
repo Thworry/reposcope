@@ -326,8 +326,8 @@ describe("open-source repository contract", () => {
     };
 
     expect(changelog).toMatch(/^## \[Unreleased\]$/mu);
-    expect(changelog).toMatch(/^## \[0\.1\.1\] - 2026-08-13$/mu);
-    expect(changelog).toMatch(/^## \[0\.1\.0\] - 2026-08-12$/mu);
+    expect(changelog).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
+    expect(changelog).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
     expect(packageManifest.version).toBe("0.1.1");
   });
 
