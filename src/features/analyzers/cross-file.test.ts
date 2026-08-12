@@ -841,6 +841,25 @@ describe("cross-file duplicate metrics", () => {
 });
 
 describe("relative import graph metrics", () => {
+  it("keeps package candidate qualification stable through the facade", () => {
+    const result = findCircularImports([
+      {
+        path: "pkg/__init__.py",
+        language: "python",
+        relativeImports: ["."],
+        relativeImportCandidates: [".b"],
+        topLevelDefinedNames: [],
+      },
+      importingFile("pkg/b.py", "python", [".marker"]),
+      importingFile("pkg/marker.py", "python", ["."]),
+    ]);
+
+    expect(result).toEqual({
+      components: [["pkg/__init__.py", "pkg/b.py", "pkg/marker.py"]],
+      largestComponentSize: 3,
+    });
+  });
+
   it("resolves JavaScript explicit extensions, supported extensions, and index files", () => {
     const result = findCircularImports([
       importingFile("src/entry.ts", "typescript", [
