@@ -171,8 +171,13 @@ export function runAnalysis(
     resolvePromise(report);
   };
   function onMessage(event: MessageEvent<unknown>): void {
-    const value = event.data;
-
+    try {
+      handleMessage(event.data);
+    } catch {
+      rejectOnce(new RepositoryAnalysisError({ kind: "worker" }));
+    }
+  }
+  function handleMessage(value: unknown): void {
     if (!isRecord(value) || value.requestId !== requestId) return;
     if (value.type === "progress") {
       if (

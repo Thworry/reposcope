@@ -156,4 +156,29 @@ describe("runAnalysis", () => {
     run.cancel();
     await expect(run.promise).rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("rejects a cyclic completion as a safe worker error", async () => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    Object.assign(report, { strengths: cyclic });
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "complete", requestId: start.requestId, report },
+      }),
+    );
+
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
 });

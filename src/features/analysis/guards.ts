@@ -394,11 +394,173 @@ function validRepository(
   return true;
 }
 
-function sameJson(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+function equalDescriptor(
+  left: LocalizedDescriptor,
+  right: LocalizedDescriptor,
+): boolean {
+  const leftEntries = Object.entries(left.args).sort(([a], [b]) =>
+    a.localeCompare(b, "en-US"),
+  );
+  const rightEntries = Object.entries(right.args).sort(([a], [b]) =>
+    a.localeCompare(b, "en-US"),
+  );
+
+  if (left.key !== right.key || leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+
+  for (let index = 0; index < leftEntries.length; index += 1) {
+    const leftEntry = leftEntries[index];
+    const rightEntry = rightEntries[index];
+
+    if (
+      leftEntry === undefined ||
+      rightEntry === undefined ||
+      leftEntry[0] !== rightEntry[0] ||
+      leftEntry[1] !== rightEntry[1]
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
-export function isAnalysisReport(value: unknown): value is AnalysisReport {
+function equalReferences(
+  left: readonly FileReference[],
+  right: readonly FileReference[],
+): boolean {
+  if (left.length !== right.length) return false;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftReference = left[index];
+    const rightReference = right[index];
+
+    if (
+      leftReference === undefined ||
+      rightReference === undefined ||
+      leftReference.path !== rightReference.path ||
+      leftReference.startLine !== rightReference.startLine ||
+      leftReference.endLine !== rightReference.endLine
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function equalStrengthArrays(
+  left: readonly AnalysisReport["strengths"][number][],
+  right: readonly AnalysisReport["strengths"][number][],
+): boolean {
+  if (left.length !== right.length) return false;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+
+    if (
+      leftItem === undefined ||
+      rightItem === undefined ||
+      !equalStrength(leftItem, rightItem)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function equalImprovementArrays(
+  left: readonly AnalysisReport["weaknesses"][number][],
+  right: readonly AnalysisReport["weaknesses"][number][],
+): boolean {
+  if (left.length !== right.length) return false;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+
+    if (
+      leftItem === undefined ||
+      rightItem === undefined ||
+      !equalImprovement(leftItem, rightItem)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function validStrength(
+  value: unknown,
+): value is AnalysisReport["strengths"][number] {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ["ruleId", "dimension", "evidence", "references"]) &&
+    typeof value.ruleId === "string" &&
+    RULE_ID_SET.has(value.ruleId) &&
+    DIMENSIONS.includes(value.dimension as DimensionKey) &&
+    validDescriptor(value.evidence) &&
+    validReferences(value.references)
+  );
+}
+
+function validImprovement(
+  value: unknown,
+): value is AnalysisReport["weaknesses"][number] {
+  return (
+    isRecord(value) &&
+    exactKeys(value, [
+      "ruleId",
+      "dimension",
+      "severity",
+      "lostPoints",
+      "evidence",
+      "recommendation",
+      "references",
+    ]) &&
+    typeof value.ruleId === "string" &&
+    RULE_ID_SET.has(value.ruleId) &&
+    DIMENSIONS.includes(value.dimension as DimensionKey) &&
+    ["high", "medium", "low"].includes(String(value.severity)) &&
+    finiteInteger(value.lostPoints, 0, 20) &&
+    validDescriptor(value.evidence) &&
+    validDescriptor(value.recommendation) &&
+    validReferences(value.references)
+  );
+}
+
+function equalStrength(
+  left: AnalysisReport["strengths"][number],
+  right: AnalysisReport["strengths"][number],
+): boolean {
+  return (
+    left.ruleId === right.ruleId &&
+    left.dimension === right.dimension &&
+    equalDescriptor(left.evidence, right.evidence) &&
+    equalReferences(left.references, right.references)
+  );
+}
+
+function equalImprovement(
+  left: AnalysisReport["weaknesses"][number],
+  right: AnalysisReport["weaknesses"][number],
+): boolean {
+  return (
+    left.ruleId === right.ruleId &&
+    left.dimension === right.dimension &&
+    left.severity === right.severity &&
+    left.lostPoints === right.lostPoints &&
+    equalDescriptor(left.evidence, right.evidence) &&
+    equalDescriptor(left.recommendation, right.recommendation) &&
+    equalReferences(left.references, right.references)
+  );
+}
+
+function validateAnalysisReport(value: unknown): value is AnalysisReport {
   if (
     !isRecord(value) ||
     !exactKeys(value, [
@@ -549,8 +711,20 @@ export function isAnalysisReport(value: unknown): value is AnalysisReport {
 
   return (
     Array.isArray(value.strengths) &&
+    value.strengths.length <= 5 &&
+    value.strengths.every(validStrength) &&
     Array.isArray(value.weaknesses) &&
-    sameJson(value.strengths, expectedFindings.strengths) &&
-    sameJson(value.weaknesses, expectedFindings.weaknesses)
+    value.weaknesses.length <= RULE_IDS.length &&
+    value.weaknesses.every(validImprovement) &&
+    equalStrengthArrays(value.strengths, expectedFindings.strengths) &&
+    equalImprovementArrays(value.weaknesses, expectedFindings.weaknesses)
   );
+}
+
+export function isAnalysisReport(value: unknown): value is AnalysisReport {
+  try {
+    return validateAnalysisReport(value);
+  } catch {
+    return false;
+  }
 }

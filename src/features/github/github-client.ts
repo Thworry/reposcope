@@ -15,7 +15,8 @@ export type GitHubErrorKind =
   | "api"
   | "invalid-response"
   | "file-limit"
-  | "invalid-text";
+  | "invalid-text"
+  | "timeout";
 
 export class GitHubApiError extends Error {
   override readonly name = "GitHubApiError";
@@ -529,7 +530,7 @@ function throwIfRawAborted(
   }
 
   if (timeoutSignal.aborted) {
-    throw new GitHubApiError("network");
+    throw new GitHubApiError("timeout");
   }
 }
 
@@ -743,10 +744,7 @@ export async function fetchRawTextFile(
     try {
       response = await fetchImpl(url, { signal: combinedSignal });
     } catch {
-      if (signal.aborted) {
-        throw signal.reason;
-      }
-
+      throwIfRawAborted(signal, timeoutController.signal);
       throw new GitHubApiError("network");
     }
 

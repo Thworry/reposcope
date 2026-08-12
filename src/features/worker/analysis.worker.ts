@@ -240,6 +240,7 @@ export async function executeAnalysis(
     let fetchedBytes = 0;
     let completedFiles = 0;
     let nextIndex = 0;
+    let stopScheduling = false;
     let runtimeLimitReached = selection.selected.length > MAX_ATTEMPTS;
     const phaseController = new AbortController();
     const phaseSignal = AbortSignal.any([callerSignal, phaseController.signal]);
@@ -258,7 +259,8 @@ export async function executeAnalysis(
         if (
           phaseController.signal.aborted ||
           dependencies.now() - fetchStartedAt >= FETCH_PHASE_TIMEOUT_MS ||
-          fetchedBytes >= MAX_FETCHED_BYTES
+          fetchedBytes >= MAX_FETCHED_BYTES ||
+          stopScheduling
         ) {
           runtimeLimitReached = true;
           return;
@@ -282,6 +284,7 @@ export async function executeAnalysis(
           callerSignal.throwIfAborted();
           if (fetchedBytes + result.bytes > MAX_FETCHED_BYTES) {
             runtimeLimitReached = true;
+            stopScheduling = true;
             if (runtimeSkipped.length < 400) {
               runtimeSkipped.push({ path: selected.path, reason: "budget" });
             }

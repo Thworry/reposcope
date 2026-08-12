@@ -281,4 +281,51 @@ describe("executeAnalysis", () => {
       vi.useRealTimers();
     }
   });
+
+  it("stops claiming new underdeclared files when the first body crosses 10 MiB", async () => {
+    const selected = selectedFiles(12, "typescript", 1);
+    let releaseCrossing!: () => void;
+    let releaseInflight!: () => void;
+    const crossing = new Promise<void>((resolve) => {
+      releaseCrossing = resolve;
+    });
+    const inflight = new Promise<void>((resolve) => {
+      releaseInflight = resolve;
+    });
+    const started: string[] = [];
+    const dependencies = dependenciesFor(selected, async ({ path }) => {
+      started.push(path);
+      if (path.endsWith("file-0.ts")) {
+        await crossing;
+        return { path, text: "large", bytes: 10 * 1024 * 1024 + 1 };
+      }
+
+      await inflight;
+      return { path, text: "small", bytes: 1 };
+    });
+    const { events, emit } = eventCollector();
+    const execution = executeAnalysis(
+      { type: "start", requestId: 11, ref },
+      dependencies,
+      emit,
+    );
+    await vi.waitFor(() => {
+      expect(started).toHaveLength(6);
+    });
+    releaseCrossing();
+    await vi.waitFor(() => {
+      expect(started).toHaveLength(6);
+    });
+    releaseInflight();
+    await execution;
+
+    const report = completedReport(events);
+    expect(started).toHaveLength(6);
+    expect(report.coverage.fetchedBytes).toBeLessThanOrEqual(10 * 1024 * 1024);
+    expect(report.coverage.limitReached).toBe(true);
+    expect(report.coverage.skipped).toContainEqual({
+      path: "src/file-0.ts",
+      reason: "budget",
+    });
+  });
 });

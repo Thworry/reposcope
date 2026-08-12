@@ -887,7 +887,7 @@ describe("fetchRawTextFile", () => {
       fetchMock,
     );
     const expectation = expect(pending).rejects.toMatchObject({
-      kind: "network",
+      kind: "timeout",
     });
 
     await vi.advanceTimersByTimeAsync(15_000);

@@ -106,4 +106,25 @@ describe("isAnalysisReport", () => {
     if (rule !== undefined) rule.earned = rule.available + 1;
     expect(isAnalysisReport(impossible)).toBe(false);
   });
+
+  it("is total for cyclic hostile finding arrays", () => {
+    const report = cloneReport();
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    Object.assign(report, { strengths: cyclic });
+
+    expect(() => isAnalysisReport(report)).not.toThrow();
+    expect(isAnalysisReport(report)).toBe(false);
+  });
+
+  it("is total for hostile throwing property access", () => {
+    const hostile = new Proxy(validReport(), {
+      ownKeys() {
+        throw new Error("hostile reflection");
+      },
+    });
+
+    expect(() => isAnalysisReport(hostile)).not.toThrow();
+    expect(isAnalysisReport(hostile)).toBe(false);
+  });
 });
