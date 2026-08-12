@@ -142,6 +142,19 @@ describe("App", () => {
     );
   });
 
+  it("changes language selection without a transient low-contrast color transition", () => {
+    const languageButtonRule =
+      /\.language-switcher button\s*\{(?<body>[^}]*)\}/isu.exec(appCss)?.groups
+        ?.body ?? "";
+
+    expect(languageButtonRule).not.toMatch(
+      /transition(?:-property)?\s*:[^;]*(?:color|background-color)/iu,
+    );
+    expect(appCss).toMatch(
+      /\.primary-action,\s*\.secondary-action\s*\{[^}]*transition:\s*background-color/isu,
+    );
+  });
+
   it("auto-starts one valid shared-query analysis and never records it again", async () => {
     window.history.replaceState(null, "", "?repo=owner%2Frepo");
     const replaceState = vi.spyOn(window.history, "replaceState");
