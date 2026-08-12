@@ -63,7 +63,7 @@ Dependencies flow from internal models and syntax helpers upward into evidence a
 - `duplicate-candidates.ts` — periodic, arithmetic, radix/LCP, and lazy candidate sources;
 - `duplicate-selection.ts` — frozen global comparator, occupancy-aware non-overlap selection, duplicated-token union, and bounded evidence summaries;
 - `import-resolution.ts` — JS/TS extension/index resolution and Python module/package/candidate qualification; and
-- `scc.ts` — iterative graph traversal and deterministic strongly connected components.
+- `scc.ts` — deterministic Tarjan traversal and strongly connected components, preserving the current node and edge visit order.
 
 The split must preserve lazy source topology and all existing structural operation budgets. It must not reintroduce file-pair candidate materialization or recursive graph traversal.
 
@@ -73,6 +73,7 @@ The split must preserve lazy source topology and all existing structural operati
 - Private shared types stay under each analyzer directory and do not enter `features/analysis/model.ts` unless already public there.
 - Modules must be cohesive rather than artificially small. A helper stays local when it has one caller and no independent invariant.
 - Cyclic imports are prohibited. The intended direction is model/path/syntax → algorithm stages → per-file/facade orchestration.
+- Extraction must not add recursive traversal. The existing Tarjan visit may remain recursive in `v0.1.1`; converting it to explicit frames is permitted only as a separately tested step whose component order and deep-input behavior are exact matches.
 - Existing dynamic imports continue targeting the facades, so the JS/TS and Python analyzer chunks remain separate and parsers remain absent from the initial bundle.
 
 ## Migration strategy
