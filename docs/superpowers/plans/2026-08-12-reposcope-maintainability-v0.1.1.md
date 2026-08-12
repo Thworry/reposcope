@@ -442,7 +442,11 @@ it("propagates return through finally and lets an abrupt finally override it", (
     "from . import b",
   ].join("\n");
   const nodes = parsePython(`${text}\n`) ?? [];
-  expect(topLevelBindingMetadata(nodes, `${text}\n`).finalNames).toEqual([]);
+  // Preserve the frozen baseline: the loop may exhaust and execute `else`, so
+  // `b` remains definite across the joined paths.
+  expect(topLevelBindingMetadata(nodes, `${text}\n`).finalNames).toEqual([
+    "b",
+  ]);
 });
 ```
 
