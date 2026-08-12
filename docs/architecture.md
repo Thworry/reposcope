@@ -28,12 +28,19 @@ The main thread owns form state, language, progress, cancellation, report valida
 
 ## Fixed endpoints
 
-A fresh scan performs these three unauthenticated REST `GET` requests in dependency order, using GitHub API version `2026-03-10` and media type `application/vnd.github+json`:
+A fresh scan performs these three unauthenticated REST requests in dependency order:
 
 ```text
-https://api.github.com/repos/{owner}/{repo}
-https://api.github.com/repos/{owner}/{repo}/commits/{defaultBranch}
-https://api.github.com/repos/{owner}/{repo}/git/trees/{treeSha}?recursive=1
+GET https://api.github.com/repos/{owner}/{repo}
+GET https://api.github.com/repos/{owner}/{repo}/commits/{defaultBranch}
+GET https://api.github.com/repos/{owner}/{repo}/git/trees/{treeSha}?recursive=1
+```
+
+Every REST request uses exactly these API headers:
+
+```text
+X-GitHub-Api-Version: 2026-03-10
+Accept: application/vnd.github+json
 ```
 
 Selected text is then fetched only from an immutable URL constructed locally:
@@ -44,16 +51,16 @@ https://raw.githubusercontent.com/{owner}/{repo}/{commitSha}/{encodedPath}
 
 Owner, repository, moving default-branch name, commit/tree identifiers, and each path segment are validated and percent-encoded separately. RepoScope does not follow an arbitrary repository-provided content URL. The inspected commit SHA pins file links and raw reads even if the default branch moves later.
 
-Only HTTPS `github.com/{owner}/{repository}` input with exactly two path segments is accepted. Credentials, non-default ports, subdomains, queries, fragments, extra/empty/dot segments, backslashes, encoded separators, controls, and ambiguous forms are rejected before any request.
+Accepted input may use an omitted `https://` protocol, a terminal `.git`, one trailing slash, or explicit `:443`. After trimming outer whitespace and removing those accepted presentation variants, RepoScope produces the canonical HTTPS `github.com/{owner}/{repository}` form with exactly two non-empty path segments. Credentials, other explicit ports, subdomains, queries, fragments, additional path segments, duplicate/empty/dot segments, backslashes, encoded separators, controls, internal whitespace, and ambiguous forms are rejected before any request.
 
 ## Resource limits
 
 The selection and worker scheduling layers enforce:
 
 - at most 200 selected files;
-- at most 200 source-fetch attempts, including failures;
-- at most 10 MiB of successfully decoded text across the scan;
-- at most 256 KiB for one source or documentation file;
+- at most 200 eligible raw-text fetch attempts, including failures, across source, documentation, manifest, and configuration files;
+- at most 10 MiB of successfully decoded eligible text across the scan;
+- at most 256 KiB for any one eligible fetched text file, including source, documentation, manifest, and configuration text;
 - at most six concurrent raw requests;
 - a 15-second per-file timeout; and
 - a 90-second source-fetch phase budget.
@@ -100,7 +107,7 @@ Production output contains one strict Content Security Policy:
 default-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; img-src 'self' data:; style-src 'self'; script-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests
 ```
 
-There is no `unsafe-inline`, `unsafe-eval`, remote font/script/style/image, WebAssembly asset, tracker, or advertisement. Parser and worker chunks are same-origin static build assets. Development output omits the production meta policy because Vite's development runtime is not the deployed artifact.
+The production policy must not contain `unsafe-inline` or `unsafe-eval`. It permits exactly three connection destinations: the same-origin hosting origin, `https://api.github.com`, and `https://raw.githubusercontent.com`. There is no remote font/script/style/image, WebAssembly asset, tracker, or advertisement. Parser and worker chunks are same-origin static build assets. Development output omits the production meta policy because Vite's development runtime is not the deployed artifact.
 
 ## Hostile-content handling
 
@@ -117,7 +124,7 @@ Repository metadata, paths, trees, source, Markdown, manifests, parser input, wo
 
 ## Threat boundaries
 
-RepoScope's security boundary covers the static application and its interaction with a visitor's browser and the two fixed GitHub origins.
+RepoScope's security boundary covers the static application and its interaction with a visitor's browser and GitHub. Its outbound connection allowlist has exactly three connection destinations: the same-origin hosting origin, `https://api.github.com`, and `https://raw.githubusercontent.com`.
 
 **Repository author:** An inspected public repository may deliberately provide malformed metadata, oversized trees, hostile filenames, invalid text, parser stress cases, misleading prose, or HTML/script-shaped strings. Validation, limits, worker isolation, text-only rendering, and CSP constrain these inputs. Static analysis is still heuristic and parser/resource exhaustion can yield a partial report.
 

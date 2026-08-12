@@ -26,9 +26,9 @@ See the complete [ruleset `1.0.0` methodology](docs/methodology.md) and [archite
 
 Each scan is bounded to:
 
-- 200 selected files and 200 source-fetch attempts;
+- 200 selected files and 200 eligible raw-text fetch attempts across source, documentation, manifest, and configuration files;
 - 10 MiB of decoded text in total;
-- 256 KiB per source or documentation file;
+- 256 KiB per eligible fetched text file, including source, documentation, manifest, and configuration text;
 - six concurrent raw-file requests;
 - a 15-second timeout per raw file; and
 - a 90-second overall source-fetch phase.

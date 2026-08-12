@@ -4,6 +4,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  DIMENSION_WEIGHTS,
+  RULE_IDS,
+  RULESET_VERSION,
+  type RuleId,
+} from "./features/rules/rules";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -24,50 +30,198 @@ const REQUIRED_FILES = [
   ".github/PULL_REQUEST_TEMPLATE.md",
 ] as const;
 
-const RULE_IDS = [
-  "documentation.readme",
-  "documentation.installation",
-  "documentation.usage",
-  "documentation.contributing",
-  "documentation.license",
-  "documentation.architecture",
-  "operability.manifest",
-  "operability.entry-point",
-  "operability.run-build",
-  "operability.example",
-  "operability.error-handling",
-  "operability.version-history",
-  "operability.configuration",
-  "readability.median-function-length",
-  "readability.p90-function-length",
-  "readability.large-file-ratio",
-  "readability.median-nesting",
-  "readability.ambiguous-identifiers",
-  "readability.documented-exports",
-  "complexity.median-cyclomatic",
-  "complexity.p90-cyclomatic",
-  "complexity.max-nesting",
-  "complexity.very-large-files",
-  "complexity.duplication",
-  "complexity.circular-imports",
-  "testing.test-files",
-  "testing.test-source-ratio",
-  "testing.ci",
-  "testing.test-command",
-  "testing.static-check",
-  "testing.coverage",
-  "maintenance.activity",
-  "maintenance.lockfile",
-  "maintenance.dependency-updates",
-  "maintenance.templates",
-  "maintenance.security",
-  "maintenance.code-of-conduct",
-  "maintenance.version-history",
-  "maintenance.generated-directories",
-] as const;
+const RULE_DOCUMENTATION = {
+  "documentation.readme": ["Preferred README exists", "3", "—"],
+  "documentation.installation": [
+    "README has an installation/setup heading and at least one command block",
+    "3",
+    "Heading without command block: 1",
+  ],
+  "documentation.usage": [
+    "README has a usage/run heading and a command or concrete example",
+    "3",
+    "Heading without command/example: 1",
+  ],
+  "documentation.contributing": ["Contribution guide exists", "2", "—"],
+  "documentation.license": [
+    "Recognized license file exists",
+    "2",
+    "Repository API license metadata only: 1",
+  ],
+  "documentation.architecture": [
+    "Architecture, code map, or explicit structure explanation exists",
+    "2",
+    "README names at least three top-level source areas: 1",
+  ],
+  "operability.manifest": [
+    "Recognized package/build manifest exists",
+    "4",
+    "—",
+  ],
+  "operability.entry-point": [
+    "Recognized executable entry point or application/library export is identifiable",
+    "4",
+    "Conventional-path entry point only: 2",
+  ],
+  "operability.run-build": [
+    "Manifest or documented command provides both run and build evidence",
+    "4",
+    "Only run or build is evidenced: 2",
+  ],
+  "operability.example": [
+    "Example, demo, sample, or concrete API usage exists",
+    "3",
+    "Prose-only usage description: 1",
+  ],
+  "operability.error-handling": [
+    "Error-handling constructs appear in at least 5% of parsed non-test functions",
+    "2",
+    "Present below 5%: 1",
+  ],
+  "operability.version-history": [
+    "Changelog/history/release-notes file has a version heading",
+    "2",
+    "Non-empty valid manifest version only: 1",
+  ],
+  "operability.configuration": [
+    "Environment/config example or explicit configuration section exists",
+    "1",
+    "—",
+  ],
+  "readability.median-function-length": [
+    "Median non-test function length ≤ 40 logical lines",
+    "4",
+    "41–60: 2",
+  ],
+  "readability.p90-function-length": [
+    "90th-percentile non-test function length ≤ 80",
+    "4",
+    "81–120: 2",
+  ],
+  "readability.large-file-ratio": [
+    "Files over 500 logical lines are ≤ 10% of parsed source files",
+    "4",
+    ">10% through 20%: 2",
+  ],
+  "readability.median-nesting": [
+    "Median function nesting depth ≤ 3",
+    "3",
+    "4: 1",
+  ],
+  "readability.ambiguous-identifiers": [
+    "Ambiguous short identifiers are ≤ 10% of identifier occurrences",
+    "3",
+    ">10% through 20%: 1",
+  ],
+  "readability.documented-exports": [
+    "At least 20% of exported/public declarations are documented adjacently",
+    "2",
+    "10% through 19.99%: 1",
+  ],
+  "complexity.median-cyclomatic": [
+    "Median cyclomatic complexity ≤ 5",
+    "4",
+    "6–8: 2",
+  ],
+  "complexity.p90-cyclomatic": [
+    "90th-percentile cyclomatic complexity ≤ 15",
+    "5",
+    "16–25: 2",
+  ],
+  "complexity.max-nesting": [
+    "Maximum function nesting depth ≤ 5",
+    "3",
+    "6–7: 1",
+  ],
+  "complexity.very-large-files": [
+    "No parsed source file exceeds 1,000 logical lines",
+    "3",
+    "At most 2% exceed it: 1",
+  ],
+  "complexity.duplication": [
+    "Approximate normalized-token duplication ≤ 5%",
+    "3",
+    ">5% through 10%: 1",
+  ],
+  "complexity.circular-imports": [
+    "No resolvable internal circular import",
+    "2",
+    "One two-file strongly connected component: 1",
+  ],
+  "testing.test-files": [
+    "Recognized test files exist",
+    "4",
+    "Test configuration only: 1",
+  ],
+  "testing.test-source-ratio": [
+    "Test-file to supported-source-file ratio ≥ 0.25",
+    "3",
+    "0.10 through 0.2499: 1",
+  ],
+  "testing.ci": ["Recognized CI workflow/configuration exists", "3", "—"],
+  "testing.test-command": [
+    "Recognized test command exists",
+    "2",
+    "README-only command: 1",
+  ],
+  "testing.static-check": [
+    "Recognized lint, type-check, or static-check command exists",
+    "2",
+    "README-only command: 1",
+  ],
+  "testing.coverage": [
+    "Coverage configuration or coverage command exists",
+    "1",
+    "—",
+  ],
+  "maintenance.activity": [
+    "Not archived and `pushed_at` is within 180 exact UTC days",
+    "2",
+    "181–365 days: 1",
+  ],
+  "maintenance.lockfile": ["Recognized dependency lockfile exists", "2", "—"],
+  "maintenance.dependency-updates": [
+    "Dependabot or Renovate configuration exists",
+    "1",
+    "—",
+  ],
+  "maintenance.templates": ["Issue or pull-request templates exist", "1", "—"],
+  "maintenance.security": ["Security policy exists", "1", "—"],
+  "maintenance.code-of-conduct": ["Code of conduct exists", "1", "—"],
+  "maintenance.version-history": [
+    "Version-history file has a version heading",
+    "1",
+    "—",
+  ],
+  "maintenance.generated-directories": [
+    "No committed dependency/build/cache directory appears in the tree",
+    "1",
+    "One or more such directories: 0",
+  ],
+} as const satisfies Record<RuleId, readonly [string, string, string]>;
+
+const EXACT_CSP =
+  "default-src 'self'; connect-src 'self' https://api.github.com https://raw.githubusercontent.com; img-src 'self' data:; style-src 'self'; script-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests";
 
 function read(path: string): string {
   return readFileSync(resolve(projectRoot, path), "utf8");
+}
+
+function documentedRuleRows(markdown: string): Map<string, string[]> {
+  const rows = new Map<string, string[]>();
+
+  for (const line of markdown.split("\n")) {
+    const match = /^\| `(?<id>[^`]+)`\s*\|(?<rest>.*)\|$/u.exec(line);
+    if (match?.groups?.id === undefined || match.groups.rest === undefined) {
+      continue;
+    }
+    rows.set(
+      match.groups.id,
+      match.groups.rest.split("|").map((cell) => cell.trim()),
+    );
+  }
+
+  return rows;
 }
 
 describe("open-source repository contract", () => {
@@ -104,19 +258,40 @@ describe("open-source repository contract", () => {
       expect(english).toContain(value);
       expect(chinese).toContain(value);
     }
+
+    for (const statement of [
+      "no login",
+      "GitHub token",
+      "backend",
+      "AI service",
+      "never executes",
+      "not persisted",
+    ]) {
+      expect(english).toContain(statement);
+    }
+    for (const statement of [
+      "不需要登录",
+      "GitHub 令牌",
+      "后端",
+      "AI 服务",
+      "不会执行",
+      "不会被持久化",
+    ]) {
+      expect(chinese).toContain(statement);
+    }
   });
 
   it("publishes every ruleset signal and reproducibility boundary", () => {
     const methodology = read("docs/methodology.md");
 
-    expect(methodology).toContain("ruleset `1.0.0`");
+    expect(methodology).toContain(`ruleset \`${RULESET_VERSION}\``);
     for (const [dimension, weight] of [
-      ["Documentation and onboarding", 15],
-      ["Operability evidence", 20],
-      ["Code readability", 20],
-      ["Complexity and structure", 20],
-      ["Testing and automation", 15],
-      ["Maintenance health", 10],
+      ["Documentation and onboarding", DIMENSION_WEIGHTS.documentation],
+      ["Operability evidence", DIMENSION_WEIGHTS.operability],
+      ["Code readability", DIMENSION_WEIGHTS.readability],
+      ["Complexity and structure", DIMENSION_WEIGHTS.complexity],
+      ["Testing and automation", DIMENSION_WEIGHTS.testing],
+      ["Maintenance health", DIMENSION_WEIGHTS.maintenance],
     ] as const) {
       expect(methodology).toMatch(
         new RegExp(`\\| ${dimension} +\\| +${String(weight)} \\|`, "u"),
@@ -130,8 +305,23 @@ describe("open-source repository contract", () => {
     expect(methodology).toContain("not-applicable");
     expect(methodology).toContain("precedence");
 
+    const rows = documentedRuleRows(methodology);
+    expect([...rows.keys()]).toEqual([...RULE_IDS]);
+    expect(Object.keys(RULE_DOCUMENTATION)).toEqual([...RULE_IDS]);
     for (const ruleId of RULE_IDS) {
-      expect(methodology, ruleId).toContain(`\`${ruleId}\``);
+      expect(rows.get(ruleId), ruleId).toEqual(RULE_DOCUMENTATION[ruleId]);
+    }
+
+    for (const prerequisite of [
+      "at least one parsed non-test function",
+      "positive identifier-occurrence denominator",
+      "positive exported/public-declaration denominator",
+      "positive eligible-token denominator",
+      "positive supported-source-file denominator",
+      "A zero rule-level denominator makes that rule `not-applicable`",
+      "Hostile or invalid numeric evidence takes precedence and yields `failed`",
+    ]) {
+      expect(methodology).toContain(prerequisite);
     }
   });
 
@@ -139,22 +329,40 @@ describe("open-source repository contract", () => {
     const architecture = read("docs/architecture.md");
 
     for (const needle of [
-      "https://api.github.com/repos/{owner}/{repo}",
-      "commits/{defaultBranch}",
-      "git/trees/{treeSha}?recursive=1",
+      "GET https://api.github.com/repos/{owner}/{repo}",
+      "GET https://api.github.com/repos/{owner}/{repo}/commits/{defaultBranch}",
+      "GET https://api.github.com/repos/{owner}/{repo}/git/trees/{treeSha}?recursive=1",
+      "X-GitHub-Api-Version: 2026-03-10",
+      "Accept: application/vnd.github+json",
       "https://raw.githubusercontent.com",
       "200 selected files",
-      "10 MiB",
-      "256 KiB",
+      "200 eligible raw-text fetch attempts",
+      "10 MiB of successfully decoded eligible text",
+      "256 KiB for any one eligible fetched text file",
       "six concurrent",
       "15-second",
       "90-second",
       "sessionStorage",
       "15-minute",
+      "2 MiB",
       "Content Security Policy",
-      "unsafe-inline",
-      "unsafe-eval",
+      EXACT_CSP,
+      "must not contain `unsafe-inline` or `unsafe-eval`",
+      "exactly three connection destinations",
+      "same-origin hosting origin, `https://api.github.com`, and `https://raw.githubusercontent.com`",
       "Threat boundaries",
+      "Repository author",
+      "GitHub and network",
+      "Visitor device",
+      "Publisher and hosting",
+      "Inspected-project assurance",
+      "omitted `https://` protocol",
+      "terminal `.git`",
+      "one trailing slash",
+      "explicit `:443`",
+      "canonical HTTPS `github.com/{owner}/{repository}`",
+      "other explicit ports",
+      "additional path segments",
     ]) {
       expect(architecture, needle).toContain(needle);
     }

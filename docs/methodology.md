@@ -133,7 +133,17 @@ The displayed integer is rounded to the nearest percent: 80–100 is High / 高�
 
 ## Applicability, aggregation, and precedence
 
-Applicability is resolved before score aggregation. An explicit `not-applicable` precondition takes precedence over a numeric evaluator. Readability, complexity, and operability error-handling use the shared deep-analysis threshold. Testing ratio requires supported source in the available tree. Unavailable points are removed rather than treated as failures.
+Applicability is resolved per rule before score aggregation. The shared deep-analysis threshold is at least five parsed non-generated JavaScript, TypeScript, or Python source files or at least 2,000 parsed supported logical source lines. Passing that shared threshold does not by itself make every deep rule applicable; these rule-level prerequisites also apply:
+
+- `operability.error-handling`, the function-length rules, the function-nesting rules, and the cyclomatic rules require at least one parsed non-test function.
+- `readability.large-file-ratio` and `complexity.very-large-files` require a positive parsed supported-source-file denominator. The shared threshold normally guarantees it, but the denominator is still validated independently.
+- `readability.ambiguous-identifiers` requires a positive identifier-occurrence denominator.
+- `readability.documented-exports` requires a positive exported/public-declaration denominator.
+- `complexity.duplication` requires a positive eligible-token denominator after test/generated exclusions.
+- `testing.test-source-ratio` requires a positive supported-source-file denominator from the available tree; its numerator is the recognized test-file count.
+- `complexity.circular-imports` requires the shared deep threshold and structurally valid component metrics, but it does not require an import edge: a valid empty graph is applicable and passes.
+
+A zero rule-level denominator makes that rule `not-applicable`; it is not converted to a zero ratio and scored as passed or failed. Hostile or invalid numeric evidence takes precedence and yields `failed`: negative, non-finite, non-integer, inconsistent numerator/denominator, invalid complexity, duplicate-ratio mismatch, and malformed cycle metrics are validation failures, not legitimate zero denominators. In project assembly, an invalid denominator is deliberately kept applicable so validation cannot disguise hostile evidence as `not-applicable`. Unavailable points are removed rather than treated as failures.
 
 For aggregation, a signal's exact state determines earned points, signal points form a dimension percentage, and applicable dimension percentages are combined using the weights above. Unrounded inputs take precedence over formatted display values. If a structured manifest and prose both contribute to one rule, the rule-specific full criterion takes precedence over partial prose evidence; the same evidence is not added twice.
 
