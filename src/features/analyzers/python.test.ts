@@ -1250,4 +1250,63 @@ except Exception:
     expect(input[0]).toBe(testFile);
     expect(input[1]).toBe(source);
   });
+
+  it("preserves the exact public facade result for a frozen compact fixture", () => {
+    const file = Object.freeze(
+      pythonSourceFile(
+        "src/choice.py",
+        "def choose(value):\n    if value:\n        return 1\n    return 0\n",
+      ),
+    );
+    const input = Object.freeze([file]);
+
+    expect(analyzePython(input)).toEqual({
+      files: [
+        {
+          path: "src/choice.py",
+          language: "python",
+          logicalLines: 4,
+          isTest: false,
+          normalizedTokens: [
+            "def",
+            "choose",
+            "(",
+            "value",
+            ")",
+            ":",
+            "if",
+            "value",
+            ":",
+            "return",
+            "NUMBER",
+            "return",
+            "NUMBER",
+          ],
+          relativeImports: [],
+          relativeImportCandidates: [],
+          topLevelDefinedNames: ["choose"],
+        },
+      ],
+      functions: [
+        {
+          path: "src/choice.py",
+          name: "choose",
+          startLine: 1,
+          endLine: 4,
+          logicalLines: 4,
+          cyclomatic: 2,
+          maxNesting: 1,
+          hasErrorHandling: false,
+          isTest: false,
+        },
+      ],
+      identifierOccurrences: 2,
+      ambiguousIdentifierOccurrences: 0,
+      exportedDeclarations: 1,
+      documentedExports: 0,
+      parsedBytes: 63,
+      parseFailures: [],
+    });
+    expect(input[0]).toBe(file);
+  });
 });
