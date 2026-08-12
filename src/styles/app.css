@@ -671,6 +671,28 @@ main {
   font-size: var(--text-sm);
 }
 
+@media (max-width: 20rem) {
+  .report-view__actions > .secondary-action,
+  .copy-control,
+  .copy-control button {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .report-view__actions button {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .copy-control {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .copy-control__status {
+    min-width: 0;
+  }
+}
+
 .dimension-scores__list,
 .finding-list,
 .evidence-list {

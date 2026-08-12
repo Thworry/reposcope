@@ -37,7 +37,7 @@ function productionCsp(): Plugin {
 }
 
 export default defineConfig(({ command }) => ({
-  base: command === "build" ? "/reposcope/" : "/",
+  base: command === "build" ? (process.env.REPOSCOPE_BASE_PATH ?? "/") : "/",
   plugins: [react(), productionCsp()],
   build: {
     manifest: true,
