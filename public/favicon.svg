@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="RepoScope">
+  <rect width="64" height="64" rx="14" fill="#172b3a"/>
+  <path d="M18 18h20a8 8 0 0 1 8 8v20H26a8 8 0 0 1-8-8V18Z" fill="#f4f6f0"/>
+  <path d="M25 27h14M25 33h10M25 39h7" fill="none" stroke="#172b3a" stroke-linecap="round" stroke-width="3"/>
+  <circle cx="43" cy="43" r="8" fill="#d8643c" stroke="#172b3a" stroke-width="3"/>
+  <path d="m49 49 6 6" fill="none" stroke="#172b3a" stroke-linecap="round" stroke-width="4"/>
+</svg>

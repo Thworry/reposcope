@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: pnpm/action-setup@v6.0.10
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm exec tsc -b
+      - run: pnpm test:coverage
+      - run: pnpm build
+      - run: pnpm check:bundle
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test --project=desktop-chromium
+      - run: pnpm check:lighthouse

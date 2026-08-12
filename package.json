@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "check:bundle": "node scripts/check-bundle-size.mjs",
+    "check:bundle": "node --test scripts/check-bundle-size.test.mjs && node scripts/check-bundle-size.mjs",
     "check:lighthouse": "lhci autorun",
     "check": "pnpm lint && pnpm format:check && pnpm test && pnpm build"
   },
