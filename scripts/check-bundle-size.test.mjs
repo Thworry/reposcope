@@ -416,10 +416,17 @@ test("release automation is pinned, least-privileged, and ordered", async () => 
   delete process.env.REPOSCOPE_BASE_PATH;
   try {
     const configFactory = (await import(resolve("vite.config.ts"))).default;
-    assert.equal(
-      configFactory({ command: "build", mode: "production" }).base,
-      "/",
-    );
+    const buildConfig = configFactory({
+      command: "build",
+      mode: "production",
+    });
+    assert.equal(buildConfig.base, "/");
+    assert.deepEqual(buildConfig.test.coverage.thresholds, {
+      statements: 90,
+      branches: 80,
+      functions: 90,
+      lines: 90,
+    });
     assert.equal(
       configFactory({ command: "serve", mode: "development" }).base,
       "/",

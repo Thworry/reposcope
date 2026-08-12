@@ -164,6 +164,12 @@ export default defineConfig(({ command }) => ({
     coverage: {
       provider: "v8",
       all: true,
+      thresholds: {
+        statements: 90,
+        branches: 80,
+        functions: 90,
+        lines: 90,
+      },
       include: ["src/**/*.{ts,tsx}"],
       exclude: [
         "src/main.tsx",
