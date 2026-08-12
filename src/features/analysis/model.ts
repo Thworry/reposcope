@@ -251,6 +251,7 @@ export interface CoverageSummary {
   parsedFiles: number;
   parsedBytes: number;
   parsedSupportedBytes: number;
+  skippedFiles: number;
   failedFiles: number;
   unsupportedFiles: number;
   limitReached: boolean;

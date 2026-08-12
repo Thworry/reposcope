@@ -18,10 +18,13 @@ describe("Methodology", () => {
     expect(region).toHaveTextContent("80–100");
     expect(region).toHaveTextContent("Binary, minified, vendored, generated");
     expect(region).toHaveTextContent("do not prove that software works");
-    expect(
-      screen.getByRole("link", {
-        name: "Read the complete versioned methodology",
-      }),
-    ).toHaveAttribute("rel", "noopener noreferrer");
+    const link = screen.getByRole("link", {
+      name: "Read the complete versioned methodology",
+    });
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/Thworry/reposcope/blob/v0.1.0/docs/methodology.md",
+    );
   });
 });

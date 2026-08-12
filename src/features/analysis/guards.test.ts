@@ -107,6 +107,24 @@ describe("isAnalysisReport", () => {
     expect(isAnalysisReport(impossible)).toBe(false);
   });
 
+  it("validates exact skipped totals independently from capped details", () => {
+    const capped = cloneReport();
+    capped.coverage.skippedFiles = 401;
+    capped.coverage.skipped = Array.from({ length: 400 }, (_, index) => ({
+      path: `excluded/file-${String(index)}.txt`,
+      reason: "excluded" as const,
+    }));
+    expect(isAnalysisReport(capped)).toBe(true);
+
+    const inconsistent = structuredClone(capped);
+    inconsistent.coverage.skippedFiles = 399;
+    expect(isAnalysisReport(inconsistent)).toBe(false);
+
+    const missing = cloneReport();
+    missing.coverage.skippedFiles = 1;
+    expect(isAnalysisReport(missing)).toBe(false);
+  });
+
   it("is total for cyclic hostile finding arrays", () => {
     const report = cloneReport();
     const cyclic: unknown[] = [];

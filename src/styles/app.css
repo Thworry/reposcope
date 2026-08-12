@@ -532,6 +532,12 @@ main {
   color: var(--color-muted);
 }
 
+.report-summary__heading a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+}
+
 .report-summary__score {
   display: flex;
   flex-direction: column;

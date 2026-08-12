@@ -219,6 +219,72 @@ describe("executeAnalysis", () => {
     expect(JSON.stringify(report)).not.toContain("source");
   });
 
+  it("keeps the exact skipped total when serializable details reach their cap", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    const skipped = Array.from({ length: 450 }, (_, index) => ({
+      path: `excluded/file-${String(index)}.txt`,
+      reason: "excluded" as const,
+    }));
+    vi.mocked(dependencies.select).mockReturnValue({
+      treeComplete: true,
+      selected: [],
+      eligibleFiles: 0,
+      eligibleBytes: 0,
+      eligibleSourceBytes: 0,
+      unsupportedFiles: 0,
+      unsupportedBytes: 0,
+      selectedFiles: 0,
+      selectedBytes: 0,
+      limitReached: false,
+      skipped,
+      skipCounts: {
+        excluded: 450,
+        binary: 0,
+        oversized: 0,
+        unsupported: 0,
+        budget: 0,
+        "invalid-entry": 0,
+      },
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 81, ref },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(report.coverage.skippedFiles).toBe(450);
+    expect(report.coverage.skipped).toHaveLength(400);
+    expect(report.coverage.skipped?.at(-1)).toEqual({
+      path: "excluded/file-399.txt",
+      reason: "excluded",
+    });
+  });
+
+  it("counts selected files left unscheduled by runtime limits exactly once", async () => {
+    const selected = selectedFiles(205, "typescript", 1);
+    const dependencies = dependenciesFor(selected, ({ path }) =>
+      Promise.resolve({ path, text: "source", bytes: 11 * 1024 * 1024 }),
+    );
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 82, ref },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(report.coverage.fetchedFiles).toBe(0);
+    expect(report.coverage.failedFiles).toBe(0);
+    expect(report.coverage.skippedFiles).toBe(205);
+    expect(report.coverage.skipped).toHaveLength(205);
+  });
+
   it("loads only the Python analyzer when Python is selected", async () => {
     const dependencies = dependenciesFor(
       selectedFiles(1, "python"),

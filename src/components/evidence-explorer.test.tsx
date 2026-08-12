@@ -125,6 +125,7 @@ const report = {
     parsedFiles: 1,
     parsedBytes: 1,
     parsedSupportedBytes: 1,
+    skippedFiles: 0,
     failedFiles: 0,
     unsupportedFiles: 0,
     limitReached: false,
@@ -186,5 +187,28 @@ describe("EvidenceExplorer", () => {
       expect.stringContaining("testing.ci"),
     ]);
     expect(screen.queryByText("bad.ts")).toBeNull();
+  });
+
+  it("resets stale filters when a newly inspected commit replaces the report", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <EvidenceExplorer report={report} language="en" />,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Dimension"), "operability");
+    expect(screen.getByText("1 rule shown")).toBeVisible();
+
+    rerender(
+      <EvidenceExplorer
+        report={{
+          ...report,
+          repository: { ...report.repository, commitSha: "f".repeat(40) },
+        }}
+        language="en"
+      />,
+    );
+
+    expect(screen.getByLabelText("Dimension")).toHaveValue("all");
+    expect(screen.getByText("4 rules shown")).toBeVisible();
   });
 });

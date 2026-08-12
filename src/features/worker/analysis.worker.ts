@@ -234,9 +234,6 @@ export async function executeAnalysis(
     const candidates = selection.selected.slice(0, MAX_ATTEMPTS);
     const fetched: FetchedTextFile[] = [];
     const failures: Failure[] = [];
-    const runtimeSkipped: NonNullable<CoverageSummary["skipped"]> = [
-      ...selection.skipped.slice(0, 400),
-    ];
     let fetchedBytes = 0;
     let completedFiles = 0;
     let nextIndex = 0;
@@ -285,9 +282,6 @@ export async function executeAnalysis(
           if (fetchedBytes + result.bytes > MAX_FETCHED_BYTES) {
             runtimeLimitReached = true;
             stopScheduling = true;
-            if (runtimeSkipped.length < 400) {
-              runtimeSkipped.push({ path: selected.path, reason: "budget" });
-            }
           } else {
             fetched.push(fetchedFile(selected, result));
             fetchedBytes += result.bytes;
@@ -326,6 +320,25 @@ export async function executeAnalysis(
       globalThis.clearTimeout(phaseTimer);
     }
     callerSignal.throwIfAborted();
+
+    const fetchedPaths = new Set(fetched.map((file) => file.path));
+    const failedFetchPaths = new Set(
+      failures
+        .filter((failure) => failure.stage === "fetch")
+        .map((failure) => failure.path),
+    );
+    const runtimeBudgetSkipped: NonNullable<CoverageSummary["skipped"]> =
+      selection.selected
+        .filter(
+          (file) =>
+            !fetchedPaths.has(file.path) && !failedFetchPaths.has(file.path),
+        )
+        .map((file) => ({ path: file.path, reason: "budget" as const }));
+    const skippedFiles = selection.skipped.length + runtimeBudgetSkipped.length;
+    const runtimeSkipped: NonNullable<CoverageSummary["skipped"]> = [
+      ...selection.skipped,
+      ...runtimeBudgetSkipped,
+    ].slice(0, 400);
 
     emitProgress(
       progress(
@@ -386,6 +399,7 @@ export async function executeAnalysis(
       parsedFiles,
       parsedBytes: language.parsedBytes,
       parsedSupportedBytes: language.parsedBytes,
+      skippedFiles,
       failedFiles: failures.length,
       unsupportedFiles: selection.unsupportedFiles,
       limitReached: selection.limitReached || runtimeLimitReached,

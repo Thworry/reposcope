@@ -48,7 +48,7 @@ export function CoveragePanel({ coverage, language }: CoveragePanelProps) {
     [copy.coverageSelected, coverage.selectedFiles],
     [copy.coverageFetched, coverage.fetchedFiles],
     [copy.coverageParsed, coverage.parsedFiles],
-    [copy.coverageSkipped, skipped.length],
+    [copy.coverageSkipped, coverage.skippedFiles],
     [copy.coverageFailed, coverage.failedFiles],
     [copy.coverageUnsupported, coverage.unsupportedFiles],
   ] as const;

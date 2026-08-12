@@ -268,6 +268,7 @@ function validCoverage(value: unknown): value is AnalysisReport["coverage"] {
     "parsedFiles",
     "parsedBytes",
     "parsedSupportedBytes",
+    "skippedFiles",
     "failedFiles",
     "unsupportedFiles",
     "limitReached",
@@ -303,23 +304,25 @@ function validCoverage(value: unknown): value is AnalysisReport["coverage"] {
   }
 
   if (
-    value.skipped !== undefined &&
-    (!Array.isArray(value.skipped) ||
-      value.skipped.length > 400 ||
-      !value.skipped.every(
-        (item) =>
-          isRecord(item) &&
-          exactKeys(item, ["path", "reason"]) &&
-          validPath(item.path) &&
-          [
-            "excluded",
-            "binary",
-            "oversized",
-            "unsupported",
-            "budget",
-            "invalid-entry",
-          ].includes(String(item.reason)),
-      ))
+    (value.skipped === undefined && value.skippedFiles !== 0) ||
+    (value.skipped !== undefined &&
+      (!Array.isArray(value.skipped) ||
+        value.skipped.length > 400 ||
+        value.skipped.length !== Math.min(Number(value.skippedFiles), 400) ||
+        !value.skipped.every(
+          (item) =>
+            isRecord(item) &&
+            exactKeys(item, ["path", "reason"]) &&
+            validPath(item.path) &&
+            [
+              "excluded",
+              "binary",
+              "oversized",
+              "unsupported",
+              "budget",
+              "invalid-entry",
+            ].includes(String(item.reason)),
+        )))
   ) {
     return false;
   }

@@ -77,6 +77,7 @@ const report = {
     parsedFiles: 0,
     parsedBytes: 0,
     parsedSupportedBytes: 0,
+    skippedFiles: 0,
     failedFiles: 0,
     unsupportedFiles: 1,
     limitReached: false,

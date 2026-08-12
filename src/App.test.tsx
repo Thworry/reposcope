@@ -155,6 +155,12 @@ describe("App", () => {
     );
   });
 
+  it("gives native report controls the same visible three-pixel focus ring", () => {
+    expect(globalCss).toMatch(
+      /button:focus-visible,\s*input:focus-visible,\s*select:focus-visible,\s*summary:focus-visible,\s*a:focus-visible\s*\{[^}]*outline:\s*var\(--focus-width\)\s+solid/isu,
+    );
+  });
+
   it("auto-starts one valid shared-query analysis and never records it again", async () => {
     window.history.replaceState(null, "", "?repo=owner%2Frepo");
     const replaceState = vi.spyOn(window.history, "replaceState");

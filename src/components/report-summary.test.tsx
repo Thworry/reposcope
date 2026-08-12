@@ -1,3 +1,8 @@
+/// <reference types="node" />
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -40,6 +45,7 @@ const report = {
     parsedFiles: 8,
     parsedBytes: 8_000,
     parsedSupportedBytes: 7_000,
+    skippedFiles: 5,
     failedFiles: 2,
     unsupportedFiles: 3,
     limitReached: true,
@@ -64,5 +70,17 @@ describe("ReportSummary", () => {
       screen.getByText(/12 selected.*10 fetched.*8 parsed/i),
     ).toBeVisible();
     expect(screen.getByText(report.repository.commitSha)).toBeVisible();
+  });
+
+  it("keeps the repository link at the minimum touch target size", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles/app.css"), "utf8");
+
+    expect(css).toMatch(
+      /\.report-summary__heading a\s*\{[^}]*min-height:\s*var\(--target-min\)/isu,
+    );
+    render(<ReportSummary report={report} language="en" />);
+    expect(
+      screen.getByRole("link", { name: "Open repository on GitHub" }),
+    ).toBeVisible();
   });
 });

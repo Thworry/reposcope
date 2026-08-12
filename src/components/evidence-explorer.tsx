@@ -102,7 +102,7 @@ function canonicalRules(report: AnalysisReport): RuleResult[] {
   return DIMENSIONS.flatMap((dimension) => byDimension.get(dimension) ?? []);
 }
 
-export function EvidenceExplorer({ report, language }: EvidenceExplorerProps) {
+function EvidenceExplorerContent({ report, language }: EvidenceExplorerProps) {
   const copy = messages[language];
   const [dimension, setDimension] = useState<DimensionFilter>("all");
   const [severity, setSeverity] = useState<SeverityFilter>("all");
@@ -258,5 +258,14 @@ export function EvidenceExplorer({ report, language }: EvidenceExplorerProps) {
         )}
       </details>
     </section>
+  );
+}
+
+export function EvidenceExplorer(props: EvidenceExplorerProps) {
+  return (
+    <EvidenceExplorerContent
+      key={props.report.repository.commitSha}
+      {...props}
+    />
   );
 }

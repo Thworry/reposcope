@@ -25,7 +25,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -41,6 +42,8 @@ a[href] {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
+summary:focus-visible,
 a:focus-visible {
   outline: var(--focus-width) solid var(--color-focus);
   outline-offset: 3px;

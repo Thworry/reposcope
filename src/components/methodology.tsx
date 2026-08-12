@@ -8,7 +8,7 @@ interface MethodologyProps {
 }
 
 const METHODOLOGY_URL =
-  "https://github.com/Thworry/reposcope/blob/v0.1.0/docs/METHODOLOGY.md";
+  "https://github.com/Thworry/reposcope/blob/v0.1.0/docs/methodology.md";
 
 export function Methodology({ rulesetVersion, language }: MethodologyProps) {
   const copy = messages[language];

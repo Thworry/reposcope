@@ -120,6 +120,7 @@ export const perfectCoverage: CoverageSummary = {
   parsedFiles: 5,
   parsedBytes: 5_000,
   parsedSupportedBytes: 5_000,
+  skippedFiles: 0,
   failedFiles: 0,
   unsupportedFiles: 0,
   limitReached: false,

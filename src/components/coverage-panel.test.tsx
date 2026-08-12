@@ -16,6 +16,7 @@ const coverage: CoverageSummary = {
   parsedFiles: 7,
   parsedBytes: 7_000,
   parsedSupportedBytes: 6_500,
+  skippedFiles: 419,
   failedFiles: 2,
   unsupportedFiles: 3,
   limitReached: true,
@@ -39,6 +40,7 @@ describe("CoveragePanel", () => {
     expectStat("Selected files", "12");
     expectStat("Fetched files", "10");
     expectStat("Parsed files", "7");
+    expectStat("Skipped files", "419");
     expectStat("Failed files", "2");
     expectStat("Unsupported files", "3");
     expect(screen.getByText(/12,000 B/)).toBeVisible();

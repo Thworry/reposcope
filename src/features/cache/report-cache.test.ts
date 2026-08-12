@@ -129,6 +129,15 @@ describe("report cache", () => {
       },
     ],
     [
+      "inconsistent skipped count",
+      (report: AnalysisReport) => {
+        report.coverage.skippedFiles = 2;
+        report.coverage.skipped = [
+          { path: "excluded/file.txt", reason: "excluded" },
+        ];
+      },
+    ],
+    [
       "out-of-range points",
       (report: AnalysisReport) => {
         const rule = report.dimensions[0]?.rules[0];
