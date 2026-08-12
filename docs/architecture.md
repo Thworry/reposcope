@@ -83,6 +83,49 @@ The recursive GitHub tree includes only validated ordinary blobs with normal fil
 - `features/cache` treats browser storage as hostile and stores no source.
 - React components render generated descriptors and remote values as text.
 
+The analyzer facades retain their public contracts while implementation details stay private under their matching directories:
+
+```text
+src/features/analyzers/
+├── python.ts
+├── python/model.ts
+├── python/syntax.ts
+├── python/function-metrics.ts
+├── python/bindings.ts
+├── python/binding-flow.ts
+├── python/evidence.ts
+├── python/analyze-file.ts
+├── cross-file.ts
+├── cross-file/model.ts
+├── cross-file/path-order.ts
+├── cross-file/duplicate-index.ts
+├── cross-file/duplicate-candidates.ts
+├── cross-file/duplicate-selection.ts
+├── cross-file/import-resolution.ts
+└── cross-file/scc.ts
+```
+
+The Python dependency arrows (dependency → consumer) are:
+
+- `model.ts → syntax.ts`;
+- `model.ts + syntax.ts → bindings.ts + function-metrics.ts`;
+- `bindings.ts + model.ts + syntax.ts → evidence.ts`;
+- `bindings.ts + evidence.ts + function-metrics.ts + model.ts + syntax.ts → binding-flow.ts`; and
+- `bindings.ts + binding-flow.ts + evidence.ts + function-metrics.ts → analyze-file.ts → python.ts` (with `analyze-file.ts` also using the shared model and syntax helpers).
+
+The cross-file dependency arrows are:
+
+- `model.ts → duplicate-index.ts`;
+- `duplicate-index.ts + model.ts + path-order.ts → duplicate-candidates.ts`;
+- `duplicate-candidates.ts + duplicate-index.ts + model.ts + path-order.ts → duplicate-selection.ts`;
+- `model.ts + path-order.ts → import-resolution.ts`;
+- `path-order.ts → scc.ts`; and
+- `duplicate-selection.ts + import-resolution.ts + scc.ts → cross-file.ts` (with the facade also using the shared path comparator and internal model type).
+
+Lower layers do not import their facade, and cyclic imports are prohibited.
+
+The facades preserve `analyzePython(...)`, `computeDuplicateRatio(...)`, and `findCircularImports(...)`, including result fields and deterministic ordering. Dynamic imports still target the facades so the initial application, JavaScript/TypeScript analyzer, and Python analyzer remain independent chunks. Internal extraction does not change ruleset `1.0.0`, parser behavior, import resolution, duplicate selection, score calculations, evidence order, failure isolation, cancellation, or resource limits. Repository text remains untrusted input and is never executed.
+
 Parsers never execute repository source. They do not install dependencies, run builds or tests, import remote modules, open repository HTML, or use WebAssembly.
 
 ## Cancellation and failure isolation

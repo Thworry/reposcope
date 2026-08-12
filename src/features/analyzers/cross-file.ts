@@ -28,6 +28,11 @@ function compareDuplicateFiles(
   return comparePathValues(left.path, right.path);
 }
 
+/**
+ * Computes bounded approximate normalized-token duplication for non-test files.
+ * Inputs are processed in deterministic path order, occupied token ranges do
+ * not overlap, and bounded evidence contains file pairs rather than source text.
+ */
 export function computeDuplicateRatio(
   input: readonly TokenizedFile[],
   instrumentation?: DuplicateRatioInstrumentation,
@@ -68,6 +73,11 @@ export function computeDuplicateRatio(
   };
 }
 
+/**
+ * Resolves supported relative imports and returns deterministic multi-file
+ * strongly connected components. Unresolved or external imports are omitted;
+ * repository code is inspected as parser evidence and is never executed.
+ */
 export function findCircularImports(
   input: readonly ImportingFile[],
 ): ImportCycleMetrics {

@@ -231,6 +231,11 @@ function newSkipCounts(): Record<FileSkipReason, number> {
   ) as Record<FileSkipReason, number>;
 }
 
+/**
+ * Classifies and deterministically selects a diverse bounded file sample.
+ * Optional limits may reduce, but never raise, the hard caps of 200 files,
+ * 10 MiB total declared bytes, and 256 KiB per file; invalid limits throw.
+ */
 export function selectFiles(
   tree: NormalizedTree,
   limits: SelectionLimits = {},

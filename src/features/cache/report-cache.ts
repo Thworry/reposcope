@@ -25,6 +25,10 @@ function normalizedComponent(value: string): string {
   return value.toLocaleLowerCase("en-US");
 }
 
+/**
+ * Builds the versioned, case-normalized session key for a safe repository
+ * reference. Invalid, ambiguous, or oversized components throw.
+ */
 export function cacheKey(ref: RepoRef): string {
   return `reposcope:v1:${normalizedComponent(ref.owner)}/${normalizedComponent(ref.repo)}`;
 }
@@ -50,6 +54,11 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
+/**
+ * Returns a matching report saved within the 15-minute TTL, or `null` on a miss.
+ * Entries over 2 MiB, malformed/future/expired data, cross-repository reports,
+ * and storage failures are removed when possible and never escape as errors.
+ */
 export function getCachedReport(
   ref: RepoRef,
   nowMs: number,
@@ -102,6 +111,11 @@ export function getCachedReport(
   }
 }
 
+/**
+ * Stores a strictly validated matching final report for up to 15 minutes when
+ * its serialized entry is at most 2 MiB. Invalid data, quota, and storage denial
+ * degrade silently; final reports contain no raw repository text.
+ */
 export function setCachedReport(
   ref: RepoRef,
   report: AnalysisReport,
@@ -132,6 +146,7 @@ export function setCachedReport(
   }
 }
 
+/** Best-effort removal of one repository's session report; never throws. */
 export function removeCachedReport(ref: RepoRef): void {
   try {
     safeRemove(cacheKey(ref));

@@ -8,6 +8,7 @@ import type {
 
 let nextRequestId = 1;
 
+/** Validated worker failure exposed to the application without remote details. */
 export class RepositoryAnalysisError extends Error {
   override readonly name = "RepositoryAnalysisError";
 
@@ -16,12 +17,14 @@ export class RepositoryAnalysisError extends Error {
   }
 }
 
+/** Optional progress, worker, and deterministic-timestamp hooks for one run. */
 export interface RunAnalysisOptions {
   onProgress?: (progress: ScanProgress) => void;
   workerFactory?: () => Worker;
   analyzedAt?: string;
 }
 
+/** One worker-backed report promise and its idempotent cancellation handle. */
 export interface AnalysisRun {
   promise: Promise<AnalysisReport>;
   cancel(): void;
@@ -138,6 +141,13 @@ function abortError(): DOMException {
   return new DOMException("analysis-cancelled", "AbortError");
 }
 
+/**
+ * Starts one isolated analysis worker for the repository reference. Messages
+ * for other request IDs are ignored; current-request progress and completion
+ * are strictly validated, with malformed data rejecting as
+ * `RepositoryAnalysisError`. `cancel()` terminates the worker and rejects with
+ * `AbortError`, and project code is never executed.
+ */
 export function runAnalysis(
   ref: RepoRef,
   options: RunAnalysisOptions = {},
@@ -258,6 +268,10 @@ export function runAnalysis(
   };
 }
 
+/**
+ * Converts a boundary error to its safe worker payload. Cancellation returns
+ * `null`; unknown errors collapse to `worker` without messages or stack traces.
+ */
 export function toSerializableAnalysisError(
   error: unknown,
 ): SerializableAnalysisError | null {
@@ -272,6 +286,7 @@ export function toSerializableAnalysisError(
   return { kind: "worker" };
 }
 
+/** Frozen progress phases in their public presentation order. */
 export const SCAN_PHASES: readonly ScanPhase[] = Object.freeze([
   "validating",
   "repository",

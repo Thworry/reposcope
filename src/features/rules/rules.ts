@@ -19,8 +19,10 @@ import { calculateConfidence } from "./confidence";
 
 export type { ScoredProject } from "../analysis/model";
 
+/** Exact ruleset identifier serialized into every accepted report and cache entry. */
 export const RULESET_VERSION = "1.0.0" as const;
 
+/** Fixed dimension weights; their insertion order is the public report order. */
 export const DIMENSION_WEIGHTS = Object.freeze({
   documentation: 15,
   operability: 20,
@@ -30,6 +32,7 @@ export const DIMENSION_WEIGHTS = Object.freeze({
   maintenance: 10,
 } as const) satisfies Readonly<Record<DimensionKey, number>>;
 
+/** Frozen rule identifiers in deterministic evaluation and report order. */
 export const RULE_IDS = Object.freeze([
   "documentation.readme",
   "documentation.installation",
@@ -72,6 +75,7 @@ export const RULE_IDS = Object.freeze([
   "maintenance.generated-directories",
 ] as const);
 
+/** One identifier from ruleset `1.0.0`. */
 export type RuleId = (typeof RULE_IDS)[number];
 type RuleMetrics = Readonly<Record<string, number | boolean | string | null>>;
 
@@ -715,6 +719,11 @@ function descriptorArgs(metrics: RuleMetrics): LocalizedDescriptor["args"] {
   return args;
 }
 
+/**
+ * Evaluates one ruleset `1.0.0` rule from finite derived metrics. Unknown IDs
+ * throw; invalid numeric evidence fails conservatively, and conditional rules
+ * with an explicit false applicability flag return `not-applicable`.
+ */
 export function scoreRule(ruleId: string, metrics: RuleMetrics): RuleResult {
   if (!isRuleId(ruleId)) {
     throw new Error(ruleId);
@@ -741,6 +750,7 @@ export function scoreRule(ruleId: string, metrics: RuleMetrics): RuleResult {
   };
 }
 
+/** Complete validated static evidence required for deterministic project scoring. */
 export interface ScoreProjectInput {
   repository: RepositoryMetadata;
   general: GeneralMetrics;
@@ -1124,6 +1134,7 @@ function dimensionResults(rules: readonly RuleResult[]): DimensionResult[] {
   });
 }
 
+/** Maps an unrounded overall score to the fixed ruleset `1.0.0` label bands. */
 export function overallLabel(rawScore: number): OverallResult["label"] {
   if (rawScore >= 85) return "strong";
   if (rawScore >= 70) return "solid";
@@ -1132,6 +1143,11 @@ export function overallLabel(rawScore: number): OverallResult["label"] {
   return "limited";
 }
 
+/**
+ * Applies every ruleset `1.0.0` rule in `RULE_IDS` order, then derives the six
+ * ordered dimension results, weighted overall score, and evidence confidence.
+ * It consumes static evidence only and never executes repository code.
+ */
 export function scoreProject(input: ScoreProjectInput): ScoredProject {
   const derived = projectRuleMetrics(input);
   const rules = RULE_IDS.map((id) => ({

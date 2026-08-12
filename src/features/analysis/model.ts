@@ -14,11 +14,16 @@ export type FindingSeverity = "high" | "medium" | "low";
 export type ScanPhase =
   "validating" | "repository" | "selecting" | "fetching" | "analyzing";
 
+/** Identifies a GitHub repository by owner and repository name. */
 export interface RepoRef {
   owner: string;
   repo: string;
 }
 
+/**
+ * Validated public metadata returned for the inspected repository. The URL is
+ * canonical and contains no credentials, branch, path, query, or fragment.
+ */
 export interface RepositoryMetadata extends RepoRef {
   name: string;
   fullName: string;
@@ -61,6 +66,11 @@ export interface NormalizedTreeFile {
   mode: "100644" | "100755";
 }
 
+/**
+ * Deterministically ordered ordinary blobs from a validated recursive tree.
+ * `complete` is false when GitHub reported truncation; rejected entries retain
+ * only their path and bounded reason, never arbitrary remote payload fields.
+ */
 export interface NormalizedTree {
   files: NormalizedTreeFile[];
   complete: boolean;
@@ -86,12 +96,17 @@ export interface SelectedFile extends NormalizedTreeFile, FileClassification {
   topLevelArea: string;
 }
 
+/** Optional selection limits; callers may only reduce the built-in hard caps. */
 export interface SelectionLimits {
   maxFiles?: number;
   maxBytes?: number;
   maxFileBytes?: number;
 }
 
+/**
+ * Deterministic bounded scan plan, with selected files in acquisition order
+ * and every exclusion or budget decision represented in `skipped`.
+ */
 export interface SelectionPlan {
   treeComplete: boolean;
   selected: SelectedFile[];
@@ -110,6 +125,10 @@ export interface SelectionPlan {
   skipCounts: Record<FileSkipReason, number>;
 }
 
+/**
+ * Fatal-UTF-8-decoded repository text retained only for the active analysis.
+ * The final report and cache never contain `text`.
+ */
 export interface FetchedTextFile {
   path: string;
   text: string;
@@ -120,12 +139,14 @@ export interface FetchedTextFile {
   isTest: boolean;
 }
 
+/** Validated repository, normalized tree, and bounded text used by general analysis. */
 export interface GeneralAnalysisInput {
   repository: RepositoryMetadata;
   tree: NormalizedTree;
   files: readonly FetchedTextFile[];
 }
 
+/** Bounded documentation, operability, testing, and maintenance evidence. */
 export interface GeneralMetrics {
   hasReadme: boolean;
   installHeading: boolean;
@@ -169,6 +190,7 @@ export interface GeneralMetrics {
   parseFailures: Array<{ path: string; reason: "json" | "toml" }>;
 }
 
+/** Static, non-executing function evidence with one-based source locations. */
 export interface FunctionMetric {
   path: string;
   name: string;
@@ -181,6 +203,10 @@ export interface FunctionMetric {
   isTest: boolean;
 }
 
+/**
+ * Parser-derived source evidence. Declaration-only files may participate in
+ * import resolution while contributing no executable-code metrics or tokens.
+ */
 export interface AnalyzedSourceFile {
   path: string;
   language: "javascript" | "typescript" | "python";
@@ -192,6 +218,10 @@ export interface AnalyzedSourceFile {
   topLevelDefinedNames?: string[];
 }
 
+/**
+ * Deterministically ordered, non-executing parser results. Syntax failures are
+ * isolated per file and do not discard evidence from other accepted files.
+ */
 export interface LanguageAnalysis {
   files: AnalyzedSourceFile[];
   functions: FunctionMetric[];
@@ -207,12 +237,14 @@ export interface LanguageAnalysis {
   }>;
 }
 
+/** Minimal immutable input used by bounded cross-file duplicate analysis. */
 export interface TokenizedFile {
   path: string;
   isTest: boolean;
   normalizedTokens: readonly string[];
 }
 
+/** Parser-qualified relative-import evidence used for internal cycle resolution. */
 export interface ImportingFile {
   path: string;
   language: "javascript" | "typescript" | "python";
@@ -227,6 +259,10 @@ export interface DuplicatePathPairEvidence {
   tokenCount: number;
 }
 
+/**
+ * Bounded, deterministic approximate-duplication result. Evidence contains
+ * file paths and token counts, not source excerpts.
+ */
 export interface DuplicateMetrics {
   totalEligibleTokens: number;
   duplicatedTokens: number;
@@ -234,11 +270,16 @@ export interface DuplicateMetrics {
   evidence: DuplicatePathPairEvidence[];
 }
 
+/** Deterministically ordered multi-file strongly connected components. */
 export interface ImportCycleMetrics {
   components: string[][];
   largestComponentSize: number;
 }
 
+/**
+ * Scope, limit, skip, and failure evidence used to calculate confidence. It
+ * records counts and paths only and does not retain raw repository text.
+ */
 export interface CoverageSummary {
   treeComplete: boolean;
   eligibleFiles: number;
@@ -275,6 +316,7 @@ export interface CoverageSummary {
 
 export type MessageArgument = string | number | boolean;
 
+/** Locale-independent copy key and finite serializable interpolation values. */
 export interface LocalizedDescriptor {
   key: string;
   args: Record<string, MessageArgument>;
@@ -286,6 +328,7 @@ export interface FileReference {
   endLine?: number;
 }
 
+/** One versioned rule decision, its earned points, descriptors, and file evidence. */
 export interface RuleResult {
   id: string;
   dimension: DimensionKey;
@@ -297,6 +340,7 @@ export interface RuleResult {
   references: FileReference[];
 }
 
+/** Ordered rules and normalized score for one applicable quality dimension. */
 export interface DimensionResult {
   key: DimensionKey;
   earned: number;
@@ -305,6 +349,7 @@ export interface DimensionResult {
   rules: RuleResult[];
 }
 
+/** Weighted applicable-dimension summary and applicability qualifications. */
 export interface OverallResult {
   score: number;
   label: "strong" | "solid" | "needs-attention" | "limited";
@@ -312,6 +357,7 @@ export interface OverallResult {
   preliminary: boolean;
 }
 
+/** Evidence-completeness percentage and its high, medium, or low label. */
 export interface ConfidenceResult {
   percent: number;
   label: "high" | "medium" | "low";
@@ -334,6 +380,7 @@ export interface Improvement {
   references: FileReference[];
 }
 
+/** Complete ruleset output before strengths and improvements are selected. */
 export interface ScoredProject {
   rules: RuleResult[];
   dimensions: DimensionResult[];
@@ -341,11 +388,17 @@ export interface ScoredProject {
   confidence: ConfidenceResult;
 }
 
+/** Deterministically prioritized, bounded strengths and improvement findings. */
 export interface FindingSummary {
   strengths: Strength[];
   weaknesses: Improvement[];
 }
 
+/**
+ * Strictly serializable final report for one immutable public commit under
+ * ruleset `1.0.0`. It contains derived evidence and file references but no raw
+ * repository text, credentials, runtime claims, or executed-project results.
+ */
 export interface AnalysisReport {
   rulesetVersion: "1.0.0";
   repository: {

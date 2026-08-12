@@ -1,6 +1,6 @@
 {
   "name": "reposcope",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bilingual, browser-side quality reports for public GitHub repositories",
   "private": true,
   "license": "MIT",

@@ -158,6 +158,11 @@ function improvementFrom(rule: RuleResult, scored: ScoredProject): Improvement {
   };
 }
 
+/**
+ * Selects at most five deterministic strengths and orders all actionable
+ * improvements by severity, lost points, and rule ID. File references are
+ * validated, deduplicated, and capped without retaining source excerpts.
+ */
 export function buildFindings(scored: ScoredProject): FindingSummary {
   const strengthCandidates = scored.rules
     .filter((rule) => rule.state === "passed" && hasConcreteEvidence(rule))

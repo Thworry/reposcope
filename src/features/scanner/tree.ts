@@ -75,6 +75,11 @@ function assertSize(value: unknown): number {
   return value;
 }
 
+/**
+ * Validates hostile GitHub tree entries and returns ordinary blobs in stable
+ * case-insensitive path/SHA order. Malformed or duplicate entries throw;
+ * symlinks and submodules become bounded skip evidence.
+ */
 export function normalizeTree(
   entries: readonly RawTreeEntry[],
   truncated: boolean,

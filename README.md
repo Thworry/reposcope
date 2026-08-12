@@ -20,7 +20,15 @@ A successful report has a share URL containing only the repository slug. A fresh
 
 General inspection works for repositories in any language. Deep static metrics are available for JavaScript, TypeScript, and Python. When supported source does not meet the applicability threshold, readability and complexity are unavailable and the overall result is labeled **general-only** and **preliminary**.
 
-See the complete [ruleset `1.0.0` methodology](docs/methodology.md) and [architecture and threat boundaries](docs/architecture.md).
+See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
+
+## Example report walkthrough
+
+As a non-normative example, enter `https://github.com/Thworry/reposcope`. RepoScope first resolves the public default branch to a commit and pins the entire report to that immutable commit. The overall score summarizes the applicable rules, while confidence describes how completely the public tree and eligible evidence were fetched and parsed; confidence is not a second quality score.
+
+Read the six dimensions separately: documentation and onboarding, operability evidence, code readability, complexity and structure, testing and automation, and maintenance health. Then check the scope and failures for truncation, skipped files, fetch failures, parser failures, unsupported source, or reached limits. The improvements list identifies the applicable rules that lost points and links them to supporting evidence where available.
+
+Evidence links use the immutable form `blob/<commit>/path#Lx-Ly`, so they continue to identify the inspected revision if the default branch moves. Exact scores, confidence, findings, and links change when the repository's public commit or the stated ruleset changes. RepoScope treats repository contents as text: it does not execute the project, authenticate its behavior, or certify its correctness, security, or safety.
 
 ## Limits
 
@@ -41,14 +49,18 @@ RepoScope requires no login, GitHub token, account, backend, database, analytics
 
 Repository source is treated as untrusted text. RepoScope never executes, imports, evaluates, or renders it as HTML. Raw source bodies and raw GitHub responses are not persisted. A validated final report and normalized public metadata may be cached in `sessionStorage` for 15 minutes; the only persistent preference is `en` or `zh-CN` in local storage.
 
-## Development
+## Install and run locally
 
-Requirements: Node.js 24.x and pnpm 11.16.0.
+Using the [hosted site](https://thworry.github.io/reposcope/) needs no installation and still requires no GitHub token. Contributor setup requires Node.js 24.x and pnpm 11.16.0.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm dev
 ```
+
+Then open <http://localhost:5173/>. The Vite development server is local-only and must not be deployed as the public application.
+
+## Development
 
 Run the local quality gates:
 

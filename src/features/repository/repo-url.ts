@@ -5,6 +5,7 @@ const RAW_REPOSITORY_URL =
 
 const INTERNAL_WHITESPACE = /\s/u;
 
+/** Typed boundary error for a rejected repository URL or reference. */
 export class RepoUrlError extends Error {
   override readonly name = "RepoUrlError";
 
@@ -82,6 +83,12 @@ function assertRepoRef(ref: RepoRef): void {
   }
 }
 
+/**
+ * Parses an accepted public GitHub repository URL, with an optional HTTPS
+ * scheme, into canonical owner and repository segments. The result contains no
+ * credentials, query, fragment, branch, or path; rejected input throws
+ * `RepoUrlError`.
+ */
 export function parseRepositoryUrl(input: string): RepoRef {
   if (hasControlCharacter(input) || hasLoneSurrogate(input)) {
     return invalidRepositoryUrl();
@@ -136,12 +143,20 @@ export function parseRepositoryUrl(input: string): RepoRef {
   return { owner, repo };
 }
 
+/**
+ * Encodes a validated repository reference as its canonical HTTPS GitHub URL.
+ * Invalid or ambiguous components throw `RepoUrlError`.
+ */
 export function toCanonicalRepositoryUrl(ref: RepoRef): string {
   assertRepoRef(ref);
 
   return `https://github.com/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`;
 }
 
+/**
+ * Encodes a validated repository reference into the sole share-query value.
+ * The result contains no commit, score, language, source, or credential data.
+ */
 export function toShareSearch(ref: RepoRef): string {
   assertRepoRef(ref);
 
@@ -149,6 +164,10 @@ export function toShareSearch(ref: RepoRef): string {
   return `?${parameters.toString()}`;
 }
 
+/**
+ * Parses one exact `repo=owner/repository` value from a share query. Malformed,
+ * duplicate, or unsafe repository values return `null` without throwing.
+ */
 export function parseShareSearch(search: string): RepoRef | null {
   if (hasControlCharacter(search) || hasLoneSurrogate(search)) {
     return null;

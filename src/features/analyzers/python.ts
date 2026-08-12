@@ -34,6 +34,12 @@ function comparePaths(left: { path: string }, right: { path: string }): number {
   return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 }
 
+/**
+ * Analyzes selected `.py` and `.pyi` text without executing project code.
+ * Files use case-insensitive POSIX order with raw-path tie-breaking; `.pyi`
+ * files contribute import resolution only, and syntax failures are isolated in
+ * `parseFailures` while other files continue.
+ */
 export function analyzePython(
   files: readonly FetchedTextFile[],
 ): LanguageAnalysis {

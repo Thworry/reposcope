@@ -14,6 +14,7 @@ import {
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const REQUIRED_FILES = [
+  "CHANGELOG.md",
   "README.md",
   "README.zh-CN.md",
   "LICENSE",
@@ -279,6 +280,55 @@ describe("open-source repository contract", () => {
     ]) {
       expect(chinese).toContain(statement);
     }
+
+    for (const [englishHeading, chineseHeading] of [
+      ["## Install and run locally", "## 安装并在本地运行"],
+      ["## Example report walkthrough", "## 报告示例解读"],
+    ] as const) {
+      expect(english).toContain(englishHeading);
+      expect(chinese).toContain(chineseHeading);
+    }
+
+    for (const value of [
+      "Node.js 24.x",
+      "pnpm 11.16.0",
+      "pnpm install --frozen-lockfile",
+      "pnpm dev",
+      "http://localhost:5173/",
+    ]) {
+      expect(english).toContain(value);
+      expect(chinese).toContain(value);
+    }
+
+    for (const [englishStatement, chineseStatement] of [
+      ["needs no installation", "无需安装"],
+      ["local-only", "仅供本地使用"],
+      ["must not be deployed", "不得将它作为公开应用部署"],
+      ["non-normative example", "非规范性示例"],
+      ["six dimensions", "六个维度"],
+      ["scope and failures", "范围与失败项"],
+      ["improvements list", "改进项列表"],
+      ["blob/<commit>/path#Lx-Ly", "blob/<commit>/path#Lx-Ly"],
+      ["public commit", "公开提交"],
+      ["does not execute", "不会执行"],
+      ["authenticate its behavior", "认证项目行为"],
+      ["certify its correctness", "证明项目正确"],
+    ] as const) {
+      expect(english).toContain(englishStatement);
+      expect(chinese).toContain(chineseStatement);
+    }
+  });
+
+  it("publishes the exact v0.1.1 version history", () => {
+    const changelog = read("CHANGELOG.md");
+    const packageManifest = JSON.parse(read("package.json")) as {
+      version?: unknown;
+    };
+
+    expect(changelog).toMatch(/^## \[Unreleased\]$/mu);
+    expect(changelog).toMatch(/^## \[0\.1\.1\] - 2026-08-13$/mu);
+    expect(changelog).toMatch(/^## \[0\.1\.0\] - 2026-08-12$/mu);
+    expect(packageManifest.version).toBe("0.1.1");
   });
 
   it("publishes every ruleset signal and reproducibility boundary", () => {
@@ -368,6 +418,38 @@ describe("open-source repository contract", () => {
       "additional path segments",
     ]) {
       expect(architecture, needle).toContain(needle);
+    }
+
+    for (const modulePath of [
+      "python/model.ts",
+      "python/syntax.ts",
+      "python/function-metrics.ts",
+      "python/bindings.ts",
+      "python/binding-flow.ts",
+      "python/evidence.ts",
+      "python/analyze-file.ts",
+      "cross-file/model.ts",
+      "cross-file/path-order.ts",
+      "cross-file/duplicate-index.ts",
+      "cross-file/duplicate-candidates.ts",
+      "cross-file/duplicate-selection.ts",
+      "cross-file/import-resolution.ts",
+      "cross-file/scc.ts",
+    ] as const) {
+      expect(architecture).toContain(modulePath);
+    }
+    for (const dependencyArrow of [
+      "model.ts → syntax.ts",
+      "bindings.ts + evidence.ts + function-metrics.ts + model.ts + syntax.ts → binding-flow.ts",
+      "binding-flow.ts + evidence.ts + function-metrics.ts → analyze-file.ts → python.ts",
+      "model.ts → duplicate-index.ts",
+      "duplicate-index.ts + model.ts + path-order.ts → duplicate-candidates.ts",
+      "duplicate-candidates.ts + duplicate-index.ts + model.ts + path-order.ts → duplicate-selection.ts",
+      "model.ts + path-order.ts → import-resolution.ts",
+      "path-order.ts → scc.ts",
+      "duplicate-selection.ts + import-resolution.ts + scc.ts → cross-file.ts",
+    ] as const) {
+      expect(architecture).toContain(dependencyArrow);
     }
   });
 

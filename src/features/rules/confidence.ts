@@ -17,6 +17,7 @@ function safeRatio(numerator: number, denominator: number): number {
   return Math.min(1, safeNumerator / safeDenominator);
 }
 
+/** Maps an unrounded evidence-coverage percentage to fixed confidence bands. */
 export function confidenceLabel(rawPercent: number): ConfidenceResult["label"] {
   if (rawPercent >= 80) {
     return "high";
@@ -28,6 +29,10 @@ export function confidenceLabel(rawPercent: number): ConfidenceResult["label"] {
   return "low";
 }
 
+/**
+ * Calculates rounded confidence from tree completeness, eligible-byte coverage,
+ * and supported-parser coverage. Invalid or zero denominators contribute zero.
+ */
 export function calculateConfidence(
   coverage: CoverageSummary,
 ): ConfidenceResult {

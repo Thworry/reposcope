@@ -865,6 +865,12 @@ function comparePaths(left: { path: string }, right: { path: string }): number {
   return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
 }
 
+/**
+ * Parses selected JavaScript and TypeScript text without executing or importing
+ * project code. Files and function metrics are returned in deterministic path
+ * and location order; `.d.ts` files contribute import resolution only, and
+ * per-file syntax failures are isolated in `parseFailures`.
+ */
 export function analyzeJavaScriptTypeScript(
   files: readonly FetchedTextFile[],
 ): LanguageAnalysis {

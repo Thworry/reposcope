@@ -7,6 +7,7 @@ import type { RawTreeEntry, RawTreeResponse } from "./raw-model";
 
 export type { RawTreeEntry } from "./raw-model";
 
+/** Stable local failure categories; remote response bodies are never surfaced. */
 export type GitHubErrorKind =
   | "not-found"
   | "rate-limit"
@@ -18,6 +19,7 @@ export type GitHubErrorKind =
   | "invalid-text"
   | "timeout";
 
+/** Typed GitHub acquisition failure with optional safe HTTP/rate metadata. */
 export class GitHubApiError extends Error {
   override readonly name = "GitHubApiError";
 
@@ -30,6 +32,10 @@ export class GitHubApiError extends Error {
   }
 }
 
+/**
+ * Validated result of the three ordered public GitHub REST reads, pinned to an
+ * immutable commit and tree. `treeComplete` is false for a truncated tree.
+ */
 export interface RepositorySnapshot {
   repository: RepositoryMetadata;
   commitSha: string;
@@ -39,6 +45,7 @@ export interface RepositorySnapshot {
   rateLimit: RateLimitMetadata;
 }
 
+/** Validated components required to construct one immutable raw-file request. */
 export interface RawTextInput {
   ref: RepoRef;
   commitSha: string;
@@ -46,12 +53,14 @@ export interface RawTextInput {
   declaredSize: number;
 }
 
+/** Fatal-UTF-8-decoded raw text and its exact byte count for the requested path. */
 export interface RawTextResult {
   path: string;
   text: string;
   bytes: number;
 }
 
+/** Fetch-compatible injection used to test acquisition without live requests. */
 export type FetchImplementation = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -598,6 +607,11 @@ function repositoryUrl(ref: RepoRef): string {
   return `${API_ROOT}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 }
 
+/**
+ * Resolves one public repository to an immutable snapshot using exactly three
+ * ordered, unauthenticated GitHub REST requests. Hostile shapes and HTTP or
+ * network failures throw `GitHubApiError`; caller cancellation is preserved.
+ */
 export async function fetchRepositorySnapshot(
   ref: RepoRef,
   signal: AbortSignal,
@@ -707,6 +721,12 @@ async function readBoundedBody(response: Response): Promise<Uint8Array> {
   return body;
 }
 
+/**
+ * Fetches one commit-pinned raw path as untrusted UTF-8 text without executing
+ * it. The read is capped at 256 KiB and 15 seconds; invalid text, limits, HTTP,
+ * and network failures throw `GitHubApiError`, while caller cancellation is
+ * preserved.
+ */
 export async function fetchRawTextFile(
   input: RawTextInput,
   signal: AbortSignal,
