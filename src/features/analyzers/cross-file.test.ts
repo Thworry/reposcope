@@ -489,6 +489,20 @@ describe("cross-file duplicate metrics", () => {
     );
   });
 
+  it("preserves greedy output for repeated spans separated by a mismatch", () => {
+    const left = Array.from({ length: 130 }, (_, index) =>
+      index === 63 ? "left-break" : `token-${String(index % 20)}`,
+    );
+    const right = Array.from({ length: 130 }, (_, index) =>
+      index === 67 ? "right-break" : `token-${String((index + 19) % 20)}`,
+    );
+    const files = [tokenizedFile("a.ts", left), tokenizedFile("b.ts", right)];
+
+    expect(computeDuplicateRatio(files)).toEqual(
+      bruteForceDuplicateRatio(files),
+    );
+  });
+
   it(
     "does not materialize candidates for every periodic file-pair delta",
     { timeout: 5000 },
