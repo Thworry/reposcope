@@ -325,7 +325,9 @@ it("keeps lambda/comprehension ownership and excludes module properties", () => 
   const names = [...bindingIdentifiers(nodes, text)].map((index) =>
     nodeTextAt(nodes, index, text),
   );
-  expect(names).toEqual(["choose", "long_name", "xy", "cd"]);
+  // Preserve the baseline Set insertion order: the comprehension target is
+  // visited before the walrus target.
+  expect(names).toEqual(["choose", "long_name", "cd", "xy"]);
 });
 
 it("normalizes a nested f-string replacement exactly once", () => {
