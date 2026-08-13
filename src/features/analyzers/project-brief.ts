@@ -101,6 +101,32 @@ const PROSE_VERBS = new Set([
   "supports",
   "uses",
 ]);
+const OPAQUE_URI_SCHEMES = new Set([
+  "bitcoin",
+  "data",
+  "ethereum",
+  "facetime",
+  "file",
+  "geo",
+  "git",
+  "javascript",
+  "magnet",
+  "mailto",
+  "mms",
+  "news",
+  "nntp",
+  "sip",
+  "sips",
+  "sms",
+  "smsto",
+  "ssh",
+  "tel",
+  "telnet",
+  "urn",
+  "vbscript",
+  "webcal",
+  "xmpp",
+]);
 const PLUGIN_TOPICS = new Set(["plugin", "extension"]);
 const TEMPLATE_TOPICS = new Set([
   "repository-template",
@@ -131,6 +157,11 @@ interface FenceLine {
   marker: "`" | "~";
   length: number;
   remainder: string;
+}
+
+interface HtmlBlockState {
+  tag: string;
+  inComment: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -233,7 +264,7 @@ function visibleLabel(value: string): string | null {
   const sanitized: string[] = [];
 
   for (let index = 0; index < label.length; index += 1) {
-    const urlLength = rawUrlLength(label, index);
+    const urlLength = rawUriLength(label, index);
 
     if (urlLength > 0) {
       index += urlLength - 1;
@@ -370,17 +401,48 @@ function startsWithAsciiInsensitive(
   return true;
 }
 
-function rawUrlLength(value: string, start: number): number {
-  const hasUrlPrefix =
-    startsWithAsciiInsensitive(value, start, "https://") ||
-    startsWithAsciiInsensitive(value, start, "http://") ||
-    startsWithAsciiInsensitive(value, start, "ftp://") ||
-    startsWithAsciiInsensitive(value, start, "ssh://") ||
-    startsWithAsciiInsensitive(value, start, "mailto:") ||
-    startsWithAsciiInsensitive(value, start, "//") ||
-    startsWithAsciiInsensitive(value, start, "www.");
+function isAsciiLetter(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  const code = value.charCodeAt(0);
 
-  if (!hasUrlPrefix) {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isAsciiSchemeCharacter(value: string | undefined): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  const code = value.charCodeAt(0);
+
+  return (
+    isAsciiLetter(value) ||
+    (code >= 48 && code <= 57) ||
+    value === "+" ||
+    value === "." ||
+    value === "-"
+  );
+}
+
+function hasUriTokenBoundary(value: string, start: number): boolean {
+  if (start === 0) {
+    return true;
+  }
+
+  return !/[\p{L}\p{N}+._-]/u.test(value[start - 1] ?? "");
+}
+
+function hasProtocolRelativeBoundary(value: string, start: number): boolean {
+  if (start === 0) {
+    return true;
+  }
+
+  return /[\s([<{"'`]/u.test(value[start - 1] ?? "");
+}
+
+function uriPayloadLength(value: string, start: number): number {
+  if (start >= value.length || /\s/u.test(value[start] ?? "")) {
     return 0;
   }
 
@@ -391,6 +453,53 @@ function rawUrlLength(value: string, start: number): number {
   }
 
   return index - start;
+}
+
+function rawUriLength(value: string, start: number): number {
+  if (!hasUriTokenBoundary(value, start)) {
+    return 0;
+  }
+
+  if (
+    startsWithAsciiInsensitive(value, start, "//") &&
+    hasProtocolRelativeBoundary(value, start)
+  ) {
+    const payloadLength = uriPayloadLength(value, start + 2);
+
+    return payloadLength === 0 ? 0 : 2 + payloadLength;
+  }
+
+  if (startsWithAsciiInsensitive(value, start, "www.")) {
+    const payloadLength = uriPayloadLength(value, start + 4);
+
+    return payloadLength === 0 ? 0 : 4 + payloadLength;
+  }
+
+  if (!isAsciiLetter(value[start])) {
+    return 0;
+  }
+
+  let cursor = start + 1;
+  while (isAsciiSchemeCharacter(value[cursor])) {
+    cursor += 1;
+  }
+  if (value[cursor] !== ":") {
+    return 0;
+  }
+
+  const scheme = value.slice(start, cursor).toLocaleLowerCase("en-US");
+  let payloadStart: number;
+  if (value[cursor + 1] === "/" && value[cursor + 2] === "/") {
+    payloadStart = cursor + 3;
+  } else if (OPAQUE_URI_SCHEMES.has(scheme)) {
+    payloadStart = cursor + 1;
+  } else {
+    return 0;
+  }
+
+  const payloadLength = uriPayloadLength(value, payloadStart);
+
+  return payloadLength === 0 ? 0 : payloadStart - start + payloadLength;
 }
 
 /** Converts one prose line to visible text without retaining Markdown targets. */
@@ -407,7 +516,7 @@ function visibleMarkdownLine(value: string): string | null {
     if (character === undefined) {
       return null;
     }
-    const urlLength = rawUrlLength(value, index);
+    const urlLength = rawUriLength(value, index);
 
     if (urlLength > 0) {
       index += urlLength - 1;
@@ -496,18 +605,23 @@ function visibleMarkdownLine(value: string): string | null {
   return visible.join("").replace(/\s+/gu, " ").trim();
 }
 
-function meaningfulProse(value: string): boolean {
-  return /[\p{L}\p{N}]/u.test(value) && !isCommandOnly(value);
+function meaningfulProse(value: string, rejectCommandOnly = true): boolean {
+  return (
+    /[\p{L}\p{N}]/u.test(value) && (!rejectCommandOnly || !isCommandOnly(value))
+  );
 }
 
-function normalizeCandidate(value: string): string | null {
+function normalizeCandidate(
+  value: string,
+  rejectCommandOnly = true,
+): string | null {
   if (!isBounded(value)) {
     return null;
   }
 
   const visible = visibleMarkdownLine(value.normalize("NFKC"));
 
-  if (visible === null || !meaningfulProse(visible)) {
+  if (visible === null || !meaningfulProse(visible, rejectCommandOnly)) {
     return null;
   }
 
@@ -716,6 +830,66 @@ function htmlBlockTag(value: string): string | null {
   return trimmed.slice(1, index).toLocaleLowerCase("en-US");
 }
 
+function isClosingHtmlTag(
+  value: string,
+  start: number,
+  end: number,
+  tag: string,
+): boolean {
+  if (value[start] !== "<" || value[start + 1] !== "/") {
+    return false;
+  }
+
+  const nameStart = start + 2;
+  const nameEnd = nameStart + tag.length;
+  if (value.slice(nameStart, nameEnd).toLocaleLowerCase("en-US") !== tag) {
+    return false;
+  }
+
+  let cursor = nameEnd;
+  while (value[cursor] === " " || value[cursor] === "\t") {
+    cursor += 1;
+  }
+
+  return cursor === end;
+}
+
+function scanHtmlBlockLine(
+  value: string,
+  state: HtmlBlockState,
+): { closed: boolean; inComment: boolean } {
+  let inComment = state.inComment;
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (inComment) {
+      if (value.startsWith("-->", index)) {
+        inComment = false;
+        index += 2;
+      }
+      continue;
+    }
+    if (value.startsWith("<!--", index)) {
+      inComment = true;
+      index += 3;
+      continue;
+    }
+    if (value[index] !== "<") {
+      continue;
+    }
+
+    const end = skipAngleConstruct(value, index);
+    if (end === null) {
+      return { closed: false, inComment };
+    }
+    if (isClosingHtmlTag(value, index, end, state.tag)) {
+      return { closed: true, inComment: false };
+    }
+    index = end;
+  }
+
+  return { closed: false, inComment };
+}
+
 function extractReadmeProse(file: FetchedTextFile): string[] {
   if (!isBounded(file.text)) {
     return [];
@@ -733,7 +907,7 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
   let inFrontMatter = lines[0]?.trim() === "---";
   let inFence: Pick<FenceLine, "marker" | "length"> | null = null;
   let inHtmlComment = false;
-  let inHtmlBlock: string | null = null;
+  let inHtmlBlock: HtmlBlockState | null = null;
   let inOverview = false;
   let inContents = false;
   let primaryTitleSeen = false;
@@ -784,33 +958,42 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
       }
       continue;
     }
+    if (inHtmlBlock !== null) {
+      const state: HtmlBlockState = inHtmlBlock;
+      const scan = scanHtmlBlockLine(line, state);
+
+      if (scan.closed) {
+        inHtmlBlock = null;
+      } else {
+        inHtmlBlock = { tag: state.tag, inComment: scan.inComment };
+      }
+      continue;
+    }
     if (inHtmlComment) {
       if (line.includes("-->")) {
         inHtmlComment = false;
       }
       continue;
     }
-    if (line.includes("<!--")) {
-      finalizeParagraph();
-      inHtmlComment = !line.includes("-->");
-      continue;
-    }
-    if (inHtmlBlock !== null) {
-      if (line.toLocaleLowerCase("en-US").includes(`</${inHtmlBlock}>`)) {
-        inHtmlBlock = null;
-      }
-      continue;
-    }
     const blockTag = htmlBlockTag(line);
     if (blockTag !== null) {
       finalizeParagraph();
-      if (
-        !VOID_HTML_TAGS.has(blockTag) &&
-        !line.trimEnd().endsWith("/>") &&
-        !line.toLocaleLowerCase("en-US").includes(`</${blockTag}>`)
-      ) {
-        inHtmlBlock = blockTag;
+      const scan = scanHtmlBlockLine(line, {
+        tag: blockTag,
+        inComment: false,
+      });
+      if (!VOID_HTML_TAGS.has(blockTag) && !line.trimEnd().endsWith("/>")) {
+        if (!scan.closed) {
+          inHtmlBlock = { tag: blockTag, inComment: scan.inComment };
+        }
+      } else {
+        inHtmlComment = scan.inComment;
       }
+      continue;
+    }
+    if (line.includes("<!--")) {
+      finalizeParagraph();
+      inHtmlComment = !line.includes("-->");
       continue;
     }
     const fence = fenceLine(line);
@@ -1002,7 +1185,8 @@ function readPackageKinds(
 
 function hasPythonLibraryLayout(
   projectName: unknown,
-  treePaths: readonly string[],
+  treePathKeys: ReadonlySet<string>,
+  pyprojectPath: string,
 ): boolean {
   if (!nonEmptyString(projectName)) {
     return false;
@@ -1017,19 +1201,20 @@ function hasPythonLibraryLayout(
     return false;
   }
 
-  return treePaths.some((path) => {
-    const key = toPathComparisonKey(path);
+  const manifestKey = toPathComparisonKey(pyprojectPath);
+  const slash = manifestKey.lastIndexOf("/");
+  const directory = slash === -1 ? "" : manifestKey.slice(0, slash + 1);
 
-    return (
-      key === `${packageName}/__init__.py` ||
-      key === `src/${packageName}/__init__.py`
-    );
-  });
+  return (
+    treePathKeys.has(`${directory}${packageName}/__init__.py`) ||
+    treePathKeys.has(`${directory}src/${packageName}/__init__.py`)
+  );
 }
 
 function readPyprojectKinds(
   text: string,
-  treePaths: readonly string[],
+  treePathKeys: ReadonlySet<string>,
+  pyprojectPath: string,
 ): PyprojectKindEvidence | null {
   if (!isBounded(text)) {
     return null;
@@ -1056,7 +1241,8 @@ function readPyprojectKinds(
     commandLineTool: scripts.found,
     library:
       nonEmptyString(project?.name) &&
-      (!scripts.found || hasPythonLibraryLayout(project.name, treePaths)),
+      (!scripts.found ||
+        hasPythonLibraryLayout(project.name, treePathKeys, pyprojectPath)),
     plugin: entryPoints.found,
   };
 }
@@ -1110,6 +1296,7 @@ function classifyProjectKinds(
     .map((file) => file.path)
     .filter((path) => !isExcludedPath(path))
     .sort(comparePaths);
+  const treePathKeys = new Set(treePaths.map(toPathComparisonKey));
   const fetchedFiles = [...input.files]
     .filter((file) => !isExcludedPath(file.path))
     .sort((left, right) => comparePaths(left.path, right.path));
@@ -1136,7 +1323,7 @@ function classifyProjectKinds(
         retainStrongestKind(facts, manifestFact("library", file.path));
       }
     } else if (basename === "pyproject.toml") {
-      const evidence = readPyprojectKinds(file.text, treePaths);
+      const evidence = readPyprojectKinds(file.text, treePathKeys, file.path);
       if (evidence?.commandLineTool === true) {
         retainStrongestKind(
           facts,
@@ -1277,7 +1464,7 @@ export function analyzeProjectBrief(
   const description =
     input.repository.description === null
       ? null
-      : normalizeCandidate(input.repository.description);
+      : normalizeCandidate(input.repository.description, false);
 
   if (description !== null) {
     addExcerpt(excerpts, {

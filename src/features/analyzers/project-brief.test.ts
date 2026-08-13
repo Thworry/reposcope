@@ -304,16 +304,28 @@ describe("project brief purpose extraction", () => {
   });
 
   it.each([
+    "go client for analyzing public repositories.",
     "Go client for analyzing public repositories.",
-    "Docker container for deterministic repository reports.",
+    "node library for deterministic repository reports.",
+    "Node library for deterministic repository reports.",
+    "make dependency updates easier to review.",
     "Make dependency updates easier to review.",
-  ])("retains title-cased GitHub description prose: %s", (description) => {
+  ])("retains command-like GitHub description prose: %s", (description) => {
     expect(briefFor({ description }).excerpts).toContainEqual({
       source: "github-description",
       text: description,
       path: null,
     });
   });
+
+  it.each(["go test ./...", "node app.js", "make update-dependencies"])(
+    "still rejects README command-only line %s",
+    (readme) => {
+      expect(
+        briefFor({ files: [fetched("README.md", readme)] }).excerpts,
+      ).toEqual([]);
+    },
+  );
 
   it.each([
     "ftp://example.invalid/project-purpose",
@@ -326,6 +338,37 @@ describe("project brief purpose extraction", () => {
 
     expect(brief.excerpts).toEqual([]);
     expect(JSON.stringify(brief)).not.toContain("example.invalid");
+  });
+
+  it.each([
+    "custom+repo://example.invalid/project-purpose",
+    "vscode-insiders://example.invalid/project-purpose",
+    "a.b://example.invalid/project-purpose",
+    "tel:+3212345678",
+    "data:text/html,project-purpose",
+    "javascript:alert(1)",
+    "vbscript:msgbox(1)",
+    "sms:+3212345678",
+    "geo:50.8,4.3",
+    "urn:isbn:9780000000000",
+    "file:/private/project-purpose",
+  ])("rejects generic or opaque raw URI %s", (readme) => {
+    const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+    expect(brief.excerpts).toEqual([]);
+    expect(JSON.stringify(brief)).not.toContain("project-purpose");
+  });
+
+  it.each([
+    "1custom://host remains a literal identifier.",
+    "custom:// URI syntax is documented.",
+    "The data: field stores repository text.",
+    "A javascript: parser reads source safely.",
+    "Call tel: support when documentation is unclear.",
+  ])("preserves URI-like prose at false-positive boundaries: %s", (readme) => {
+    expect(
+      briefFor({ files: [fetched("README.md", readme)] }).excerpts,
+    ).toContainEqual({ source: "readme", text: readme, path: "README.md" });
   });
 
   it.each([
@@ -403,6 +446,36 @@ describe("project brief purpose extraction", () => {
     expect(JSON.stringify(brief)).not.toMatch(
       /example\.invalid|leaked-link|leaked-attribute/u,
     );
+  });
+
+  it("keeps a leading HTML block hidden across inline comments and false closers", () => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          [
+            "# Title",
+            "",
+            '<div data-note="</div>"><!-- inline </div> comment -->',
+            "Hidden block purpose.",
+            "<!--",
+            "</div>",
+            "-->",
+            "Still hidden block purpose.",
+            "</div>",
+            "Actual public project purpose.",
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Actual public project purpose.",
+        path: "README.md",
+      },
+    ]);
   });
 
   it("recognizes Setext titles and overview headings before selecting prose", () => {
@@ -598,6 +671,63 @@ describe("project kind and caution evidence", () => {
         kind: "command-line-tool",
         source: "manifest",
         path: "pyproject.toml",
+      },
+    ]);
+  });
+
+  it("resolves Python library layout relative to a nested pyproject", () => {
+    expect(
+      briefFor({
+        files: [
+          fetched(
+            "packages/tool/pyproject.toml",
+            [
+              "[project]",
+              'name = "tool"',
+              "[project.scripts]",
+              'tool = "tool.cli:main"',
+            ].join("\n"),
+          ),
+          fetched("packages/tool/src/tool/__init__.py", ""),
+        ],
+      }).kinds,
+    ).toEqual([
+      {
+        kind: "command-line-tool",
+        source: "manifest",
+        path: "packages/tool/pyproject.toml",
+      },
+      {
+        kind: "library",
+        source: "manifest",
+        path: "packages/tool/pyproject.toml",
+      },
+    ]);
+  });
+
+  it("does not borrow Python library layout from a root, sibling, or wrong-name package", () => {
+    expect(
+      briefFor({
+        files: [
+          fetched(
+            "packages/tool/pyproject.toml",
+            [
+              "[project]",
+              'name = "tool"',
+              "[project.scripts]",
+              'tool = "tool.cli:main"',
+            ].join("\n"),
+          ),
+          fetched("src/tool/__init__.py", ""),
+          fetched("packages/other/src/tool/__init__.py", ""),
+          fetched("packages/tool/src/other/__init__.py", ""),
+        ],
+      }).kinds,
+    ).toEqual([
+      {
+        kind: "command-line-tool",
+        source: "manifest",
+        path: "packages/tool/pyproject.toml",
       },
     ]);
   });
