@@ -1,0 +1,630 @@
+import { describe, expect, it } from "vitest";
+
+import type {
+  FetchedTextFile,
+  GeneralAnalysisInput,
+  GeneralMetrics,
+  ProjectBrief,
+} from "../analysis/model";
+import { PROJECT_BRIEF_CAUTIONS, PROJECT_KINDS } from "../analysis/model";
+import {
+  perfectGeneralMetrics,
+  perfectRepository,
+} from "../../test/fixtures/metrics";
+import { analyzeGeneralRepository, preferredReadme } from "./general";
+import { analyzeProjectBrief } from "./project-brief";
+
+function fetched(path: string, text: string): FetchedTextFile {
+  const bytes = new TextEncoder().encode(text).byteLength;
+
+  return {
+    path,
+    text,
+    bytes,
+    declaredSize: bytes,
+    language: path.endsWith(".ts") ? "typescript" : "none",
+    category: /^readme/iu.test(path) ? "documentation" : "manifest",
+    isTest: false,
+  };
+}
+
+function inputWith(options: {
+  description?: string | null;
+  topics?: readonly string[];
+  files?: readonly FetchedTextFile[];
+  archived?: boolean;
+  licenseSpdxId?: string | null;
+}): GeneralAnalysisInput {
+  const files = [...(options.files ?? [])];
+
+  return {
+    repository: {
+      ...perfectRepository,
+      description: options.description ?? null,
+      topics: [...(options.topics ?? [])],
+      archived: options.archived ?? false,
+      licenseSpdxId: options.licenseSpdxId ?? "MIT",
+    },
+    tree: {
+      complete: true,
+      skippedEntries: [],
+      files: files.map((file, index) => ({
+        path: file.path,
+        sha: index.toString(16).padStart(40, "a").slice(-40),
+        size: file.declaredSize,
+        mode: "100644" as const,
+      })),
+    },
+    files,
+  };
+}
+
+function briefFor(
+  options: Parameters<typeof inputWith>[0],
+  metrics: Partial<GeneralMetrics> = {},
+): ProjectBrief {
+  return analyzeProjectBrief(inputWith(options), {
+    ...perfectGeneralMetrics,
+    ...metrics,
+  });
+}
+
+describe("project brief purpose extraction", () => {
+  it("combines repository purpose and README overview without repeating them", () => {
+    const input = inputWith({
+      description: "A local-first CLI for comparing public API schemas.",
+      topics: ["cli"],
+      files: [
+        fetched(
+          "README.md",
+          [
+            "# Schema Lens",
+            "",
+            "[![build](https://img.example/badge.svg)](https://ci.example)",
+            "",
+            "## Overview",
+            "",
+            "Schema Lens compares two OpenAPI documents and reports breaking changes.",
+            "",
+            "It is intended for release checks and code review.",
+          ].join("\n"),
+        ),
+        fetched(
+          "package.json",
+          JSON.stringify({ bin: { lens: "dist/cli.js" } }),
+        ),
+      ],
+    });
+
+    expect(analyzeProjectBrief(input, perfectGeneralMetrics)).toEqual({
+      excerpts: [
+        {
+          source: "github-description",
+          text: "A local-first CLI for comparing public API schemas.",
+          path: null,
+        },
+        {
+          source: "readme",
+          text: "Schema Lens compares two OpenAPI documents and reports breaking changes.",
+          path: "README.md",
+        },
+      ],
+      kinds: [
+        { kind: "command-line-tool", source: "manifest", path: "package.json" },
+      ],
+      cautions: [],
+    });
+  });
+
+  it.each([
+    ["## Overview\n\nA bounded English purpose.", "A bounded English purpose."],
+    [
+      "## 简介\n\n这是一个用于检查公开项目证据的浏览器工具。",
+      "这是一个用于检查公开项目证据的浏览器工具。",
+    ],
+    [
+      "# Title\n\nA useful lead paragraph after the title.",
+      "A useful lead paragraph after the title.",
+    ],
+  ])("extracts overview prose from %s", (readme, expected) => {
+    expect(
+      briefFor({ files: [fetched("README.md", readme)] }).excerpts.map(
+        (item) => item.text,
+      ),
+    ).toContain(expected);
+  });
+
+  it("prefers explicit overview prose and keeps visible link labels only", () => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          [
+            "# Tool",
+            "",
+            "A generic lead that must lose to the overview.",
+            "",
+            "## About",
+            "",
+            "[Schema Lens](https://example.invalid/private?token=secret) compares schemas.",
+            "",
+            "It reports changes without following [remote links][docs].",
+            "",
+            "[docs]: https://example.invalid/docs",
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Schema Lens compares schemas.",
+        path: "README.md",
+      },
+      {
+        source: "readme",
+        text: "It reports changes without following remote links.",
+        path: "README.md",
+      },
+    ]);
+    expect(JSON.stringify(brief)).not.toContain("example.invalid");
+    expect(JSON.stringify(brief)).not.toContain("token=secret");
+  });
+
+  it("skips void HTML without swallowing later overview prose", () => {
+    expect(
+      briefFor({
+        files: [
+          fetched(
+            "README.md",
+            '<img src="https://example.invalid/logo.png">\n\n## Overview\n\nVisible project purpose.',
+          ),
+        ],
+      }).excerpts,
+    ).toContainEqual({
+      source: "readme",
+      text: "Visible project purpose.",
+      path: "README.md",
+    });
+  });
+
+  it.each([
+    ["front matter", "---\ntitle: Secret prose\n---"],
+    ["HTML comment", "<!-- Hidden project purpose. -->"],
+    ["HTML block", "<div>Hidden project purpose.</div>"],
+    ["multiline HTML block", "<div\nHidden project purpose.\n</div>"],
+    ["image", "![Project purpose](https://example.invalid/image.png)"],
+    ["badge", "[![build](https://img.example/badge.svg)](https://ci.example)"],
+    ["reference definition", "[docs]: https://example.invalid/project-purpose"],
+    ["table of contents", "## Contents\n\n- [Project purpose](#purpose)"],
+    ["fenced code", "```text\nProject purpose in code.\n```"],
+    ["indented code", "    Project purpose in code."],
+    ["block quote", "> Project purpose in a quote."],
+    ["command", "pnpm run project-purpose"],
+    ["raw URL", "https://example.invalid/project-purpose"],
+    ["link destination only", "[](https://example.invalid/project-purpose)"],
+  ])("does not retain prose from %s", (_label, readme) => {
+    const brief = briefFor(
+      { files: [fetched("README.md", readme)] },
+      {
+        hasReadme: true,
+        hasLicenseFile: true,
+        apiLicenseDetected: true,
+        hasStructuredEntryPoint: true,
+      },
+    );
+
+    expect(brief.excerpts).toEqual([]);
+    expect(JSON.stringify(brief)).not.toContain("example.invalid");
+    expect(brief.cautions.map((fact) => fact.caution)).toContain(
+      "insufficient-explanation",
+    );
+  });
+
+  it("rejects unsafe candidates and bounds hostile unmatched Markdown", () => {
+    const unmatched = `[${"a".repeat(256 * 1024 - 32)}`;
+    const hostileReadme = `# Title\n\n${unmatched}`;
+    const startedAt = performance.now();
+    const unmatchedBrief = briefFor({
+      files: [fetched("README.md", hostileReadme)],
+    });
+    const elapsed = performance.now() - startedAt;
+
+    expect(new TextEncoder().encode(hostileReadme).byteLength).toBeLessThan(
+      256 * 1024,
+    );
+    expect(unmatchedBrief.excerpts).toEqual([]);
+    expect(elapsed).toBeLessThan(1_000);
+    expect(
+      briefFor({
+        description: "Unsafe \u202e description",
+        files: [fetched("README.md", "# Title\n\nMalformed \ud800 prose")],
+      }).excerpts,
+    ).toEqual([]);
+  });
+
+  it("normalizes duplicate purpose evidence and enforces excerpt budgets", () => {
+    const duplicate = briefFor({
+      description: "ＦＡＳＴ   schema CHECKER",
+      files: [
+        fetched(
+          "README.md",
+          "## Overview\n\nfast schema checker\n\n" + "界".repeat(600),
+        ),
+      ],
+    });
+
+    expect(duplicate.excerpts).toHaveLength(2);
+    expect(duplicate.excerpts[0]?.text).toBe("FAST schema CHECKER");
+    expect(duplicate.excerpts[1]?.text).toHaveLength(480);
+    expect(
+      duplicate.excerpts.reduce(
+        (total, excerpt) => total + Array.from(excerpt.text).length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(800);
+
+    const exactDuplicate = briefFor({
+      description: "ＦＡＳＴ   schema CHECKER",
+      files: [fetched("README.md", "## Overview\n\nfast schema checker")],
+    });
+    expect(exactDuplicate.excerpts).toEqual([
+      {
+        source: "github-description",
+        text: "FAST schema CHECKER",
+        path: null,
+      },
+    ]);
+
+    const maximum = briefFor({
+      description: "D".repeat(480),
+      files: [fetched("README.md", `# Title\n\n${"R".repeat(600)}`)],
+    });
+    expect(
+      maximum.excerpts.map((excerpt) => Array.from(excerpt.text).length),
+    ).toEqual([480, 320]);
+  });
+
+  it("does not confuse prose beginning with an executable name for a command", () => {
+    expect(
+      briefFor({
+        files: [
+          fetched(
+            "README.md",
+            "# Go Tool\n\nGo is a repository analysis application.",
+          ),
+        ],
+      }).excerpts,
+    ).toContainEqual({
+      source: "readme",
+      text: "Go is a repository analysis application.",
+      path: "README.md",
+    });
+  });
+
+  it("reuses the unchanged preferred README ordering in both analyzers", () => {
+    const files = [
+      fetched(
+        "README.zh-CN.md",
+        "# 中文\n\nRoot Chinese purpose.\n\n## Installation",
+      ),
+      fetched(
+        ".github/README.md",
+        "# GitHub\n\nGitHub purpose.\n\n## Installation",
+      ),
+      fetched(
+        "README.md",
+        "# Root\n\nRoot default purpose.\n\n## Usage\n\npnpm test",
+      ),
+    ];
+    const input = inputWith({ files: [...files].reverse() });
+    const general = analyzeGeneralRepository(input);
+
+    expect(preferredReadme(files)?.path).toBe("README.md");
+    expect(general).toMatchObject({
+      hasReadme: true,
+      usageHeading: true,
+      installHeading: false,
+    });
+    expect(analyzeProjectBrief(input, general).excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Root default purpose.",
+        path: "README.md",
+      },
+    ]);
+  });
+});
+
+describe("project kind and caution evidence", () => {
+  it.each([
+    [
+      {
+        files: [
+          fetched(
+            "package.json",
+            JSON.stringify({
+              scripts: { start: "node app.js" },
+              browser: "app.js",
+            }),
+          ),
+        ],
+      },
+      "application",
+    ],
+    [
+      {
+        files: [
+          fetched(
+            "package.json",
+            JSON.stringify({ bin: { tool: "dist/cli.js" } }),
+          ),
+        ],
+      },
+      "command-line-tool",
+    ],
+    [
+      {
+        files: [
+          fetched(
+            "package.json",
+            JSON.stringify({
+              exports: "./dist/index.js",
+              types: "./dist/index.d.ts",
+            }),
+          ),
+        ],
+      },
+      "library",
+    ],
+    [
+      {
+        files: [
+          fetched(".codex-plugin/plugin.json", "{}"),
+          fetched("src/index.ts", "export {}"),
+        ],
+      },
+      "plugin",
+    ],
+    [{ topics: ["repository-template"] }, "template"],
+    [
+      {
+        files: [
+          fetched("README.md", "Documentation only"),
+          fetched("docs/guide.md", "Guide"),
+        ],
+      },
+      "documentation",
+    ],
+  ] as const)("classifies structural %s evidence", (options, kind) => {
+    expect(
+      briefFor(options, { supportedSourceFileCount: 0 }).kinds.map(
+        (fact) => fact.kind,
+      ),
+    ).toContain(kind);
+  });
+
+  it("classifies bounded pyproject structures with exact manifest paths", () => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "pyproject.toml",
+          [
+            "[project]",
+            'name = "fixture"',
+            "[project.scripts]",
+            'fixture = "fixture.cli:main"',
+            '[project.entry-points."fixture.plugins"]',
+            'example = "fixture.plugin:Plugin"',
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(brief.kinds).toEqual([
+      {
+        kind: "command-line-tool",
+        source: "manifest",
+        path: "pyproject.toml",
+      },
+      { kind: "library", source: "manifest", path: "pyproject.toml" },
+      { kind: "plugin", source: "manifest", path: "pyproject.toml" },
+    ]);
+  });
+
+  it("fails closed for malformed, oversized, deeply nested, and empty manifests", () => {
+    const deepExports = `{"exports":${"[".repeat(150)}"./index.js"${"]".repeat(150)}}`;
+    const oversized = JSON.stringify({
+      bin: { tool: "dist/cli.js" },
+      padding: "x".repeat(256 * 1024),
+    });
+    const brief = briefFor({
+      files: [
+        fetched("a/package.json", "{"),
+        fetched("b/package.json", deepExports),
+        fetched("c/package.json", oversized),
+        fetched(
+          "d/package.json",
+          JSON.stringify({ bin: {}, exports: [], scripts: { start: "" } }),
+        ),
+        fetched("e/package.json", '{"bin":"\\ud800"}'),
+        fetched("pyproject.toml", "[project\nname = broken"),
+      ],
+    });
+
+    expect(brief.kinds).toEqual([]);
+  });
+
+  it.each([
+    [
+      "application",
+      {
+        files: [fetched("package.json", '{"scripts":{"start":"node app.js"}}')],
+      },
+      { hasConventionalEntryPoint: false },
+    ],
+    [
+      "command-line-tool",
+      { files: [fetched("package.json", '{"bin":{}}')] },
+      {},
+    ],
+    ["library", { files: [fetched("package.json", '{"exports":{}}')] }, {}],
+    [
+      "plugin",
+      { topics: ["plugins"], files: [fetched("plugins.json", "{}")] },
+      {},
+    ],
+    [
+      "template",
+      { topics: ["templates"], files: [fetched("templates/file.txt", "x")] },
+      {},
+    ],
+    [
+      "documentation",
+      { files: [fetched("README.md", "A documented runtime project.")] },
+      { supportedSourceFileCount: 1 },
+    ],
+  ] as const)(
+    "does not classify near-miss %s evidence",
+    (kind, options, metrics) => {
+      expect(
+        briefFor(options, metrics).kinds.map((fact) => fact.kind),
+      ).not.toContain(kind);
+    },
+  );
+
+  it("uses frozen kind order, strongest evidence, a three-kind cap, and no unknown label", () => {
+    const brief = briefFor({
+      topics: ["template", "plugin"],
+      files: [
+        fetched("plugin.json", "{}"),
+        fetched("cookiecutter.json", "{}"),
+        fetched(
+          "package.json",
+          JSON.stringify({
+            scripts: { start: "node app.js" },
+            browser: "app.js",
+            bin: { tool: "dist/cli.js" },
+            exports: "./dist/index.js",
+          }),
+        ),
+      ],
+    });
+
+    expect(Object.isFrozen(PROJECT_KINDS)).toBe(true);
+    expect(Object.isFrozen(PROJECT_BRIEF_CAUTIONS)).toBe(true);
+    expect(brief.kinds).toEqual([
+      { kind: "application", source: "manifest", path: "package.json" },
+      {
+        kind: "command-line-tool",
+        source: "manifest",
+        path: "package.json",
+      },
+      { kind: "library", source: "manifest", path: "package.json" },
+    ]);
+    expect(brief.kinds).toHaveLength(3);
+
+    expect(
+      briefFor({}, { supportedSourceFileCount: 0, hasReadme: false }).kinds,
+    ).toEqual([]);
+  });
+
+  it("retains exact strongest tree and metadata evidence paths", () => {
+    expect(
+      briefFor({
+        topics: ["plugin", "template"],
+        files: [
+          fetched(".codex-plugin/plugin.json", "{}"),
+          fetched("cookiecutter.json", "{}"),
+        ],
+      }).kinds,
+    ).toEqual([
+      {
+        kind: "plugin",
+        source: "tree",
+        path: ".codex-plugin/plugin.json",
+      },
+      {
+        kind: "template",
+        source: "tree",
+        path: "cookiecutter.json",
+      },
+    ]);
+
+    expect(briefFor({ topics: ["repository-template"] }).kinds).toEqual([
+      {
+        kind: "template",
+        source: "github-metadata",
+        path: null,
+      },
+    ]);
+  });
+
+  it("orders all applicable cautions and assigns bounded sources", () => {
+    expect(
+      briefFor(
+        { archived: true, licenseSpdxId: null },
+        {
+          hasReadme: false,
+          hasLicenseFile: false,
+          apiLicenseDetected: false,
+          hasStructuredEntryPoint: false,
+          hasConventionalEntryPoint: false,
+          supportedSourceFileCount: 0,
+        },
+      ).cautions,
+    ).toEqual([
+      { caution: "archived", source: "github-metadata", path: null },
+      {
+        caution: "insufficient-explanation",
+        source: "analysis",
+        path: null,
+      },
+      {
+        caution: "license-evidence-absent",
+        source: "analysis",
+        path: null,
+      },
+      {
+        caution: "entry-point-evidence-absent",
+        source: "analysis",
+        path: null,
+      },
+    ]);
+  });
+
+  it("is deterministic under shuffled files and never mutates frozen inputs", () => {
+    const files = [
+      fetched("README.md", "# Tool\n\nA deterministic project purpose."),
+      fetched("plugin.json", "{}"),
+      fetched(
+        "package.json",
+        JSON.stringify({
+          bin: { tool: "dist/cli.js" },
+          exports: "./dist/index.js",
+        }),
+      ),
+    ];
+    const left = inputWith({ topics: ["template"], files });
+    const right = inputWith({
+      topics: ["template"],
+      files: [...files].reverse(),
+    });
+    Object.freeze(left.repository.topics);
+    Object.freeze(left.repository);
+    Object.freeze(left.tree.files);
+    Object.freeze(left.tree.skippedEntries);
+    Object.freeze(left.tree);
+    for (const file of left.files) Object.freeze(file);
+    Object.freeze(left.files);
+    Object.freeze(left);
+
+    expect(() =>
+      analyzeProjectBrief(left, perfectGeneralMetrics),
+    ).not.toThrow();
+    expect(analyzeProjectBrief(left, perfectGeneralMetrics)).toEqual(
+      analyzeProjectBrief(right, perfectGeneralMetrics),
+    );
+  });
+});

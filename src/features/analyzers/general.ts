@@ -478,7 +478,7 @@ function generatedDirectoryCount(files: readonly NormalizedTreeFile[]): number {
   return directories.size;
 }
 
-function preferredReadme(
+export function preferredReadme(
   files: readonly FetchedTextFile[],
 ): FetchedTextFile | undefined {
   return [...files]

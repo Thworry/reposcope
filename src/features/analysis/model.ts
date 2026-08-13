@@ -147,6 +147,50 @@ export interface GeneralAnalysisInput {
   files: readonly FetchedTextFile[];
 }
 
+export const PROJECT_KINDS = Object.freeze([
+  "application",
+  "command-line-tool",
+  "library",
+  "plugin",
+  "template",
+  "documentation",
+] as const);
+
+export type ProjectKind = (typeof PROJECT_KINDS)[number];
+
+export const PROJECT_BRIEF_CAUTIONS = Object.freeze([
+  "archived",
+  "insufficient-explanation",
+  "license-evidence-absent",
+  "entry-point-evidence-absent",
+] as const);
+
+export type ProjectBriefCaution = (typeof PROJECT_BRIEF_CAUTIONS)[number];
+
+export interface ProjectBriefExcerpt {
+  source: "github-description" | "readme";
+  text: string;
+  path: string | null;
+}
+
+export interface ProjectKindFact {
+  kind: ProjectKind;
+  source: "github-metadata" | "manifest" | "tree" | "analysis";
+  path: string | null;
+}
+
+export interface ProjectBriefCautionFact {
+  caution: ProjectBriefCaution;
+  source: "github-metadata" | "analysis";
+  path: null;
+}
+
+export interface ProjectBrief {
+  excerpts: ProjectBriefExcerpt[];
+  kinds: ProjectKindFact[];
+  cautions: ProjectBriefCautionFact[];
+}
+
 /** Bounded documentation, operability, testing, and maintenance evidence. */
 export interface GeneralMetrics {
   hasReadme: boolean;
