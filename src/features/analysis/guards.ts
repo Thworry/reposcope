@@ -24,6 +24,15 @@ const DIMENSIONS = Object.freeze(
 const SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu;
 const KEY_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/u;
 const ARGUMENT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/u;
+const PROJECT_BRIEF_EXCERPT_SOURCE_SEQUENCES: readonly string[] = Object.freeze(
+  [
+    "",
+    "github-description",
+    "readme",
+    "readme,readme",
+    "github-description,readme",
+  ],
+);
 const RULE_ID_SET: ReadonlySet<string> = new Set(RULE_IDS);
 const RULE_MAXIMUMS: Readonly<Record<RuleId, number>> = Object.fromEntries(
   RULE_IDS.map((id) => [id, scoreRule(id, {}).available]),
@@ -189,7 +198,7 @@ function validProjectBrief(value: unknown): value is ProjectBrief {
   }
 
   let combinedCodePoints = 0;
-  let previousExcerpt = -1;
+  const excerptSources: string[] = [];
   for (const excerpt of value.excerpts) {
     if (
       !isRecord(excerpt) ||
@@ -198,21 +207,22 @@ function validProjectBrief(value: unknown): value is ProjectBrief {
     ) {
       return false;
     }
-    const sourceIndex = ["github-description", "readme"].indexOf(
-      String(excerpt.source),
-    );
     if (
-      sourceIndex <= previousExcerpt ||
       (excerpt.source === "github-description" && excerpt.path !== null) ||
       (excerpt.source === "readme" && !validPath(excerpt.path)) ||
       (excerpt.source !== "github-description" && excerpt.source !== "readme")
     ) {
       return false;
     }
-    previousExcerpt = sourceIndex;
+    excerptSources.push(excerpt.source);
     combinedCodePoints += Array.from(excerpt.text).length;
   }
-  if (combinedCodePoints > 800) return false;
+  if (
+    combinedCodePoints > 800 ||
+    !PROJECT_BRIEF_EXCERPT_SOURCE_SEQUENCES.includes(excerptSources.join(","))
+  ) {
+    return false;
+  }
 
   let previousKind = -1;
   for (const fact of value.kinds) {

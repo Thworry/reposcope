@@ -7,6 +7,7 @@ import {
 } from "../../test/fixtures/metrics";
 import type {
   LanguageAnalysis,
+  ProjectBrief,
   RepoRef,
   SelectedFile,
 } from "../analysis/model";
@@ -17,6 +18,18 @@ import type { WorkerEvent } from "./protocol";
 const sha = "a".repeat(40);
 const ref: RepoRef = { owner: "example", repo: "project" };
 const analyzedAt = "2026-08-11T12:00:00.000Z";
+const twoReadmeProjectBrief: ProjectBrief = {
+  excerpts: [
+    { source: "readme", text: "First README purpose.", path: "README.md" },
+    {
+      source: "readme",
+      text: "Second README detail.",
+      path: "README.md",
+    },
+  ],
+  kinds: [],
+  cautions: [],
+};
 
 function emptyLanguage(): LanguageAnalysis {
   return {
@@ -237,6 +250,22 @@ describe("executeAnalysis", () => {
       reason: "invalid-text",
     });
     expect(JSON.stringify(report)).not.toContain("raw-secret-body");
+  });
+
+  it("serializes two README excerpts when no description excerpt exists", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.projectBrief).mockReturnValue(twoReadmeProjectBrief);
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 85, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    expect(completedReport(events).projectBrief).toEqual(twoReadmeProjectBrief);
   });
 
   it("keeps the exact skipped total when serializable details reach their cap", async () => {

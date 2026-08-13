@@ -9,7 +9,7 @@ import {
   perfectProjectBrief,
   perfectRepository,
 } from "../../test/fixtures/metrics";
-import type { AnalysisReport } from "../analysis/model";
+import type { AnalysisReport, ProjectBrief } from "../analysis/model";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
 import type { WorkerEvent } from "./protocol";
@@ -19,6 +19,19 @@ class FakeWorker extends EventTarget {
   readonly postMessage = vi.fn();
   readonly terminate = vi.fn();
 }
+
+const twoReadmeProjectBrief: ProjectBrief = {
+  excerpts: [
+    { source: "readme", text: "First README purpose.", path: "README.md" },
+    {
+      source: "readme",
+      text: "Second README detail.",
+      path: "README.md",
+    },
+  ],
+  kinds: [],
+  cautions: [],
+};
 
 function validReport(): AnalysisReport {
   const analyzedAt = "2026-08-11T12:00:00.000Z";
@@ -115,6 +128,32 @@ describe("runAnalysis", () => {
     expect(worker.postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: "cancel" }),
     );
+    expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a completion with two README excerpts and no description", async () => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    report.projectBrief = twoReadmeProjectBrief;
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "complete",
+          requestId: start.requestId,
+          report,
+        },
+      }),
+    );
+
+    await expect(run.promise).resolves.toEqual(report);
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 

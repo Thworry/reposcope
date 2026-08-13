@@ -11,7 +11,7 @@ import {
 } from "../../test/fixtures/metrics";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
-import type { AnalysisReport } from "./model";
+import type { AnalysisReport, ProjectBrief } from "./model";
 import { isAnalysisReport } from "./guards";
 
 export function validReport(): AnalysisReport {
@@ -55,6 +55,19 @@ function cloneReport(): AnalysisReport {
   return structuredClone(validReport());
 }
 
+const twoReadmeProjectBrief: ProjectBrief = {
+  excerpts: [
+    { source: "readme", text: "First README purpose.", path: "README.md" },
+    {
+      source: "readme",
+      text: "Second README detail.",
+      path: "README.md",
+    },
+  ],
+  kinds: [],
+  cautions: [],
+};
+
 describe("isAnalysisReport", () => {
   it("accepts a complete internally consistent report", () => {
     expect(isAnalysisReport(validReport())).toBe(true);
@@ -85,6 +98,34 @@ describe("isAnalysisReport", () => {
         },
       }),
     ).toBe(true);
+  });
+
+  it("accepts every canonical excerpt source sequence", () => {
+    const description = {
+      source: "github-description" as const,
+      text: "Repository purpose.",
+      path: null,
+    };
+    const readme = {
+      source: "readme" as const,
+      text: "README purpose.",
+      path: "README.md",
+    };
+
+    for (const excerpts of [
+      [],
+      [description],
+      [readme],
+      twoReadmeProjectBrief.excerpts,
+      [description, readme],
+    ]) {
+      expect(
+        isAnalysisReport({
+          ...validReport(),
+          projectBrief: { excerpts, kinds: [], cautions: [] },
+        }),
+      ).toBe(true);
+    }
   });
 
   it("requires the exact project brief shape at every level", () => {
@@ -208,6 +249,22 @@ describe("isAnalysisReport", () => {
 
   it("rejects duplicate or non-canonical project brief ordering", () => {
     for (const projectBrief of [
+      {
+        excerpts: [
+          {
+            source: "github-description",
+            text: "First purpose",
+            path: null,
+          },
+          {
+            source: "github-description",
+            text: "Repeated purpose",
+            path: null,
+          },
+        ],
+        kinds: [],
+        cautions: [],
+      },
       {
         excerpts: [
           { source: "readme", text: "Detail", path: "README.md" },
