@@ -7,6 +7,7 @@ import type {
   ScanPhase,
   SelectedFile,
 } from "../analysis/model";
+import { containsCredentialLikeValue } from "../analysis/project-brief-safety";
 import {
   computeDuplicateRatio,
   findCircularImports,
@@ -492,7 +493,11 @@ export async function executeAnalysis(
         repo: snapshot.repository.repo,
         fullName: `${snapshot.repository.owner}/${snapshot.repository.repo}`,
         url: `https://github.com/${encodeURIComponent(snapshot.repository.owner)}/${encodeURIComponent(snapshot.repository.repo)}`,
-        description: snapshot.repository.description,
+        description:
+          snapshot.repository.description !== null &&
+          containsCredentialLikeValue(snapshot.repository.description)
+            ? null
+            : snapshot.repository.description,
         defaultBranch: snapshot.repository.defaultBranch,
         archived: snapshot.repository.archived,
         pushedAt: snapshot.repository.pushedAt,

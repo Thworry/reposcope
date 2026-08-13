@@ -394,6 +394,80 @@ describe("isAnalysisReport", () => {
     ).toBe(true);
   });
 
+  it("accepts 1024-character project brief paths and rejects 1025", () => {
+    const exact = "r".repeat(1_024);
+    const tooLong = "r".repeat(1_025);
+
+    for (const projectBrief of [
+      {
+        excerpts: [{ source: "readme", text: "Purpose", path: exact }],
+        kinds: [],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [{ kind: "application", source: "manifest", path: exact }],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [{ kind: "template", source: "tree", path: exact }],
+        cautions: [],
+      },
+    ]) {
+      expect(isAnalysisReport({ ...validReport(), projectBrief })).toBe(true);
+    }
+
+    for (const projectBrief of [
+      {
+        excerpts: [{ source: "readme", text: "Purpose", path: tooLong }],
+        kinds: [],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [{ kind: "application", source: "manifest", path: tooLong }],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [{ kind: "template", source: "tree", path: tooLong }],
+        cautions: [],
+      },
+    ]) {
+      expect(isAnalysisReport({ ...validReport(), projectBrief })).toBe(false);
+    }
+  });
+
+  it.each([
+    ["password assignment", "password=hunter2"],
+    ["GitHub token", `ghp_${"a".repeat(36)}`],
+    ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
+  ])("rejects a %s anywhere in report purpose text", (_label, credential) => {
+    const excerptReport = cloneReport();
+    const firstExcerpt = excerptReport.projectBrief.excerpts[0];
+    expect(firstExcerpt).toBeDefined();
+    if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
+    firstExcerpt.text = `Repository purpose ${credential}`;
+    expect(isAnalysisReport(excerptReport)).toBe(false);
+
+    const descriptionReport = cloneReport();
+    descriptionReport.repository.description = `Repository purpose ${credential}`;
+    expect(isAnalysisReport(descriptionReport)).toBe(false);
+  });
+
+  it("accepts generic password documentation without an assignment", () => {
+    const report = cloneReport();
+    const generic = "Documentation explains password rotation policies.";
+    const firstExcerpt = report.projectBrief.excerpts[0];
+    expect(firstExcerpt).toBeDefined();
+    if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
+    report.repository.description = generic;
+    firstExcerpt.text = generic;
+
+    expect(isAnalysisReport(report)).toBe(true);
+  });
+
   it.each([
     ["invalid path", "Purpose", "../README.md"],
     ["bidi control", "Purpose\u202ehidden", "README.md"],

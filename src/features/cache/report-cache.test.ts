@@ -142,6 +142,32 @@ describe("report cache", () => {
     expect(sessionStorage.getItem(cacheKey(ref))).toBe(serialized);
   });
 
+  it.each([
+    ["password assignment", "password=hunter2"],
+    ["GitHub token", `ghp_${"a".repeat(36)}`],
+    ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
+  ])("never persists a report containing a %s", (_label, credential) => {
+    for (const target of ["description", "excerpt"] as const) {
+      const report = validReport();
+      report.repository.owner = ref.owner;
+      report.repository.repo = ref.repo;
+      report.repository.fullName = `${ref.owner}/${ref.repo}`;
+      report.repository.url = `https://github.com/${ref.owner}/${ref.repo}`;
+      if (target === "description") {
+        report.repository.description = `Purpose ${credential}`;
+      } else {
+        const firstExcerpt = report.projectBrief.excerpts[0];
+        expect(firstExcerpt).toBeDefined();
+        if (firstExcerpt === undefined)
+          throw new Error("Missing fixture excerpt");
+        firstExcerpt.text = `Purpose ${credential}`;
+      }
+
+      setCachedReport(ref, report, now);
+      expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
+    }
+  });
+
   it.each([now + 1, now - 900_001])(
     "removes invalid saved time %s",
     (savedAt) => {

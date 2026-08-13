@@ -157,6 +157,38 @@ describe("runAnalysis", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ["password assignment", "password=hunter2"],
+    ["GitHub token", `ghp_${"a".repeat(36)}`],
+    ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
+  ])("rejects a completion containing a %s", async (_label, credential) => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    report.repository.description = `Purpose ${credential}`;
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "complete",
+          requestId: start.requestId,
+          report,
+        },
+      }),
+    );
+
+    await expect(run.promise).rejects.toBeInstanceOf(RepositoryAnalysisError);
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+  });
+
   it("rejects a non-canonical injected analysis timestamp before posting", () => {
     const worker = new FakeWorker();
 

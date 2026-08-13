@@ -12,6 +12,10 @@ import {
   type ProjectKind,
   type ProjectKindFact,
 } from "../analysis/model";
+import {
+  containsCredentialLikeValue,
+  isSafeProjectBriefPath,
+} from "../analysis/project-brief-safety";
 import { isExcludedPath, toPathComparisonKey } from "../scanner/file-registry";
 import { preferredReadme } from "./general";
 
@@ -597,13 +601,17 @@ function normalizeCandidate(
   value: string,
   rejectCommandOnly = true,
 ): string | null {
-  if (!isBounded(value)) {
+  if (!isBounded(value) || containsCredentialLikeValue(value)) {
     return null;
   }
 
   const visible = visibleMarkdownLine(value.normalize("NFKC"));
 
-  if (visible === null || !meaningfulProse(visible, rejectCommandOnly)) {
+  if (
+    visible === null ||
+    containsCredentialLikeValue(visible) ||
+    !meaningfulProse(visible, rejectCommandOnly)
+  ) {
     return null;
   }
 
@@ -1346,11 +1354,13 @@ function classifyProjectKinds(
   const facts = new Map<ProjectKind, ProjectKindFact>();
   const treePaths = input.tree.files
     .map((file) => file.path)
-    .filter((path) => !isExcludedPath(path))
+    .filter((path) => !isExcludedPath(path) && isSafeProjectBriefPath(path))
     .sort(comparePaths);
   const treePathKeys = new Set(treePaths.map(toPathComparisonKey));
   const fetchedFiles = [...input.files]
-    .filter((file) => !isExcludedPath(file.path))
+    .filter(
+      (file) => !isExcludedPath(file.path) && isSafeProjectBriefPath(file.path),
+    )
     .sort((left, right) => comparePaths(left.path, right.path));
 
   for (const file of fetchedFiles) {
@@ -1498,6 +1508,7 @@ function addExcerpt(
 
   if (
     text.length === 0 ||
+    containsCredentialLikeValue(text) ||
     excerpts.some(
       (existing) => canonicalPurpose(existing.text) === canonicalPurpose(text),
     )
@@ -1527,7 +1538,9 @@ export function analyzeProjectBrief(
   }
 
   const readme = preferredReadme(
-    input.files.filter((file) => !isExcludedPath(file.path)),
+    input.files.filter(
+      (file) => !isExcludedPath(file.path) && isSafeProjectBriefPath(file.path),
+    ),
   );
   if (readme !== undefined) {
     for (const text of extractReadmeProse(readme)) {

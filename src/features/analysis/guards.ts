@@ -1,4 +1,8 @@
 import { PROJECT_BRIEF_CAUTIONS, PROJECT_KINDS } from "./model";
+import {
+  containsCredentialLikeValue,
+  isSafeProjectBriefPath,
+} from "./project-brief-safety";
 import type {
   AnalysisReport,
   DimensionKey,
@@ -134,29 +138,7 @@ function validComponent(value: unknown): value is string {
 }
 
 function validPath(value: unknown): value is string {
-  return (
-    safeString(value, 1_024) &&
-    !Array.from(value).some((character) => {
-      const point = character.codePointAt(0);
-
-      return (
-        point === 0x061c ||
-        point === 0x200e ||
-        point === 0x200f ||
-        point === 0x2028 ||
-        point === 0x2029 ||
-        (point !== undefined && point >= 0x202a && point <= 0x202e) ||
-        (point !== undefined && point >= 0x2066 && point <= 0x2069)
-      );
-    }) &&
-    !value.startsWith("/") &&
-    !value.includes("\\") &&
-    value
-      .split("/")
-      .every(
-        (segment) => segment.length > 0 && segment !== "." && segment !== "..",
-      )
-  );
+  return isSafeProjectBriefPath(value);
 }
 
 function hasDirectionalOrLineControl(value: string): boolean {
@@ -179,7 +161,8 @@ function validProjectBriefText(value: unknown): value is string {
   return (
     safeString(value, 960) &&
     Array.from(value).length <= 480 &&
-    !hasDirectionalOrLineControl(value)
+    !hasDirectionalOrLineControl(value) &&
+    !containsCredentialLikeValue(value)
   );
 }
 
@@ -501,7 +484,9 @@ function validRepository(
     value.url !==
       `https://github.com/${encodeURIComponent(value.owner)}/${encodeURIComponent(value.repo)}` ||
     !(
-      value.description === null || safeString(value.description, 4_096, true)
+      value.description === null ||
+      (safeString(value.description, 4_096, true) &&
+        !containsCredentialLikeValue(value.description))
     ) ||
     !safeString(value.defaultBranch, 256) ||
     typeof value.archived !== "boolean" ||

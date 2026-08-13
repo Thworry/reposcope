@@ -69,6 +69,23 @@ function briefFor(
   });
 }
 
+function rootReadmePath(length: number): string {
+  const framing = "README-.md";
+
+  return `README-${"a".repeat(length - framing.length)}.md`;
+}
+
+function nestedPackagePath(length: number): string {
+  const suffix = "package.json";
+  const prefixLength = length - suffix.length;
+  const prefix =
+    prefixLength % 2 === 0
+      ? "a/".repeat(prefixLength / 2)
+      : `ab/${"a/".repeat((prefixLength - 3) / 2)}`;
+
+  return `${prefix}${suffix}`;
+}
+
 describe("project brief purpose extraction", () => {
   it("combines repository purpose and README overview without repeating them", () => {
     const input = inputWith({
@@ -242,6 +259,113 @@ describe("project brief purpose extraction", () => {
         files: [fetched("README.md", "# Title\n\nMalformed \ud800 prose")],
       }).excerpts,
     ).toEqual([]);
+  });
+
+  it.each([
+    ["description password assignment", "description", "password=hunter2"],
+    ["README password assignment", "readme", "password=hunter2"],
+    ["description GitHub token", "description", `ghp_${"a".repeat(36)}`],
+    ["README GitHub token", "readme", `ghp_${"a".repeat(36)}`],
+    [
+      "description PEM private key",
+      "description",
+      "-----BEGIN PRIVATE KEY-----\nZml4dHVyZQ==\n-----END PRIVATE KEY-----",
+    ],
+    [
+      "README PEM private key",
+      "readme",
+      "-----BEGIN PRIVATE KEY-----\nZml4dHVyZQ==\n-----END PRIVATE KEY-----",
+    ],
+  ] as const)(
+    "omits %s from purpose evidence",
+    (_label, source, credential) => {
+      const purpose = `A deterministic release tool. ${credential}`;
+      const brief =
+        source === "description"
+          ? briefFor({ description: purpose })
+          : briefFor({
+              files: [fetched("README.md", `## Overview\n\n${purpose}`)],
+            });
+
+      expect(brief.excerpts).toEqual([]);
+      expect(JSON.stringify(brief)).not.toContain(credential);
+      expect(brief.cautions.map((fact) => fact.caution)).toContain(
+        "insufficient-explanation",
+      );
+    },
+  );
+
+  it("keeps generic credential documentation without an assigned secret", () => {
+    const generic =
+      "This documentation explains password rotation without storing a password value.";
+
+    expect(
+      briefFor({
+        description: generic,
+        files: [fetched("README.md", `## Overview\n\n${generic}`)],
+      }).excerpts,
+    ).toEqual([{ source: "github-description", text: generic, path: null }]);
+  });
+
+  it("emits only report-safe README, manifest, and tree paths", () => {
+    const exactReadme = rootReadmePath(1_024);
+    const longReadme = rootReadmePath(1_025);
+    const exactManifest = nestedPackagePath(1_024);
+    const longManifest = nestedPackagePath(1_025);
+    const longTree = `template/${"a".repeat(1_016)}`;
+
+    expect(exactReadme).toHaveLength(1_024);
+    expect(longReadme).toHaveLength(1_025);
+    expect(exactManifest).toHaveLength(1_024);
+    expect(longManifest).toHaveLength(1_025);
+    expect(longTree).toHaveLength(1_025);
+
+    expect(
+      briefFor({
+        files: [
+          fetched(exactReadme, "## Overview\n\nExact boundary purpose."),
+          fetched(
+            exactManifest,
+            JSON.stringify({
+              scripts: { start: "node app.js" },
+              browser: "app.js",
+            }),
+          ),
+        ],
+      }),
+    ).toMatchObject({
+      excerpts: [
+        {
+          source: "readme",
+          text: "Exact boundary purpose.",
+          path: exactReadme,
+        },
+      ],
+      kinds: [{ kind: "application", source: "manifest", path: exactManifest }],
+    });
+
+    const filtered = briefFor({
+      files: [
+        fetched(longReadme, "## Overview\n\nUnsafe path purpose."),
+        fetched("README.md", "## Overview\n\nSafe fallback purpose."),
+        fetched(
+          longManifest,
+          JSON.stringify({
+            scripts: { start: "node app.js" },
+            browser: "app.js",
+          }),
+        ),
+        fetched(longTree, "{}"),
+      ],
+    });
+
+    expect(filtered.excerpts).toEqual([
+      { source: "readme", text: "Safe fallback purpose.", path: "README.md" },
+    ]);
+    expect(filtered.kinds).toEqual([]);
+    expect(JSON.stringify(filtered)).not.toContain(longReadme);
+    expect(JSON.stringify(filtered)).not.toContain(longManifest);
+    expect(JSON.stringify(filtered)).not.toContain(longTree);
   });
 
   it("normalizes duplicate purpose evidence and enforces excerpt budgets", () => {
@@ -535,6 +659,15 @@ describe("project brief purpose extraction", () => {
         text: "Actual public project purpose.",
         path: "README.md",
       },
+    ]);
+  });
+
+  it("does not confuse ordinary credential terminology or ghp-prefixed prose with a secret", () => {
+    const generic =
+      "The ghperformance benchmark explains API token rotation and password policies.";
+
+    expect(briefFor({ description: generic }).excerpts).toEqual([
+      { source: "github-description", text: generic, path: null },
     ]);
   });
 

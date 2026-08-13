@@ -268,6 +268,38 @@ describe("executeAnalysis", () => {
     expect(completedReport(events).projectBrief).toEqual(twoReadmeProjectBrief);
   });
 
+  it.each([
+    ["password assignment", "password=hunter2"],
+    ["GitHub token", `ghp_${"a".repeat(36)}`],
+    ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
+  ])(
+    "removes a %s from repository metadata before emitting a completion",
+    async (_label, credential) => {
+      const dependencies = dependenciesFor([], () =>
+        Promise.reject(new Error("must not fetch")),
+      );
+      vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+        repository: {
+          ...perfectRepository,
+          description: `Purpose ${credential}`,
+        },
+        commitSha: "a".repeat(40),
+        tree: [],
+      });
+      const { events, emit } = eventCollector();
+
+      await executeAnalysis(
+        { type: "start", requestId: 86, ref, analyzedAt },
+        dependencies,
+        emit,
+      );
+
+      const report = completedReport(events);
+      expect(report.repository.description).toBeNull();
+      expect(JSON.stringify(report)).not.toContain(credential);
+    },
+  );
+
   it("keeps the exact skipped total when serializable details reach their cap", async () => {
     const dependencies = dependenciesFor([], () =>
       Promise.reject(new Error("must not fetch")),
