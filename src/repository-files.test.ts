@@ -315,8 +315,12 @@ describe("open-source repository contract", () => {
       ["certify its correctness", "证明项目正确"],
       ["project brief", "项目速览"],
       [
-        "public GitHub description and preferred README",
-        "公开 GitHub 仓库说明和首选 README",
+        "Purpose evidence comes from the public GitHub description and preferred README.",
+        "用途证据来自公开 GitHub 仓库说明和首选 README。",
+      ],
+      [
+        "Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree.",
+        "项目类型证据来自对清单、主题和仓库文件树的有界结构检查。",
       ],
       ["source language", "源语言"],
       ["does not use an AI service", "不使用 AI 服务"],

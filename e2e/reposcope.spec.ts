@@ -474,6 +474,12 @@ test("Chinese language persists and switching a report does not refetch", async 
     chineseBrief.getByText("应用程序", { exact: true }),
   ).toBeVisible();
   await expect(
+    chineseBrief.getByText(
+      "若项目陈述的用途符合你的需求，可依据检测到的类型证据进一步考虑：应用程序。",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
     chineseBrief.getByRole("link", { name: "README.md（检查的提交）" }),
   ).toHaveAttribute(
     "href",
@@ -535,7 +541,7 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
   await expect(brief.getByText("Application", { exact: true })).toBeVisible();
   await expect(
     brief.getByText(
-      "Worth considering if you need a Application for the stated purpose above.",
+      "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: Application.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -626,7 +632,7 @@ test("complete Python report loads only the Python deep analyzer", async ({
   ).toBeVisible();
   await expect(
     brief.getByText(
-      "Worth considering if you need a Command-line tool for the stated purpose above.",
+      "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: Command-line tool.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -892,6 +898,12 @@ test("hostile repository strings stay inert text", async ({
     `https://github.com/owner/repo/blob/${COMMIT_SHA}/README.md`,
   );
   await expect(brief.getByText("Application", { exact: true })).toBeVisible();
+  await expect(
+    brief.getByText(
+      "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: Application.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(
     brief.getByRole("link", { name: "package.json at inspected commit" }),
   ).toHaveAttribute(

@@ -20,7 +20,7 @@ A successful report has a share URL containing only the repository slug. A fresh
 
 General inspection works for repositories in any language. Deep static metrics are available for JavaScript, TypeScript, and Python. When supported source does not meet the applicability threshold, readability and complexity are unavailable and the overall result is labeled **general-only** and **preliminary**.
 
-For any inspected public repository, the deterministic project brief explains the stated purpose and likely project kind from the public GitHub description and preferred README, with evidence links pinned to the inspected commit. Repository-authored purpose prose remains in its source language. The brief does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
+For any inspected public repository, the deterministic project brief keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. The brief does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
 
 See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
 

@@ -83,7 +83,7 @@ const baseEn = {
   projectBriefInsufficient:
     "Public repository evidence is insufficient to explain this project reliably.",
   projectBriefFitKnown:
-    "Worth considering if you need a {kinds} for the stated purpose above.",
+    "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: {kinds}.",
   projectBriefFitInsufficient: "Public evidence is insufficient to judge fit.",
   projectBriefFitUnknown:
     "Compare the stated purpose with your needs; the repository type could not be established reliably.",
@@ -325,7 +325,7 @@ const baseZh = {
   projectBriefCautions: "使用前注意",
   projectBriefInsufficient: "公开仓库证据不足，无法可靠说明这个项目的用途。",
   projectBriefFitKnown:
-    "若你需要一个用于上述用途的{kinds}，可将它列入考虑范围。",
+    "若项目陈述的用途符合你的需求，可依据检测到的类型证据进一步考虑：{kinds}。",
   projectBriefFitInsufficient: "公开证据不足，无法判断是否适用。",
   projectBriefFitUnknown:
     "请将公开说明与自己的需求对照；目前无法可靠确定仓库类型。",

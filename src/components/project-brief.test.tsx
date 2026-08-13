@@ -81,7 +81,7 @@ describe("ProjectBriefView", () => {
     expect(within(region).getByText("Command-line tool")).toBeVisible();
     expect(
       within(region).getByText(
-        "Worth considering if you need a Command-line tool for the stated purpose above.",
+        "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: Command-line tool.",
       ),
     ).toBeVisible();
     expect(
@@ -207,7 +207,7 @@ describe("ProjectBriefView", () => {
         "Compare the stated purpose with your needs; the repository type could not be established reliably.",
     },
     {
-      name: "English stated purpose and known kind",
+      name: "English stated purpose and Application kind",
       language: "en",
       brief: {
         excerpts: [
@@ -217,11 +217,13 @@ describe("ProjectBriefView", () => {
             path: null,
           },
         ],
-        kinds: [{ kind: "library", source: "manifest", path: "package.json" }],
+        kinds: [
+          { kind: "application", source: "manifest", path: "package.json" },
+        ],
         cautions: [],
       },
       expected:
-        "Worth considering if you need a Library for the stated purpose above.",
+        "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: Application.",
     },
     {
       name: "Chinese missing purpose with a known kind",
@@ -269,7 +271,8 @@ describe("ProjectBriefView", () => {
         kinds: [{ kind: "library", source: "manifest", path: "package.json" }],
         cautions: [],
       },
-      expected: "若你需要一个用于上述用途的软件库，可将它列入考虑范围。",
+      expected:
+        "若项目陈述的用途符合你的需求，可依据检测到的类型证据进一步考虑：软件库。",
     },
   ])("uses honest fit copy for $name", ({ language, brief, expected }) => {
     render(
@@ -387,7 +390,7 @@ describe("ProjectBriefView", () => {
 
     expect(
       screen.getByText(
-        "Worth considering if you need a Command-line tool and Library for the stated purpose above.",
+        "If the stated purpose matches your needs, this project may be worth considering based on detected kind evidence: Command-line tool and Library.",
       ),
     ).toBeVisible();
     expect(
