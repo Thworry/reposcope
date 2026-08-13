@@ -11,7 +11,12 @@ import type {
   RepoRef,
   SelectedFile,
 } from "../analysis/model";
+import { isAnalysisReport } from "../analysis/guards";
 import { GitHubApiError } from "../github/github-client";
+import { buildFindings } from "../rules/findings";
+import { scoreProject } from "../rules/rules";
+import { selectFiles } from "../scanner/select-files";
+import { normalizeTree } from "../scanner/tree";
 import { executeAnalysis, type AnalysisDependencies } from "./analysis.worker";
 import type { WorkerEvent } from "./protocol";
 
@@ -270,6 +275,8 @@ describe("executeAnalysis", () => {
 
   it.each([
     ["password assignment", "password=hunter2"],
+    ["inline password assignment", "password=`hunter2`"],
+    ["braced secret assignment", "secret={hunter2}"],
     ["GitHub token", `ghp_${"a".repeat(36)}`],
     ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
   ])(
@@ -284,7 +291,10 @@ describe("executeAnalysis", () => {
           description: `Purpose ${credential}`,
         },
         commitSha: "a".repeat(40),
-        tree: [],
+        treeSha: sha,
+        entries: [],
+        treeComplete: true,
+        rateLimit: { remaining: 57, resetAt: null },
       });
       const { events, emit } = eventCollector();
 
@@ -344,6 +354,48 @@ describe("executeAnalysis", () => {
       path: "excluded/file-399.txt",
       reason: "excluded",
     });
+  });
+
+  it("omits an overlong tree path while preserving its exact skipped count", async () => {
+    const path = `template/${"a".repeat(1_016)}`;
+    expect(path).toHaveLength(1_025);
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    dependencies.normalize = normalizeTree;
+    dependencies.select = selectFiles;
+    dependencies.score = scoreProject;
+    dependencies.findings = buildFindings;
+    vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+      repository: perfectRepository,
+      commitSha: sha,
+      treeSha: sha,
+      entries: [
+        {
+          path,
+          mode: "100644",
+          type: "blob",
+          sha,
+          size: 1,
+        },
+      ],
+      treeComplete: true,
+      rateLimit: { remaining: 57, resetAt: null },
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 87, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(report.coverage.skippedFiles).toBe(1);
+    expect(report.coverage.skipped).toEqual([]);
+    expect(JSON.stringify(report)).not.toContain(path);
+    expect(isAnalysisReport(report)).toBe(true);
+    expect(dependencies.fetchFile).not.toHaveBeenCalled();
   });
 
   it("keeps project brief output outside the scoring input", async () => {

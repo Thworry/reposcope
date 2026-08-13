@@ -159,6 +159,8 @@ describe("runAnalysis", () => {
 
   it.each([
     ["password assignment", "password=hunter2"],
+    ["inline password assignment", "password=`hunter2`"],
+    ["braced secret assignment", "secret={hunter2}"],
     ["GitHub token", `ghp_${"a".repeat(36)}`],
     ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
   ])("rejects a completion containing a %s", async (_label, credential) => {

@@ -266,6 +266,10 @@ describe("project brief purpose extraction", () => {
     ["README password assignment", "readme", "password=hunter2"],
     ["description GitHub token", "description", `ghp_${"a".repeat(36)}`],
     ["README GitHub token", "readme", `ghp_${"a".repeat(36)}`],
+    ["description inline password", "description", "password=`hunter2`"],
+    ["README braced secret", "readme", "secret={hunter2}"],
+    ["description YAML token", "description", "token: hunter2"],
+    ["README JSON secret", "readme", '{"secret":"hunter2"}'],
     [
       "description PEM private key",
       "description",
@@ -669,6 +673,44 @@ describe("project brief purpose extraction", () => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic, path: null },
     ]);
+  });
+
+  it.each([
+    "OAuth token: rotate it every 90 days.",
+    "Configuration field password: required for sign-in.",
+    "The API key: identifies the configuration field.",
+  ])("keeps ordinary credential documentation: %s", (generic) => {
+    expect(briefFor({ description: generic }).excerpts).toEqual([
+      { source: "github-description", text: generic, path: null },
+    ]);
+  });
+
+  it("drops an entire multiline PEM private-key block without leaking its payload", () => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          [
+            "## Overview",
+            "",
+            "-----BEGIN PRIVATE KEY-----",
+            "Zml4dHVyZS1wcml2YXRlLWtleQ==",
+            "-----END PRIVATE KEY-----",
+            "",
+            "Visible project purpose after the private material.",
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Visible project purpose after the private material.",
+        path: "README.md",
+      },
+    ]);
+    expect(JSON.stringify(brief)).not.toContain("Zml4dHVyZS1wcml2YXRlLWtleQ");
   });
 
   it("accepts a same-marker fenced-code closer with three-space indentation and trailing whitespace", () => {

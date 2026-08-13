@@ -410,7 +410,7 @@ function validCoverage(value: unknown): value is AnalysisReport["coverage"] {
     (value.skipped !== undefined &&
       (!Array.isArray(value.skipped) ||
         value.skipped.length > 400 ||
-        value.skipped.length !== Math.min(Number(value.skippedFiles), 400) ||
+        value.skipped.length > Math.min(Number(value.skippedFiles), 400) ||
         !value.skipped.every(
           (item) =>
             isRecord(item) &&
@@ -434,7 +434,7 @@ function validCoverage(value: unknown): value is AnalysisReport["coverage"] {
     (value.failures !== undefined &&
       (!Array.isArray(value.failures) ||
         value.failures.length > 400 ||
-        value.failures.length !== value.failedFiles ||
+        value.failures.length > Number(value.failedFiles) ||
         !value.failures.every(
           (item) =>
             isRecord(item) &&

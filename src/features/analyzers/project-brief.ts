@@ -956,6 +956,7 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
   let inFence: Pick<FenceLine, "marker" | "length"> | null = null;
   let inHtmlComment = false;
   let inHtmlBlock: HtmlBlockState | null = null;
+  let inPemPrivateKey = false;
   let inOverview = false;
   let inContents = false;
   let primaryTitleSeen = false;
@@ -999,6 +1000,18 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
     const trimmed = line.trim();
+
+    if (inPemPrivateKey) {
+      if (/^-----END(?: [A-Z0-9]+){0,4} PRIVATE KEY-----$/iu.test(trimmed)) {
+        inPemPrivateKey = false;
+      }
+      continue;
+    }
+    if (/^-----BEGIN(?: [A-Z0-9]+){0,4} PRIVATE KEY-----$/iu.test(trimmed)) {
+      finalizeParagraph();
+      inPemPrivateKey = true;
+      continue;
+    }
 
     if (inFrontMatter) {
       if (index > 0 && (trimmed === "---" || trimmed === "...")) {

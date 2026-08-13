@@ -7,7 +7,10 @@ import type {
   ScanPhase,
   SelectedFile,
 } from "../analysis/model";
-import { containsCredentialLikeValue } from "../analysis/project-brief-safety";
+import {
+  containsCredentialLikeValue,
+  isSafeProjectBriefPath,
+} from "../analysis/project-brief-safety";
 import {
   computeDuplicateRatio,
   findCircularImports,
@@ -291,10 +294,25 @@ export async function executeAnalysis(
     callerSignal.throwIfAborted();
 
     emitProgress(progress("selecting"));
-    const tree = dependencies.normalize(
+    const normalizedTree = dependencies.normalize(
       snapshot.entries,
       !snapshot.treeComplete,
     );
+    const unsafeTreePathCount =
+      normalizedTree.files.filter((file) => !isSafeProjectBriefPath(file.path))
+        .length +
+      normalizedTree.skippedEntries.filter(
+        (entry) => !isSafeProjectBriefPath(entry.path),
+      ).length;
+    const tree = {
+      ...normalizedTree,
+      files: normalizedTree.files.filter((file) =>
+        isSafeProjectBriefPath(file.path),
+      ),
+      skippedEntries: normalizedTree.skippedEntries.filter((entry) =>
+        isSafeProjectBriefPath(entry.path),
+      ),
+    };
     const selection = dependencies.select(tree);
     const candidates = selection.selected.slice(0, MAX_ATTEMPTS);
     const fetched: FetchedTextFile[] = [];
@@ -399,11 +417,16 @@ export async function executeAnalysis(
             !fetchedPaths.has(file.path) && !failedFetchPaths.has(file.path),
         )
         .map((file) => ({ path: file.path, reason: "budget" as const }));
-    const skippedFiles = selection.skipped.length + runtimeBudgetSkipped.length;
+    const skippedFiles =
+      unsafeTreePathCount +
+      selection.skipped.length +
+      runtimeBudgetSkipped.length;
     const runtimeSkipped: NonNullable<CoverageSummary["skipped"]> = [
       ...selection.skipped,
       ...runtimeBudgetSkipped,
-    ].slice(0, 400);
+    ]
+      .filter((item) => isSafeProjectBriefPath(item.path))
+      .slice(0, 400);
 
     emitProgress(
       progress(
@@ -473,7 +496,9 @@ export async function executeAnalysis(
       unsupportedFiles: selection.unsupportedFiles,
       limitReached: selection.limitReached || runtimeLimitReached,
       skipped: runtimeSkipped,
-      failures,
+      failures: failures
+        .filter((failure) => isSafeProjectBriefPath(failure.path))
+        .slice(0, 400),
     };
     const { analyzedAt } = command;
     const scored = dependencies.score({

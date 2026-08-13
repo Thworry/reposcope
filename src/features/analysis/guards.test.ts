@@ -441,6 +441,8 @@ describe("isAnalysisReport", () => {
 
   it.each([
     ["password assignment", "password=hunter2"],
+    ["inline password assignment", "password=`hunter2`"],
+    ["braced secret assignment", "secret={hunter2}"],
     ["GitHub token", `ghp_${"a".repeat(36)}`],
     ["PEM private key", "-----BEGIN PRIVATE KEY-----"],
   ])("rejects a %s anywhere in report purpose text", (_label, credential) => {
@@ -456,9 +458,13 @@ describe("isAnalysisReport", () => {
     expect(isAnalysisReport(descriptionReport)).toBe(false);
   });
 
-  it("accepts generic password documentation without an assignment", () => {
+  it.each([
+    "Documentation explains password rotation policies.",
+    "OAuth token: rotate it every 90 days.",
+    "Configuration field password: required for sign-in.",
+    "The API key: identifies the configuration field.",
+  ])("accepts ordinary credential documentation: %s", (generic) => {
     const report = cloneReport();
-    const generic = "Documentation explains password rotation policies.";
     const firstExcerpt = report.projectBrief.excerpts[0];
     expect(firstExcerpt).toBeDefined();
     if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
@@ -566,6 +572,11 @@ describe("isAnalysisReport", () => {
     const missing = cloneReport();
     missing.coverage.skippedFiles = 1;
     expect(isAnalysisReport(missing)).toBe(false);
+
+    const omittedUnsafeDetail = cloneReport();
+    omittedUnsafeDetail.coverage.skippedFiles = 2;
+    omittedUnsafeDetail.coverage.skipped = [];
+    expect(isAnalysisReport(omittedUnsafeDetail)).toBe(true);
   });
 
   it("is total for cyclic hostile finding arrays", () => {
