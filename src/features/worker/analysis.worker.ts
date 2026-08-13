@@ -12,6 +12,7 @@ import {
   findCircularImports,
 } from "../analyzers/cross-file";
 import { analyzeGeneralRepository } from "../analyzers/general";
+import { analyzeProjectBrief } from "../analyzers/project-brief";
 import {
   GitHubApiError,
   fetchRawTextFile,
@@ -38,6 +39,7 @@ const FETCH_PHASE_TIMEOUT_MS = 90_000;
 type NormalizeTree = typeof normalizeTree;
 type SelectFiles = typeof selectFiles;
 type AnalyzeGeneral = typeof analyzeGeneralRepository;
+type ProjectBriefAnalyzer = typeof analyzeProjectBrief;
 type Duplicate = typeof computeDuplicateRatio;
 type Cycles = typeof findCircularImports;
 type Score = typeof scoreProject;
@@ -55,6 +57,7 @@ export interface AnalysisDependencies {
     signal: AbortSignal,
   ) => Promise<RawTextResult>;
   analyzeGeneral: AnalyzeGeneral;
+  projectBrief: ProjectBriefAnalyzer;
   loadJavaScriptTypeScript: () => Promise<{
     analyzeJavaScriptTypeScript: (
       files: readonly FetchedTextFile[],
@@ -77,6 +80,7 @@ const productionDependencies: AnalysisDependencies = {
   select: selectFiles,
   fetchFile: fetchRawTextFile,
   analyzeGeneral: analyzeGeneralRepository,
+  projectBrief: analyzeProjectBrief,
   loadJavaScriptTypeScript: () => import("../analyzers/js-ts"),
   loadPython: () => import("../analyzers/python"),
   duplicate: computeDuplicateRatio,
@@ -414,6 +418,10 @@ export async function executeAnalysis(
       tree,
       files: fetched,
     });
+    const projectBrief = dependencies.projectBrief(
+      { repository: snapshot.repository, tree, files: fetched },
+      general,
+    );
     const analyses: LanguageAnalysis[] = [];
     const selectedJavaScript = selection.selected.some(
       (file) =>
@@ -491,6 +499,7 @@ export async function executeAnalysis(
         commitSha: snapshot.commitSha,
         analyzedAt,
       },
+      projectBrief,
       overall: scored.overall,
       confidence: scored.confidence,
       dimensions: scored.dimensions,

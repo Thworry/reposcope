@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   perfectGeneralMetrics,
+  perfectProjectBrief,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type {
@@ -98,6 +99,7 @@ function dependenciesFor(
     }),
     fetchFile: vi.fn(fetchFile),
     analyzeGeneral: vi.fn().mockReturnValue(perfectGeneralMetrics),
+    projectBrief: vi.fn().mockReturnValue(perfectProjectBrief),
     loadJavaScriptTypeScript: vi
       .fn()
       .mockResolvedValue({ analyzeJavaScriptTypeScript: emptyLanguage }),
@@ -176,7 +178,22 @@ describe("executeAnalysis", () => {
     expect(dependencies.fetchFile).toHaveBeenCalledTimes(9);
     expect(dependencies.loadJavaScriptTypeScript).toHaveBeenCalledOnce();
     expect(dependencies.loadPython).not.toHaveBeenCalled();
-    expect(completedReport(events).repository.analyzedAt).toBe(analyzedAt);
+    const report = completedReport(events);
+    expect(report.repository.analyzedAt).toBe(analyzedAt);
+    expect(report.projectBrief).toEqual(perfectProjectBrief);
+    expect(dependencies.projectBrief).toHaveBeenCalledOnce();
+    const briefCall = vi.mocked(dependencies.projectBrief).mock.calls[0];
+    expect(briefCall?.[0].repository).toEqual(perfectRepository);
+    expect(briefCall?.[0].tree).toEqual({
+      files: [],
+      complete: true,
+      skippedEntries: [],
+    });
+    expect(briefCall?.[0].files[0]).toMatchObject({
+      path: "src/file-0.ts",
+      text: "export const value = 1",
+    });
+    expect(briefCall?.[1]).toEqual(perfectGeneralMetrics);
     const phases = events
       .filter((event) => event.type === "progress")
       .map((event) => event.progress.phase);
@@ -200,7 +217,7 @@ describe("executeAnalysis", () => {
         return Promise.reject(new GitHubApiError("invalid-text"));
       }
 
-      return Promise.resolve({ path, text: "source", bytes: size });
+      return Promise.resolve({ path, text: "raw-secret-body", bytes: size });
     });
     const { events, emit } = eventCollector();
 
@@ -219,7 +236,7 @@ describe("executeAnalysis", () => {
       stage: "fetch",
       reason: "invalid-text",
     });
-    expect(JSON.stringify(report)).not.toContain("source");
+    expect(JSON.stringify(report)).not.toContain("raw-secret-body");
   });
 
   it("keeps the exact skipped total when serializable details reach their cap", async () => {
@@ -266,6 +283,52 @@ describe("executeAnalysis", () => {
       path: "excluded/file-399.txt",
       reason: "excluded",
     });
+  });
+
+  it("keeps project brief output outside the scoring input", async () => {
+    const alternateBrief = {
+      excerpts: [],
+      kinds: [],
+      cautions: [
+        {
+          caution: "insufficient-explanation" as const,
+          source: "analysis" as const,
+          path: null,
+        },
+      ],
+    };
+    const first = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    const second = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(first.projectBrief).mockReturnValue(perfectProjectBrief);
+    vi.mocked(second.projectBrief).mockReturnValue(alternateBrief);
+    const firstEvents = eventCollector();
+    const secondEvents = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 83, ref, analyzedAt },
+      first,
+      firstEvents.emit,
+    );
+    await executeAnalysis(
+      { type: "start", requestId: 84, ref, analyzedAt },
+      second,
+      secondEvents.emit,
+    );
+
+    const firstScoreInput = vi.mocked(first.score).mock.calls[0]?.[0];
+    const secondScoreInput = vi.mocked(second.score).mock.calls[0]?.[0];
+    expect(firstScoreInput).toEqual(secondScoreInput);
+    expect(firstScoreInput).not.toHaveProperty("projectBrief");
+    expect(completedReport(firstEvents.events).projectBrief).toEqual(
+      perfectProjectBrief,
+    );
+    expect(completedReport(secondEvents.events).projectBrief).toEqual(
+      alternateBrief,
+    );
   });
 
   it("counts selected files left unscheduled by runtime limits exactly once", async () => {

@@ -7,6 +7,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AnalysisReport } from "../features/analysis/model";
+import { perfectProjectBrief } from "../test/fixtures/metrics";
 import { ReportSummary } from "./report-summary";
 
 const report = {
@@ -23,6 +24,7 @@ const report = {
     commitSha: "0123456789012345678901234567890123456789",
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
+  projectBrief: perfectProjectBrief,
   overall: {
     score: 67,
     label: "needs-attention",

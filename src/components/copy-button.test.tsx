@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AnalysisReport } from "../features/analysis/model";
 import { buildImprovementMarkdown } from "../i18n/messages";
+import { perfectProjectBrief } from "../test/fixtures/metrics";
 import { CopyButton } from "./copy-button";
 
 function deferred<T>() {
@@ -29,6 +30,7 @@ const report = {
     commitSha: "0123456789012345678901234567890123456789",
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
+  projectBrief: perfectProjectBrief,
   overall: {
     score: 60,
     label: "needs-attention",

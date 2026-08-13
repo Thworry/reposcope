@@ -4,6 +4,7 @@ import type {
   GeneralMetrics,
   ImportCycleMetrics,
   LanguageAnalysis,
+  ProjectBrief,
   RepositoryMetadata,
 } from "../../features/analysis/model";
 
@@ -23,6 +24,26 @@ export const perfectRepository: RepositoryMetadata = {
   openIssuesCount: 0,
   topics: [],
   licenseSpdxId: "MIT",
+};
+
+export const perfectProjectBrief: ProjectBrief = {
+  excerpts: [
+    {
+      source: "github-description",
+      text: "A deterministic fixture repository.",
+      path: null,
+    },
+    {
+      source: "readme",
+      text: "This fixture demonstrates deterministic repository analysis.",
+      path: "README.md",
+    },
+  ],
+  kinds: [
+    { kind: "application", source: "manifest", path: "package.json" },
+    { kind: "library", source: "manifest", path: "package.json" },
+  ],
+  cautions: [],
 };
 
 export const perfectGeneralMetrics: GeneralMetrics = {

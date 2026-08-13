@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AnalysisReport, DimensionKey } from "../features/analysis/model";
+import { perfectProjectBrief } from "../test/fixtures/metrics";
 import { ReportView } from "./report-view";
 
 const dimensionKeys: DimensionKey[] = [
@@ -27,6 +28,7 @@ const report = {
     commitSha: "0123456789012345678901234567890123456789",
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
+  projectBrief: perfectProjectBrief,
   overall: {
     score: 80,
     label: "solid",

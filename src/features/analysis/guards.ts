@@ -1,8 +1,10 @@
+import { PROJECT_BRIEF_CAUTIONS, PROJECT_KINDS } from "./model";
 import type {
   AnalysisReport,
   DimensionKey,
   FileReference,
   LocalizedDescriptor,
+  ProjectBrief,
   RuleResult,
 } from "./model";
 import { buildFindings } from "../rules/findings";
@@ -146,6 +148,113 @@ function validPath(value: unknown): value is string {
         (segment) => segment.length > 0 && segment !== "." && segment !== "..",
       )
   );
+}
+
+function hasDirectionalOrLineControl(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const point = character.codePointAt(0);
+
+    return (
+      point === 0x061c ||
+      point === 0x200e ||
+      point === 0x200f ||
+      point === 0x2028 ||
+      point === 0x2029 ||
+      (point !== undefined && point >= 0x202a && point <= 0x202e) ||
+      (point !== undefined && point >= 0x2066 && point <= 0x2069)
+    );
+  });
+}
+
+function validProjectBriefText(value: unknown): value is string {
+  return (
+    safeString(value, 960) &&
+    Array.from(value).length <= 480 &&
+    !hasDirectionalOrLineControl(value)
+  );
+}
+
+function validProjectBrief(value: unknown): value is ProjectBrief {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, ["excerpts", "kinds", "cautions"]) ||
+    !Array.isArray(value.excerpts) ||
+    value.excerpts.length > 2 ||
+    !Array.isArray(value.kinds) ||
+    value.kinds.length > 3 ||
+    !Array.isArray(value.cautions) ||
+    value.cautions.length > PROJECT_BRIEF_CAUTIONS.length
+  ) {
+    return false;
+  }
+
+  let combinedCodePoints = 0;
+  let previousExcerpt = -1;
+  for (const excerpt of value.excerpts) {
+    if (
+      !isRecord(excerpt) ||
+      !exactKeys(excerpt, ["source", "text", "path"]) ||
+      !validProjectBriefText(excerpt.text)
+    ) {
+      return false;
+    }
+    const sourceIndex = ["github-description", "readme"].indexOf(
+      String(excerpt.source),
+    );
+    if (
+      sourceIndex <= previousExcerpt ||
+      (excerpt.source === "github-description" && excerpt.path !== null) ||
+      (excerpt.source === "readme" && !validPath(excerpt.path)) ||
+      (excerpt.source !== "github-description" && excerpt.source !== "readme")
+    ) {
+      return false;
+    }
+    previousExcerpt = sourceIndex;
+    combinedCodePoints += Array.from(excerpt.text).length;
+  }
+  if (combinedCodePoints > 800) return false;
+
+  let previousKind = -1;
+  for (const fact of value.kinds) {
+    if (!isRecord(fact) || !exactKeys(fact, ["kind", "source", "path"])) {
+      return false;
+    }
+    const kindIndex = PROJECT_KINDS.indexOf(
+      fact.kind as (typeof PROJECT_KINDS)[number],
+    );
+    const source = fact.source;
+    const pathValid =
+      source === "manifest" || source === "tree"
+        ? validPath(fact.path)
+        : (source === "github-metadata" || source === "analysis") &&
+          fact.path === null;
+
+    if (kindIndex <= previousKind || !pathValid) return false;
+    previousKind = kindIndex;
+  }
+
+  let previousCaution = -1;
+  for (const fact of value.cautions) {
+    if (
+      !isRecord(fact) ||
+      !exactKeys(fact, ["caution", "source", "path"]) ||
+      fact.path !== null
+    ) {
+      return false;
+    }
+    const cautionIndex = PROJECT_BRIEF_CAUTIONS.indexOf(
+      fact.caution as (typeof PROJECT_BRIEF_CAUTIONS)[number],
+    );
+    const sourceValid =
+      fact.caution === "archived"
+        ? fact.source === "github-metadata"
+        : fact.source === "analysis";
+
+    if (cautionIndex <= previousCaution || !sourceValid) return false;
+    previousCaution = cautionIndex;
+  }
+
+  return true;
 }
 
 function validDescriptor(
@@ -569,6 +678,7 @@ function validateAnalysisReport(value: unknown): value is AnalysisReport {
     !exactKeys(value, [
       "rulesetVersion",
       "repository",
+      "projectBrief",
       "overall",
       "confidence",
       "dimensions",
@@ -578,6 +688,7 @@ function validateAnalysisReport(value: unknown): value is AnalysisReport {
     ]) ||
     value.rulesetVersion !== RULESET_VERSION ||
     !validRepository(value.repository) ||
+    !validProjectBrief(value.projectBrief) ||
     !validCoverage(value.coverage) ||
     !Array.isArray(value.dimensions) ||
     value.dimensions.length !== DIMENSIONS.length

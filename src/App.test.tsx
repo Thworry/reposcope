@@ -13,6 +13,7 @@ import {
   perfectDuplicates,
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
+  perfectProjectBrief,
   perfectRepository,
 } from "./test/fixtures/metrics";
 import { buildFindings } from "./features/rules/findings";
@@ -60,6 +61,7 @@ function validReport(ref: RepoRef): AnalysisReport {
       commitSha: "a".repeat(40),
       analyzedAt,
     },
+    projectBrief: perfectProjectBrief,
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,

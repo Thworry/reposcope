@@ -6,6 +6,7 @@ import {
   perfectDuplicates,
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
+  perfectProjectBrief,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type { AnalysisReport } from "../analysis/model";
@@ -46,6 +47,7 @@ function validReport(): AnalysisReport {
       commitSha: "a".repeat(40),
       analyzedAt,
     },
+    projectBrief: perfectProjectBrief,
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,

@@ -6,6 +6,7 @@ import {
   perfectDuplicates,
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
+  perfectProjectBrief,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type { AnalysisReport, RepoRef } from "../analysis/model";
@@ -48,6 +49,7 @@ function validReport(): AnalysisReport {
       commitSha: "a".repeat(40),
       analyzedAt,
     },
+    projectBrief: perfectProjectBrief,
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -71,6 +73,73 @@ describe("report cache", () => {
     setCachedReport(ref, report, now);
     expect(cacheKey(ref)).toBe("reposcope:v1:example/project");
     expect(getCachedReport(ref, now)).toEqual(report);
+  });
+
+  it("removes a stale report without the required project brief", () => {
+    const stale = structuredClone(validReport()) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete stale.projectBrief;
+    sessionStorage.setItem(
+      cacheKey(ref),
+      JSON.stringify({ savedAt: now, report: stale }),
+    );
+
+    expect(getCachedReport(ref, now)).toBeNull();
+    expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
+  });
+
+  it("keeps the maximum valid project brief below the existing 2 MiB cap", () => {
+    const report = validReport();
+    report.repository.owner = ref.owner;
+    report.repository.repo = ref.repo;
+    report.repository.fullName = `${ref.owner}/${ref.repo}`;
+    report.repository.url = `https://github.com/${ref.owner}/${ref.repo}`;
+    report.projectBrief = {
+      excerpts: [
+        {
+          source: "github-description",
+          text: "a".repeat(480),
+          path: null,
+        },
+        { source: "readme", text: "b".repeat(320), path: "r".repeat(1_024) },
+      ],
+      kinds: [
+        { kind: "application", source: "manifest", path: "a".repeat(1_024) },
+        {
+          kind: "command-line-tool",
+          source: "tree",
+          path: "b".repeat(1_024),
+        },
+        { kind: "library", source: "manifest", path: "c".repeat(1_024) },
+      ],
+      cautions: [
+        { caution: "archived", source: "github-metadata", path: null },
+        {
+          caution: "insufficient-explanation",
+          source: "analysis",
+          path: null,
+        },
+        {
+          caution: "license-evidence-absent",
+          source: "analysis",
+          path: null,
+        },
+        {
+          caution: "entry-point-evidence-absent",
+          source: "analysis",
+          path: null,
+        },
+      ],
+    };
+    const serialized = JSON.stringify({ savedAt: now, report });
+
+    expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(
+      2 * 1024 * 1024,
+    );
+    setCachedReport(ref, report, now);
+    expect(sessionStorage.getItem(cacheKey(ref))).toBe(serialized);
   });
 
   it.each([now + 1, now - 900_001])(

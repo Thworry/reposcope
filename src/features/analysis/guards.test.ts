@@ -6,6 +6,7 @@ import {
   perfectDuplicates,
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
+  perfectProjectBrief,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import { buildFindings } from "../rules/findings";
@@ -40,6 +41,7 @@ export function validReport(): AnalysisReport {
       commitSha: "a".repeat(40),
       analyzedAt,
     },
+    projectBrief: perfectProjectBrief,
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -56,6 +58,316 @@ function cloneReport(): AnalysisReport {
 describe("isAnalysisReport", () => {
   it("accepts a complete internally consistent report", () => {
     expect(isAnalysisReport(validReport())).toBe(true);
+  });
+
+  it("accepts every valid project brief source and path pairing", () => {
+    expect(
+      isAnalysisReport({
+        ...validReport(),
+        projectBrief: {
+          excerpts: [
+            { source: "github-description", text: "Purpose", path: null },
+            { source: "readme", text: "More detail", path: "README.md" },
+          ],
+          kinds: [
+            { kind: "application", source: "manifest", path: "package.json" },
+            { kind: "library", source: "tree", path: "src/lib.ts" },
+            { kind: "plugin", source: "github-metadata", path: null },
+          ],
+          cautions: [
+            { caution: "archived", source: "github-metadata", path: null },
+            {
+              caution: "license-evidence-absent",
+              source: "analysis",
+              path: null,
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("requires the exact project brief shape at every level", () => {
+    const missing = structuredClone(validReport()) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete missing.projectBrief;
+    expect(isAnalysisReport(missing)).toBe(false);
+
+    const unknownTopLevel = cloneReport();
+    Object.assign(unknownTopLevel.projectBrief, { rawSource: "hidden" });
+    expect(isAnalysisReport(unknownTopLevel)).toBe(false);
+
+    const unknownNested = cloneReport();
+    const firstExcerpt = unknownNested.projectBrief.excerpts[0];
+    expect(firstExcerpt).toBeDefined();
+    if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
+    Object.assign(firstExcerpt, {
+      translated: true,
+    });
+    expect(isAnalysisReport(unknownNested)).toBe(false);
+  });
+
+  it.each([
+    [
+      "description with a path",
+      {
+        excerpts: [
+          {
+            source: "github-description",
+            text: "Purpose",
+            path: "README.md",
+          },
+        ],
+        kinds: [],
+        cautions: [],
+      },
+    ],
+    [
+      "README without a path",
+      {
+        excerpts: [{ source: "readme", text: "Purpose", path: null }],
+        kinds: [],
+        cautions: [],
+      },
+    ],
+    [
+      "manifest kind without a path",
+      {
+        excerpts: [],
+        kinds: [{ kind: "library", source: "manifest", path: null }],
+        cautions: [],
+      },
+    ],
+    [
+      "tree kind without a path",
+      {
+        excerpts: [],
+        kinds: [{ kind: "library", source: "tree", path: null }],
+        cautions: [],
+      },
+    ],
+    [
+      "metadata kind with a path",
+      {
+        excerpts: [],
+        kinds: [
+          { kind: "plugin", source: "github-metadata", path: "README.md" },
+        ],
+        cautions: [],
+      },
+    ],
+    [
+      "analysis kind with a path",
+      {
+        excerpts: [],
+        kinds: [{ kind: "documentation", source: "analysis", path: "docs" }],
+        cautions: [],
+      },
+    ],
+    [
+      "archived caution from analysis",
+      {
+        excerpts: [],
+        kinds: [],
+        cautions: [{ caution: "archived", source: "analysis", path: null }],
+      },
+    ],
+    [
+      "analysis caution from metadata",
+      {
+        excerpts: [],
+        kinds: [],
+        cautions: [
+          {
+            caution: "license-evidence-absent",
+            source: "github-metadata",
+            path: null,
+          },
+        ],
+      },
+    ],
+    [
+      "caution with a path",
+      {
+        excerpts: [],
+        kinds: [],
+        cautions: [
+          {
+            caution: "license-evidence-absent",
+            source: "analysis",
+            path: "LICENSE",
+          },
+        ],
+      },
+    ],
+  ])("rejects %s", (_name, projectBrief) => {
+    expect(isAnalysisReport({ ...validReport(), projectBrief })).toBe(false);
+  });
+
+  it("rejects duplicate or non-canonical project brief ordering", () => {
+    for (const projectBrief of [
+      {
+        excerpts: [
+          { source: "readme", text: "Detail", path: "README.md" },
+          { source: "github-description", text: "Purpose", path: null },
+        ],
+        kinds: [],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [
+          { kind: "library", source: "manifest", path: "package.json" },
+          { kind: "application", source: "manifest", path: "package.json" },
+        ],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [
+          { kind: "library", source: "manifest", path: "package.json" },
+          { kind: "library", source: "tree", path: "src/lib.ts" },
+        ],
+        cautions: [],
+      },
+      {
+        excerpts: [],
+        kinds: [],
+        cautions: [
+          {
+            caution: "license-evidence-absent",
+            source: "analysis",
+            path: null,
+          },
+          { caution: "archived", source: "github-metadata", path: null },
+        ],
+      },
+      {
+        excerpts: [],
+        kinds: [],
+        cautions: [
+          {
+            caution: "insufficient-explanation",
+            source: "analysis",
+            path: null,
+          },
+          {
+            caution: "insufficient-explanation",
+            source: "analysis",
+            path: null,
+          },
+        ],
+      },
+    ]) {
+      expect(isAnalysisReport({ ...validReport(), projectBrief })).toBe(false);
+    }
+  });
+
+  it("enforces project brief item and Unicode code-point budgets", () => {
+    const threeExcerpts = {
+      ...structuredClone(perfectProjectBrief),
+      excerpts: [
+        { source: "github-description", text: "one", path: null },
+        { source: "readme", text: "two", path: "README.md" },
+        { source: "readme", text: "three", path: "README.md" },
+      ],
+    };
+    expect(
+      isAnalysisReport({ ...validReport(), projectBrief: threeExcerpts }),
+    ).toBe(false);
+
+    const fourKinds = {
+      excerpts: [],
+      kinds: [
+        { kind: "application", source: "manifest", path: "package.json" },
+        {
+          kind: "command-line-tool",
+          source: "manifest",
+          path: "package.json",
+        },
+        { kind: "library", source: "manifest", path: "package.json" },
+        { kind: "plugin", source: "manifest", path: "package.json" },
+      ],
+      cautions: [],
+    };
+    expect(
+      isAnalysisReport({ ...validReport(), projectBrief: fourKinds }),
+    ).toBe(false);
+
+    const tooLong = structuredClone(perfectProjectBrief);
+    const firstTooLongExcerpt = tooLong.excerpts[0];
+    expect(firstTooLongExcerpt).toBeDefined();
+    if (firstTooLongExcerpt === undefined) {
+      throw new Error("Missing fixture excerpt");
+    }
+    firstTooLongExcerpt.text = "a".repeat(481);
+    expect(isAnalysisReport({ ...validReport(), projectBrief: tooLong })).toBe(
+      false,
+    );
+
+    const combinedTooLong = structuredClone(perfectProjectBrief);
+    const firstCombinedExcerpt = combinedTooLong.excerpts[0];
+    const secondCombinedExcerpt = combinedTooLong.excerpts[1];
+    expect(firstCombinedExcerpt).toBeDefined();
+    expect(secondCombinedExcerpt).toBeDefined();
+    if (
+      firstCombinedExcerpt === undefined ||
+      secondCombinedExcerpt === undefined
+    ) {
+      throw new Error("Missing fixture excerpts");
+    }
+    firstCombinedExcerpt.text = "a".repeat(401);
+    secondCombinedExcerpt.text = "b".repeat(400);
+    expect(
+      isAnalysisReport({ ...validReport(), projectBrief: combinedTooLong }),
+    ).toBe(false);
+
+    const exactAstralLimit = structuredClone(perfectProjectBrief);
+    exactAstralLimit.excerpts = [
+      {
+        source: "github-description",
+        text: "🚀".repeat(480),
+        path: null,
+      },
+    ];
+    expect(
+      isAnalysisReport({ ...validReport(), projectBrief: exactAstralLimit }),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["invalid path", "Purpose", "../README.md"],
+    ["bidi control", "Purpose\u202ehidden", "README.md"],
+    ["malformed surrogate", "Purpose\ud800", "README.md"],
+  ])("rejects project brief %s", (_name, text, path) => {
+    const projectBrief = {
+      excerpts: [{ source: "readme", text, path }],
+      kinds: [],
+      cautions: [],
+    };
+    expect(isAnalysisReport({ ...validReport(), projectBrief })).toBe(false);
+  });
+
+  it("is total for cyclic and throwing project brief values", () => {
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    const cyclicReport = cloneReport();
+    Object.assign(cyclicReport.projectBrief, { excerpts: cyclic });
+    expect(() => isAnalysisReport(cyclicReport)).not.toThrow();
+    expect(isAnalysisReport(cyclicReport)).toBe(false);
+
+    const throwingReport = cloneReport();
+    Object.assign(throwingReport, {
+      projectBrief: new Proxy(perfectProjectBrief, {
+        get() {
+          throw new Error("hostile project brief");
+        },
+      }),
+    });
+    expect(() => isAnalysisReport(throwingReport)).not.toThrow();
+    expect(isAnalysisReport(throwingReport)).toBe(false);
   });
 
   it.each([

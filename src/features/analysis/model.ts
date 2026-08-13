@@ -462,6 +462,7 @@ export interface AnalysisReport {
     commitSha: string;
     analyzedAt: string;
   };
+  projectBrief: ProjectBrief;
   overall: OverallResult;
   confidence: ConfidenceResult;
   dimensions: DimensionResult[];

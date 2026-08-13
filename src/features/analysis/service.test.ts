@@ -6,12 +6,14 @@ import {
   perfectDuplicates,
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
+  perfectProjectBrief,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
 import type { AnalysisReport } from "./model";
 import { analyzeRepository } from "./service";
+import { cacheKey } from "../cache/report-cache";
 
 function validReport(): AnalysisReport {
   const analyzedAt = "2026-08-11T12:00:00.000Z";
@@ -40,6 +42,7 @@ function validReport(): AnalysisReport {
       commitSha: "a".repeat(40),
       analyzedAt,
     },
+    projectBrief: perfectProjectBrief,
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -80,6 +83,35 @@ describe("analyzeRepository", () => {
       { force: true, runner, nowMs: () => 1_002 },
     );
     expect(runner).toHaveBeenCalledTimes(2);
+  });
+
+  it("recomputes and replaces a stale cached report without a project brief", async () => {
+    const report = validReport();
+    const stale = structuredClone(report) as unknown as Record<string, unknown>;
+    delete stale.projectBrief;
+    sessionStorage.setItem(
+      cacheKey({ owner: "example", repo: "project" }),
+      JSON.stringify({ savedAt: 1_000, report: stale }),
+    );
+    const runner = vi.fn(() => ({
+      promise: Promise.resolve(report),
+      cancel: vi.fn(),
+    }));
+
+    await expect(
+      analyzeRepository(
+        { owner: "example", repo: "project" },
+        { runner, nowMs: () => 1_000 },
+      ),
+    ).resolves.toEqual(report);
+    expect(runner).toHaveBeenCalledOnce();
+    expect(
+      JSON.parse(
+        sessionStorage.getItem(
+          cacheKey({ owner: "example", repo: "project" }),
+        ) ?? "null",
+      ),
+    ).toMatchObject({ report: { projectBrief: perfectProjectBrief } });
   });
 
   it("rejects an invalid internal clock before starting a worker", async () => {
