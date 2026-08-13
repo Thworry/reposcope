@@ -1,5 +1,6 @@
 import type { AnalysisReport, Language } from "../features/analysis/model";
 import { formatMessage, messages } from "../i18n/messages";
+import { ProjectBriefView } from "./project-brief";
 
 interface ReportSummaryProps {
   report: AnalysisReport;
@@ -51,11 +52,6 @@ export function ReportSummary({ report, language }: ReportSummaryProps) {
       <div className="report-summary__heading">
         <div>
           <h2 id="report-title">{report.repository.fullName}</h2>
-          {report.repository.description === null ? null : (
-            <p className="report-summary__description">
-              {report.repository.description}
-            </p>
-          )}
           <a
             href={repositoryHref(report)}
             target="_blank"
@@ -78,6 +74,14 @@ export function ReportSummary({ report, language }: ReportSummaryProps) {
           <span>{copy[OVERALL_LABEL_KEYS[report.overall.label]]}</span>
         </div>
       </div>
+
+      <ProjectBriefView
+        brief={report.projectBrief}
+        owner={report.repository.owner}
+        repo={report.repository.repo}
+        commitSha={report.repository.commitSha}
+        language={language}
+      />
 
       <div className="report-summary__flags">
         {report.overall.generalOnly ? (

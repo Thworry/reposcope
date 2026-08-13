@@ -74,7 +74,8 @@ describe("ReportView", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "owner/repo" }),
     ).toBeVisible();
-    expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeVisible();
+    expect(screen.queryByText('<img src=x onerror="alert(1)">')).toBeNull();
+    expect(screen.getByRole("region", { name: "Project brief" })).toBeVisible();
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getByRole("region", { name: "Methodology" })).toBeVisible();
     expect(container.querySelectorAll("#methodology")).toHaveLength(1);

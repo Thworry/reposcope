@@ -7,7 +7,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AnalysisReport } from "../features/analysis/model";
-import { perfectProjectBrief } from "../test/fixtures/metrics";
 import { ReportSummary } from "./report-summary";
 
 const report = {
@@ -24,7 +23,17 @@ const report = {
     commitSha: "0123456789012345678901234567890123456789",
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
-  projectBrief: perfectProjectBrief,
+  projectBrief: {
+    excerpts: [
+      {
+        source: "github-description",
+        text: "A bounded project purpose.",
+        path: null,
+      },
+    ],
+    kinds: [{ kind: "application", source: "manifest", path: "package.json" }],
+    cautions: [],
+  },
   overall: {
     score: 67,
     label: "needs-attention",
@@ -55,13 +64,17 @@ const report = {
 } satisfies AnalysisReport;
 
 describe("ReportSummary", () => {
-  it("renders hostile repository metadata only as text and makes numeric scope primary", () => {
+  it("renders the project brief once, omits duplicate raw metadata, and makes numeric scope primary", () => {
     render(<ReportSummary report={report} language="en" />);
 
     expect(
       screen.getByRole("heading", { level: 2, name: "owner/repo" }),
     ).toBeVisible();
-    expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeVisible();
+    expect(screen.queryByText('<img src=x onerror="alert(1)">')).toBeNull();
+    expect(
+      screen.getAllByRole("region", { name: "Project brief" }),
+    ).toHaveLength(1);
+    expect(screen.getByText("A bounded project purpose.")).toBeVisible();
     expect(document.querySelector("img")).toBeNull();
     expect(screen.getByText("67 / 100")).toBeVisible();
     expect(screen.getByText(/Needs attention/i)).toBeVisible();
