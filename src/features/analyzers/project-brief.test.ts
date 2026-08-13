@@ -400,8 +400,87 @@ describe("project brief purpose extraction", () => {
   });
 
   it.each([
+    [
+      "custom after prose",
+      "See custom:project-purpose for details.",
+      "See for details.",
+    ],
+    [
+      "about after punctuation",
+      "See—about:project-purpose for details.",
+      "See— for details.",
+    ],
+    [
+      "doi after prose",
+      "Resolve doi:10.1000/project-purpose before release.",
+      "Resolve before release.",
+    ],
+    [
+      "blob after CJK prose",
+      "请查看 blob:https://example.invalid/project-purpose 获取详情。",
+      "请查看 获取详情。",
+    ],
+  ])("removes an embedded opaque URI %s", (_label, readme, expected) => {
+    const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+    expect(brief.excerpts).toEqual([
+      { source: "readme", text: expected, path: "README.md" },
+    ]);
+    expect(JSON.stringify(brief)).not.toMatch(
+      /project-purpose|example\.invalid|10\.1000/u,
+    );
+  });
+
+  it.each([
+    ["after CJK prose", "用途//example.invalid/private-purpose", "用途"],
+    [
+      "after punctuation",
+      "Purpose—//example.invalid/private-purpose",
+      "Purpose—",
+    ],
+    [
+      "after normalized CJK punctuation",
+      "用途：//example.invalid/private-purpose",
+      "用途:",
+    ],
+  ])("removes a protocol-relative URI %s", (_label, readme, expected) => {
+    const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+    expect(brief.excerpts).toEqual([
+      { source: "readme", text: expected, path: "README.md" },
+    ]);
+    expect(JSON.stringify(brief)).not.toMatch(
+      /example\.invalid|private-purpose/u,
+    );
+  });
+
+  it.each([
+    [
+      "embedded opaque URI",
+      "[See custom:project-purpose for details.](https://destination.invalid)",
+      "See for details.",
+    ],
+    [
+      "opaque-only label",
+      "[about:project-purpose](https://destination.invalid) provides documentation.",
+      "provides documentation.",
+    ],
+  ])("removes an %s from a link label", (_label, readme, expected) => {
+    const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+    expect(brief.excerpts).toEqual([
+      { source: "readme", text: expected, path: "README.md" },
+    ]);
+    expect(JSON.stringify(brief)).not.toMatch(
+      /project-purpose|destination\.invalid/u,
+    );
+  });
+
+  it.each([
     "1custom://host remains a literal identifier.",
     "custom:// URI syntax is documented.",
+    "The path//segment identifier stays visible.",
+    "The src/path//segment identifier stays visible.",
     "The data: field stores repository text.",
     "A javascript: parser reads source safely.",
     "Call tel: support when documentation is unclear.",
@@ -412,15 +491,26 @@ describe("project brief purpose extraction", () => {
   });
 
   it.each([
-    "custom:",
-    "custom: URI syntax is documented.",
-    "doi: field values are documented here.",
+    ["custom:", "custom:"],
+    ["custom: URI syntax is documented.", "custom: URI syntax is documented."],
+    [
+      "doi: field values are documented here.",
+      "doi: field values are documented here.",
+    ],
+    [
+      "The 1custom:project-purpose identifier stays visible.",
+      "The 1custom:project-purpose identifier stays visible.",
+    ],
+    [
+      "[custom: URI syntax](https://destination.invalid) is documented.",
+      "custom: URI syntax is documented.",
+    ],
   ])(
     "preserves a scheme token with an empty or space-separated payload: %s",
-    (readme) => {
+    (readme, expected) => {
       expect(
         briefFor({ files: [fetched("README.md", readme)] }).excerpts,
-      ).toEqual([{ source: "readme", text: readme, path: "README.md" }]);
+      ).toEqual([{ source: "readme", text: expected, path: "README.md" }]);
     },
   );
 

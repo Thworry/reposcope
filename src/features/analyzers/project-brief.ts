@@ -102,32 +102,6 @@ const PROSE_VERBS = new Set([
   "supports",
   "uses",
 ]);
-const OPAQUE_URI_SCHEMES = new Set([
-  "bitcoin",
-  "data",
-  "ethereum",
-  "facetime",
-  "file",
-  "geo",
-  "git",
-  "javascript",
-  "magnet",
-  "mailto",
-  "mms",
-  "news",
-  "nntp",
-  "sip",
-  "sips",
-  "sms",
-  "smsto",
-  "ssh",
-  "tel",
-  "telnet",
-  "urn",
-  "vbscript",
-  "webcal",
-  "xmpp",
-]);
 const PLUGIN_TOPICS = new Set(["plugin", "extension"]);
 const TEMPLATE_TOPICS = new Set([
   "repository-template",
@@ -267,7 +241,7 @@ function visibleLabel(value: string): string | null {
   const sanitized: string[] = [];
 
   for (let index = 0; index < label.length; index += 1) {
-    const urlLength = rawUriLength(label, index, 0);
+    const urlLength = rawUriLength(label, index);
 
     if (urlLength > 0) {
       index += urlLength - 1;
@@ -436,12 +410,23 @@ function hasUriTokenBoundary(value: string, start: number): boolean {
   return !/[A-Za-z0-9+._-]/u.test(value[start - 1] ?? "");
 }
 
-function hasProtocolRelativeBoundary(value: string, start: number): boolean {
-  if (start === 0) {
+function hasProtocolRelativeTokenBoundary(
+  value: string,
+  start: number,
+): boolean {
+  if (value[start - 1] !== ":") {
     return true;
   }
 
-  return /[\s([<{"'`]/u.test(value[start - 1] ?? "");
+  let tokenStart = start - 1;
+  while (isAsciiSchemeCharacter(value[tokenStart - 1])) {
+    tokenStart -= 1;
+  }
+
+  return (
+    tokenStart === start - 1 ||
+    (isAsciiLetter(value[tokenStart]) && hasUriTokenBoundary(value, tokenStart))
+  );
 }
 
 function uriPayloadLength(value: string, start: number): number {
@@ -458,18 +443,14 @@ function uriPayloadLength(value: string, start: number): number {
   return index - start;
 }
 
-function rawUriLength(
-  value: string,
-  start: number,
-  candidateStart: number,
-): number {
+function rawUriLength(value: string, start: number): number {
   if (!hasUriTokenBoundary(value, start)) {
     return 0;
   }
 
   if (
     startsWithAsciiInsensitive(value, start, "//") &&
-    hasProtocolRelativeBoundary(value, start)
+    hasProtocolRelativeTokenBoundary(value, start)
   ) {
     const payloadLength = uriPayloadLength(value, start + 2);
 
@@ -494,15 +475,10 @@ function rawUriLength(
     return 0;
   }
 
-  const scheme = value.slice(start, cursor).toLocaleLowerCase("en-US");
-  let payloadStart: number;
-  if (value[cursor + 1] === "/" && value[cursor + 2] === "/") {
-    payloadStart = cursor + 3;
-  } else if (OPAQUE_URI_SCHEMES.has(scheme) || start === candidateStart) {
-    payloadStart = cursor + 1;
-  } else {
-    return 0;
-  }
+  const payloadStart =
+    value[cursor + 1] === "/" && value[cursor + 2] === "/"
+      ? cursor + 3
+      : cursor + 1;
 
   const payloadLength = uriPayloadLength(value, payloadStart);
 
@@ -516,19 +492,13 @@ function visibleMarkdownLine(value: string): string | null {
   }
 
   const visible: string[] = [];
-  let candidateStart = 0;
-
-  while (/\s/u.test(value[candidateStart] ?? "")) {
-    candidateStart += 1;
-  }
-
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
 
     if (character === undefined) {
       return null;
     }
-    const urlLength = rawUriLength(value, index, candidateStart);
+    const urlLength = rawUriLength(value, index);
 
     if (urlLength > 0) {
       index += urlLength - 1;
