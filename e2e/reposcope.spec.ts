@@ -14,6 +14,17 @@ const GITHUB_RATE_LIMIT_DOCS =
   "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api";
 const TYPESCRIPT_SCORES = [53, 70, 100, 100, 60, 30] as const;
 const PYTHON_SCORES = [53, 50, 100, 100, 33, 30] as const;
+const FIXTURE_DESCRIPTION = "A deterministic fixture repository for RepoScope.";
+const TYPESCRIPT_PURPOSE =
+  "This small application demonstrates deterministic, browser-side inspection of a public repository.";
+const PYTHON_PURPOSE =
+  "This small command-line tool demonstrates deterministic inspection of a Python repository.";
+const GO_PURPOSE =
+  "This small Go program demonstrates general-only inspection of a recognized but unsupported language.";
+const HOSTILE_DESCRIPTION_PURPOSE =
+  "Safe description text stays visible without its destination or image.";
+const HOSTILE_README_PURPOSE =
+  "Safe README text stays visible without its destination or image.";
 const EXPECTED_TYPESCRIPT_MARKDOWN = [
   "# RepoScope improvement checklist",
   "",
@@ -154,6 +165,23 @@ async function expectReport(page: Page, name = "owner/repo"): Promise<void> {
   await expect(page.getByRole("heading", { level: 2, name })).toBeVisible({
     timeout: 30_000,
   });
+}
+
+function projectBrief(page: Page, name = "Project brief") {
+  return page.getByRole("region", { name });
+}
+
+async function expectEnglishBriefStructure(page: Page): Promise<void> {
+  const brief = projectBrief(page);
+
+  for (const heading of [
+    "What it does",
+    "Likely fit",
+    "What it is",
+    "Before you use it",
+  ]) {
+    await expect(brief.getByRole("heading", { name: heading })).toBeVisible();
+  }
 }
 
 async function dimensionScores(page: Page): Promise<number[]> {
@@ -430,12 +458,51 @@ test("Chinese language persists and switching a report does not refetch", async 
     .fill("https://github.com/owner/repo");
   await page.getByRole("button", { name: "分析项目" }).click();
   await expectReport(page);
+  const chineseBrief = projectBrief(page, "项目速览");
+  for (const heading of ["项目用途", "可能适用", "项目类型", "使用前注意"]) {
+    await expect(
+      chineseBrief.getByRole("heading", { name: heading }),
+    ).toBeVisible();
+  }
+  await expect(
+    chineseBrief.getByText(FIXTURE_DESCRIPTION, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    chineseBrief.getByText(TYPESCRIPT_PURPOSE, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    chineseBrief.getByText("应用程序", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    chineseBrief.getByRole("link", { name: "README.md（检查的提交）" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/README.md`,
+  );
+  await expect(page.getByText(COMMIT_SHA, { exact: true })).toBeVisible();
+  await expect(page.locator(".report-summary__score strong")).toHaveText(
+    "74 / 100",
+  );
   const counts = {
     rest: ledger.restGets().length,
     raw: ledger.rawGets().length,
   };
   await page.getByRole("button", { name: "English" }).click();
   await expect(page.getByText("Dimension scores")).toBeVisible();
+  await expectEnglishBriefStructure(page);
+  await expect(
+    projectBrief(page).getByText(FIXTURE_DESCRIPTION, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    projectBrief(page).getByText(TYPESCRIPT_PURPOSE, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(COMMIT_SHA, { exact: true })).toBeVisible();
+  await expect(page.locator(".report-summary__score strong")).toHaveText(
+    "74 / 100",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Repository scan in progress" }),
+  ).toHaveCount(0);
   expect(ledger.restGets()).toHaveLength(counts.rest);
   expect(ledger.rawGets()).toHaveLength(counts.raw);
   expectAnalyzerChunks(ledger, { jsTs: true, python: false });
@@ -457,6 +524,41 @@ test("complete TypeScript report is bounded, shareable, responsive, and accessib
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 8);
+  await expectEnglishBriefStructure(page);
+  const brief = projectBrief(page);
+  await expect(
+    brief.getByText(FIXTURE_DESCRIPTION, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(TYPESCRIPT_PURPOSE, { exact: true }),
+  ).toBeVisible();
+  await expect(brief.getByText("Application", { exact: true })).toBeVisible();
+  await expect(
+    brief.getByText(
+      "Worth considering if you need a Application for the stated purpose above.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("No additional cautions are included in this brief.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("GitHub repository description", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    brief.getByRole("link", { name: "README.md at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/README.md`,
+  );
+  await expect(
+    brief.getByRole("link", { name: "package.json at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/package.json`,
+  );
   await expect(page.locator(".report-summary__score strong")).toHaveText(
     "74 / 100",
   );
@@ -513,6 +615,38 @@ test("complete Python report loads only the Python deep analyzer", async ({
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 8);
+  await expectEnglishBriefStructure(page);
+  const brief = projectBrief(page);
+  await expect(
+    brief.getByText(FIXTURE_DESCRIPTION, { exact: true }),
+  ).toBeVisible();
+  await expect(brief.getByText(PYTHON_PURPOSE, { exact: true })).toBeVisible();
+  await expect(
+    brief.getByText("Command-line tool", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(
+      "Worth considering if you need a Command-line tool for the stated purpose above.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("No additional cautions are included in this brief.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    brief.getByRole("link", { name: "README.md at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/README.md`,
+  );
+  await expect(
+    brief.getByRole("link", { name: "pyproject.toml at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/pyproject.toml`,
+  );
   await expect(page.locator(".report-summary__score strong")).toHaveText(
     "66 / 100",
   );
@@ -538,6 +672,33 @@ test("unsupported Go remains a preliminary general-only report", async ({
   await submitRepository(page);
   await expectReport(page);
   await expectBoundedRequests(ledger, 2);
+  await expectEnglishBriefStructure(page);
+  const brief = projectBrief(page);
+  await expect(
+    brief.getByText(FIXTURE_DESCRIPTION, { exact: true }),
+  ).toBeVisible();
+  await expect(brief.getByText(GO_PURPOSE, { exact: true })).toBeVisible();
+  await expect(
+    brief.getByText("Unknown from public evidence.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(
+      "Compare the stated purpose with your needs; the repository type could not be established reliably.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const entryPointCaution = brief.getByRole("listitem").filter({
+    hasText: "No structured or conventional entry point was detected.",
+  });
+  await expect(entryPointCaution).toContainText(
+    "Repository inspection evidence",
+  );
+  await expect(
+    brief.getByRole("link", { name: "README.md at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/README.md`,
+  );
   await expect(page.getByText("General-only", { exact: true })).toBeVisible();
   await expect(page.getByText("Preliminary", { exact: true })).toBeVisible();
   await expect(page.getByText("Unavailable", { exact: true })).toHaveCount(2);
@@ -548,6 +709,70 @@ test("unsupported Go remains a preliminary general-only report", async ({
   const confidencePercent = /(?<percent>\d+)%/u.exec(confidence ?? "")?.groups
     ?.percent;
   expect(Number(confidencePercent ?? 101)).toBeLessThanOrEqual(60);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
+  await runtime.assertClean();
+});
+
+test("minimal evidence completes with an honest project-brief fallback", async ({
+  context,
+  page,
+}) => {
+  const runtime = await monitorRuntime(context, page);
+  const ledger = await installGitHubRoutes(context, page, { kind: "minimal" });
+  await gotoLanding(page);
+  expectAnalyzerChunks(ledger, { jsTs: false, python: false });
+  await submitRepository(page);
+  await expectReport(page);
+  await expectBoundedRequests(ledger, 1);
+  await expectEnglishBriefStructure(page);
+
+  const brief = projectBrief(page);
+  await expect(
+    brief.getByText(
+      "Public repository evidence is insufficient to explain this project reliably.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("Public evidence is insufficient to judge fit.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    brief.getByText("Unknown from public evidence.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    brief.getByText(
+      "The public description and README do not explain the project clearly enough.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const explanationCaution = brief.getByRole("listitem").filter({
+    hasText:
+      "The public description and README do not explain the project clearly enough.",
+  });
+  await expect(explanationCaution).toContainText(
+    "Repository inspection evidence",
+  );
+  await expect(
+    brief.getByText("No structured or conventional entry point was detected.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const entryPointCaution = brief.getByRole("listitem").filter({
+    hasText: "No structured or conventional entry point was detected.",
+  });
+  await expect(entryPointCaution).toContainText(
+    "Repository inspection evidence",
+  );
+  await expect(
+    brief.getByRole("link", { name: /README.*inspected commit/u }),
+  ).toHaveCount(0);
+  await expect(
+    brief.getByText("GitHub repository description", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText("General-only", { exact: true })).toBeVisible();
+  await expect(page.getByText("Preliminary", { exact: true })).toBeVisible();
   expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await runtime.assertClean();
 });
@@ -647,14 +872,36 @@ test("hostile repository strings stay inert text", async ({
   expectAnalyzerChunks(ledger, { jsTs: false, python: false });
   await submitRepository(page);
   await expectReport(page);
+  await expectEnglishBriefStructure(page);
+  const brief = projectBrief(page);
   await expect(
-    page.getByText(/<img src="https:\/\/evil\.example\/pixel"/u),
+    brief.getByText(HOSTILE_DESCRIPTION_PURPOSE, { exact: true }),
   ).toBeVisible();
+  await expect(
+    brief.getByText(HOSTILE_README_PURPOSE, { exact: true }),
+  ).toBeVisible();
+  await expect(brief).not.toContainText(/evil\.example|onerror|<script/iu);
   await expect(
     page.locator("script[src*='evil.example'], img[src^='http']"),
   ).toHaveCount(0);
+  await expect(page.locator("[onerror]")).toHaveCount(0);
   await expect(
-    page.getByText(/<img src=x onerror=alert\(1\)>\.ts/u).first(),
+    brief.getByRole("link", { name: "README.md at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/README.md`,
+  );
+  await expect(brief.getByText("Application", { exact: true })).toBeVisible();
+  await expect(
+    brief.getByRole("link", { name: "package.json at inspected commit" }),
+  ).toHaveAttribute(
+    "href",
+    `https://github.com/owner/repo/blob/${COMMIT_SHA}/package.json`,
+  );
+  await expect(
+    brief.getByText("No additional cautions are included in this brief.", {
+      exact: true,
+    }),
   ).toBeVisible();
   expect(ledger.restGets()).toHaveLength(3);
   expectAnalyzerChunks(ledger, { jsTs: true, python: false });

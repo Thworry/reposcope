@@ -1,5 +1,5 @@
 export const SOURCE_FILES = {
-  "README.md": `# Repo fixture\n\n## Install\n\n\`\`\`sh\npnpm install\n\`\`\`\n\n## Usage\n\nRun \`pnpm start\` to inspect the deterministic example.\n\n## Testing\n\nRun \`pnpm test\`.\n`,
+  "README.md": `# Repo fixture\n\n## Overview\n\nThis small application demonstrates deterministic, browser-side inspection of a public repository.\n\n## Install\n\n\`\`\`sh\npnpm install\n\`\`\`\n\n## Usage\n\nRun \`pnpm start\` to inspect the deterministic example.\n\n## Testing\n\nRun \`pnpm test\`.\n`,
   "package.json": JSON.stringify({
     name: "repo-fixture",
     version: "1.0.0",
@@ -20,7 +20,7 @@ export const SOURCE_FILES = {
 } as const;
 
 export const PYTHON_SOURCE_FILES = {
-  "README.md": SOURCE_FILES["README.md"],
+  "README.md": `# Repo fixture\n\n## Overview\n\nThis small command-line tool demonstrates deterministic inspection of a Python repository.\n\n## Install\n\n\`\`\`sh\npip install .\n\`\`\`\n\n## Usage\n\nRun \`repo-fixture\` to inspect the deterministic example.\n\n## Testing\n\nRun \`pytest\`.\n`,
   "pyproject.toml": `[project]\nname = "repo-fixture"\nversion = "1.0.0"\n\n[project.scripts]\nrepo-fixture = "src.main:main"\n\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n`,
   "src/__init__.py": "",
   "src/main.py": `"""Small deterministic fixture application."""\n\ndef total(values: list[int]) -> int:\n    """Return the sum of values."""\n    if not values:\n        return 0\n    return sum(values)\n\ndef main() -> None:\n    print(total([1, 2, 3]))\n`,
@@ -31,9 +31,19 @@ export const PYTHON_SOURCE_FILES = {
 } as const;
 
 export const GO_SOURCE_FILES = {
-  "README.md": SOURCE_FILES["README.md"],
+  "README.md": `# Repo fixture\n\n## Overview\n\nThis small Go program demonstrates general-only inspection of a recognized but unsupported language.\n\n## Install\n\n\`\`\`sh\ngo build ./...\n\`\`\`\n\n## Usage\n\nRun the compiled example locally.\n\n## Testing\n\nRun \`go test ./...\`.\n`,
   "go.mod": "module github.com/owner/repo\n\ngo 1.24\n",
   "main.go": `package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("fixture") }\n`,
+} as const;
+
+export const MINIMAL_SOURCE_FILES = {
+  "package.json": JSON.stringify({ name: "minimal-fixture" }),
+} as const;
+
+export const HOSTILE_SOURCE_FILES = {
+  ...SOURCE_FILES,
+  "README.md": `# Hostile fixture\n\n## Overview\n\nSafe README text [stays visible](https://evil.example/readme) without its destination or image. <img src="https://evil.example/readme-pixel" onerror="alert(1)"><script src="https://evil.example/readme.js"></script>\n\n![tracking pixel](https://evil.example/pixel.png)\n\n## Install\n\n\`\`\`sh\npnpm install\n\`\`\`\n\n## Usage\n\nRun \`pnpm start\` to inspect the deterministic example.\n\n## Testing\n\nRun \`pnpm test\`.\n`,
+  "src/<img src=x onerror=alert(1)>.ts": `export const hostileText = "<script src=https://evil.example/x.js></script>";\n`,
 } as const;
 
 export type SourceFileMap = Readonly<Record<string, string>>;

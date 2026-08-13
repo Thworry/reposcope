@@ -313,6 +313,14 @@ describe("open-source repository contract", () => {
       ["does not execute", "不会执行"],
       ["authenticate its behavior", "认证项目行为"],
       ["certify its correctness", "证明项目正确"],
+      ["project brief", "项目速览"],
+      [
+        "public GitHub description and preferred README",
+        "公开 GitHub 仓库说明和首选 README",
+      ],
+      ["source language", "源语言"],
+      ["does not use an AI service", "不使用 AI 服务"],
+      ["not personalized advice", "不是个性化建议"],
     ] as const) {
       expect(english).toContain(englishStatement);
       expect(chinese).toContain(chineseStatement);
@@ -328,6 +336,12 @@ describe("open-source repository contract", () => {
     expect(changelog).toMatch(/^## \[Unreleased\]$/mu);
     expect(changelog).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
     expect(changelog).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
+    expect(changelog).toContain(
+      "Added a deterministic, evidence-linked project brief so users can quickly understand the stated purpose and likely kind of any inspected public repository.",
+    );
+    expect(changelog).toContain("does not use an AI service");
+    expect(changelog).toContain("not personalized advice");
+    expect(changelog).toContain(`ruleset \`${RULESET_VERSION}\``);
     expect(packageManifest.version).toBe("0.1.1");
   });
 

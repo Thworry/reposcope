@@ -5,6 +5,8 @@ import repositoryJson from "./fixtures/repository.json" with { type: "json" };
 import treeJson from "./fixtures/tree.json" with { type: "json" };
 import {
   GO_SOURCE_FILES,
+  HOSTILE_SOURCE_FILES,
+  MINIMAL_SOURCE_FILES,
   PYTHON_SOURCE_FILES,
   SOURCE_FILES,
   type SourceFileMap,
@@ -18,6 +20,7 @@ export type FixtureKind =
   | "typescript"
   | "python"
   | "go"
+  | "minimal"
   | "partial"
   | "hostile"
   | "not-found"
@@ -85,6 +88,13 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
       sources: GO_SOURCE_FILES,
     };
   }
+  if (kind === "minimal") {
+    return {
+      repository: { ...baseRepository, description: null },
+      tree: treeFor(MINIMAL_SOURCE_FILES),
+      sources: MINIMAL_SOURCE_FILES,
+    };
+  }
   if (kind === "partial") {
     return {
       repository: baseRepository,
@@ -93,19 +103,15 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
     };
   }
   if (kind === "hostile") {
-    const hostile = {
-      ...SOURCE_FILES,
-      "src/<img src=x onerror=alert(1)>.ts": `export const = "<script src=https://evil.example/x.js></script>";\n`,
-    };
     return {
       repository: {
         ...baseRepository,
         description:
-          '</p><img src="https://evil.example/pixel" onerror="alert(1)"><script>alert(1)</script>',
+          'Safe description text [stays visible](https://evil.example/description) without its destination or image. <img src="https://evil.example/description-pixel" onerror="alert(1)"><script src="https://evil.example/description.js"></script>',
         topics: ["<svg/onload=alert(1)>"],
       },
-      tree: treeFor(hostile),
-      sources: hostile,
+      tree: treeFor(HOSTILE_SOURCE_FILES),
+      sources: HOSTILE_SOURCE_FILES,
     };
   }
   return {

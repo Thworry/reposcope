@@ -13,12 +13,14 @@ RepoScope is an evidence inspector, not a verdict. It does not run a repository,
 1. Open the [RepoScope site](https://thworry.github.io/reposcope/).
 2. Paste one public URL in the form `https://github.com/owner/repository`.
 3. Choose **Analyze repository**. RepoScope handles one repository at a time.
-4. Review the score, confidence, six dimensions, strengths, improvements, coverage, and file-linked evidence.
+4. Start with the project brief, then review the score, confidence, six dimensions, strengths, improvements, coverage, and file-linked evidence.
 5. Use **English / 简体中文** to change the interface language. Switching language does not refetch data or recompute scores.
 
 A successful report has a share URL containing only the repository slug. A fresh scan makes exactly three unauthenticated, read-only GitHub REST requests, then bounded reads from immutable raw-file URLs pinned to the inspected commit.
 
 General inspection works for repositories in any language. Deep static metrics are available for JavaScript, TypeScript, and Python. When supported source does not meet the applicability threshold, readability and complexity are unavailable and the overall result is labeled **general-only** and **preliminary**.
+
+For any inspected public repository, the deterministic project brief explains the stated purpose and likely project kind from the public GitHub description and preferred README, with evidence links pinned to the inspected commit. Repository-authored purpose prose remains in its source language. The brief does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
 
 See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
 
