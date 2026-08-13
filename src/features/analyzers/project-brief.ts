@@ -127,6 +127,12 @@ interface PyprojectKindEvidence {
   plugin: boolean;
 }
 
+interface FenceLine {
+  marker: "`" | "~";
+  length: number;
+  remainder: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -223,17 +229,41 @@ function visibleLabel(value: string): string | null {
     appendVisible(visible, character);
   }
 
-  return visible.join("").trim();
+  const label = visible.join("").trim();
+  const sanitized: string[] = [];
+
+  for (let index = 0; index < label.length; index += 1) {
+    const urlLength = rawUrlLength(label, index);
+
+    if (urlLength > 0) {
+      index += urlLength - 1;
+    } else {
+      sanitized.push(label[index] ?? "");
+    }
+  }
+
+  return sanitized.join("").trim();
 }
 
 function skipLinkDestination(value: string, start: number): number | null {
   let depth = 1;
+  let quote: '"' | "'" | null = null;
 
   for (let index = start + 1; index < value.length; index += 1) {
     const character = value[index];
 
     if (character === "\\") {
       index += 1;
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
       continue;
     }
     if (character === "(") {
@@ -295,8 +325,22 @@ function skipDelimitedCode(value: string, start: number): number | null {
 }
 
 function skipAngleConstruct(value: string, start: number): number | null {
+  let quote: '"' | "'" | null = null;
+
   for (let index = start + 1; index < value.length; index += 1) {
-    if (value[index] === ">") {
+    const character = value[index];
+
+    if (quote !== null) {
+      if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") {
       return index;
     }
   }
@@ -330,7 +374,11 @@ function rawUrlLength(value: string, start: number): number {
   const hasUrlPrefix =
     startsWithAsciiInsensitive(value, start, "https://") ||
     startsWithAsciiInsensitive(value, start, "http://") ||
-    startsWithAsciiInsensitive(value, start, "mailto:");
+    startsWithAsciiInsensitive(value, start, "ftp://") ||
+    startsWithAsciiInsensitive(value, start, "ssh://") ||
+    startsWithAsciiInsensitive(value, start, "mailto:") ||
+    startsWithAsciiInsensitive(value, start, "//") ||
+    startsWithAsciiInsensitive(value, start, "www.");
 
   if (!hasUrlPrefix) {
     return 0;
@@ -482,34 +530,44 @@ function isCommandOnly(value: string): boolean {
   }
 
   const tokens = trimmed.split(/\s+/u);
-  const executable = tokens[0]
-    ?.replace(/^\.\//u, "")
-    .toLocaleLowerCase("en-US");
+  const rawExecutable = tokens[0]?.replace(/^\.\//u, "");
+  const executable = rawExecutable?.toLocaleLowerCase("en-US");
   const secondToken = tokens[1]
     ?.replace(/[^\p{L}-]+$/gu, "")
     .toLocaleLowerCase("en-US");
 
   return (
     executable !== undefined &&
+    rawExecutable === executable &&
     COMMAND_EXECUTABLES.has(executable) &&
     (secondToken === undefined || !PROSE_VERBS.has(secondToken))
   );
 }
 
-function fenceMarker(value: string): { marker: string; length: number } | null {
-  const trimmed = value.trimStart();
-  const marker = trimmed[0];
+function fenceLine(value: string): FenceLine | null {
+  let start = 0;
+
+  while (value[start] === " " && start < 4) {
+    start += 1;
+  }
+  if (start > 3) {
+    return null;
+  }
+
+  const marker = value[start];
 
   if (marker !== "`" && marker !== "~") {
     return null;
   }
 
   let length = 0;
-  while (trimmed[length] === marker) {
+  while (value[start + length] === marker) {
     length += 1;
   }
 
-  return length >= 3 ? { marker, length } : null;
+  return length >= 3
+    ? { marker, length, remainder: value.slice(start + length) }
+    : null;
 }
 
 function heading(value: string): { level: number; text: string } | null {
@@ -533,6 +591,32 @@ function heading(value: string): { level: number; text: string } | null {
   const text = visibleMarkdownLine(raw);
 
   return text === null ? null : { level, text };
+}
+
+function setextHeadingLevel(value: string): 1 | 2 | null {
+  let index = 0;
+
+  while (value[index] === " " && index < 4) {
+    index += 1;
+  }
+  if (index > 3) {
+    return null;
+  }
+
+  const marker = value[index];
+  if (marker !== "=" && marker !== "-") {
+    return null;
+  }
+
+  const level = marker === "=" ? 1 : 2;
+  while (value[index] === marker) {
+    index += 1;
+  }
+  while (value[index] === " " || value[index] === "\t") {
+    index += 1;
+  }
+
+  return index === value.length ? level : null;
 }
 
 function headingKey(value: string): string {
@@ -647,7 +731,7 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
   let paragraphLines: string[] = [];
   let paragraphTarget: "lead" | "overview" = "lead";
   let inFrontMatter = lines[0]?.trim() === "---";
-  let inFence: { marker: string; length: number } | null = null;
+  let inFence: Pick<FenceLine, "marker" | "length"> | null = null;
   let inHtmlComment = false;
   let inHtmlBlock: string | null = null;
   let inOverview = false;
@@ -673,6 +757,21 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
       target.push(candidate);
     }
     paragraphLines = [];
+  };
+
+  const selectHeading = (
+    level: number,
+    text: string,
+  ): { overview: boolean; contents: boolean } => {
+    finalizeParagraph();
+    if (level === 1 && !primaryTitleSeen) {
+      primaryTitleSeen = true;
+      leadCandidates.length = 0;
+    }
+    return {
+      overview: isOverviewHeading(text),
+      contents: isContentsHeading(text),
+    };
   };
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -714,34 +813,56 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
       }
       continue;
     }
-    const marker = fenceMarker(line);
-    if (marker !== null) {
-      finalizeParagraph();
+    const fence = fenceLine(line);
+    if (inFence !== null) {
       if (
-        inFence !== null &&
-        marker.marker === inFence.marker &&
-        marker.length >= inFence.length
+        fence !== null &&
+        fence.marker === inFence.marker &&
+        fence.length >= inFence.length &&
+        fence.remainder.trim().length === 0
       ) {
         inFence = null;
-      } else if (inFence === null) {
-        inFence = marker;
       }
       continue;
     }
-    if (inFence !== null) {
+    if (fence !== null) {
+      finalizeParagraph();
+      inFence = { marker: fence.marker, length: fence.length };
       continue;
     }
 
     const lineHeading = heading(line);
     if (lineHeading !== null) {
-      finalizeParagraph();
-      if (lineHeading.level === 1 && !primaryTitleSeen) {
-        primaryTitleSeen = true;
-        leadCandidates.length = 0;
-      }
-      inOverview = isOverviewHeading(lineHeading.text);
-      inContents = isContentsHeading(lineHeading.text);
+      const selection = selectHeading(lineHeading.level, lineHeading.text);
+
+      inOverview = selection.overview;
+      inContents = selection.contents;
       paragraphTarget = inOverview ? "overview" : "lead";
+      continue;
+    }
+
+    const setextLevel = setextHeadingLevel(lines[index + 1] ?? "");
+    const setextText =
+      setextLevel === null ||
+      line.startsWith("    ") ||
+      line.startsWith("\t") ||
+      trimmed.startsWith(">") ||
+      isListLine(line) ||
+      isReferenceDefinition(line) ||
+      isTableLine(line)
+        ? null
+        : visibleMarkdownLine(line);
+    if (
+      setextLevel !== null &&
+      setextText !== null &&
+      meaningfulProse(setextText)
+    ) {
+      const selection = selectHeading(setextLevel, setextText);
+
+      inOverview = selection.overview;
+      inContents = selection.contents;
+      paragraphTarget = inOverview ? "overview" : "lead";
+      index += 1;
       continue;
     }
 
@@ -879,7 +1000,37 @@ function readPackageKinds(
   };
 }
 
-function readPyprojectKinds(text: string): PyprojectKindEvidence | null {
+function hasPythonLibraryLayout(
+  projectName: unknown,
+  treePaths: readonly string[],
+): boolean {
+  if (!nonEmptyString(projectName)) {
+    return false;
+  }
+
+  const packageName = projectName
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/[-.]+/gu, "_");
+  if (!/^[\p{L}\p{N}_]+$/u.test(packageName)) {
+    return false;
+  }
+
+  return treePaths.some((path) => {
+    const key = toPathComparisonKey(path);
+
+    return (
+      key === `${packageName}/__init__.py` ||
+      key === `src/${packageName}/__init__.py`
+    );
+  });
+}
+
+function readPyprojectKinds(
+  text: string,
+  treePaths: readonly string[],
+): PyprojectKindEvidence | null {
   if (!isBounded(text)) {
     return null;
   }
@@ -903,7 +1054,9 @@ function readPyprojectKinds(text: string): PyprojectKindEvidence | null {
 
   return {
     commandLineTool: scripts.found,
-    library: nonEmptyString(project?.name),
+    library:
+      nonEmptyString(project?.name) &&
+      (!scripts.found || hasPythonLibraryLayout(project.name, treePaths)),
     plugin: entryPoints.found,
   };
 }
@@ -953,6 +1106,10 @@ function classifyProjectKinds(
   general: GeneralMetrics,
 ): ProjectKindFact[] {
   const facts = new Map<ProjectKind, ProjectKindFact>();
+  const treePaths = input.tree.files
+    .map((file) => file.path)
+    .filter((path) => !isExcludedPath(path))
+    .sort(comparePaths);
   const fetchedFiles = [...input.files]
     .filter((file) => !isExcludedPath(file.path))
     .sort((left, right) => comparePaths(left.path, right.path));
@@ -979,7 +1136,7 @@ function classifyProjectKinds(
         retainStrongestKind(facts, manifestFact("library", file.path));
       }
     } else if (basename === "pyproject.toml") {
-      const evidence = readPyprojectKinds(file.text);
+      const evidence = readPyprojectKinds(file.text, treePaths);
       if (evidence?.commandLineTool === true) {
         retainStrongestKind(
           facts,
@@ -995,10 +1152,6 @@ function classifyProjectKinds(
     }
   }
 
-  const treePaths = input.tree.files
-    .map((file) => file.path)
-    .filter((path) => !isExcludedPath(path))
-    .sort(comparePaths);
   const pluginPath = treePaths.find((path) => {
     const key = toPathComparisonKey(path);
 

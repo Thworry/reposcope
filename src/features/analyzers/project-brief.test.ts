@@ -303,6 +303,150 @@ describe("project brief purpose extraction", () => {
     });
   });
 
+  it.each([
+    "Go client for analyzing public repositories.",
+    "Docker container for deterministic repository reports.",
+    "Make dependency updates easier to review.",
+  ])("retains title-cased GitHub description prose: %s", (description) => {
+    expect(briefFor({ description }).excerpts).toContainEqual({
+      source: "github-description",
+      text: description,
+      path: null,
+    });
+  });
+
+  it.each([
+    "ftp://example.invalid/project-purpose",
+    "ssh://example.invalid/project-purpose",
+    "//example.invalid/project-purpose",
+    "www.example.invalid/project-purpose",
+    "[www.example.invalid](https://destination.invalid/project-purpose)",
+  ])("rejects expanded raw URL form %s", (readme) => {
+    const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+    expect(brief.excerpts).toEqual([]);
+    expect(JSON.stringify(brief)).not.toContain("example.invalid");
+  });
+
+  it.each([
+    ["over-indented", "```text\n    ```\nLeaked code prose.\n```"],
+    ["different marker", "```text\n~~~\nLeaked code prose.\n```"],
+    ["shorter marker", "````text\n```\nLeaked code prose.\n````"],
+    ["trailing content", "```text\n``` trailing\nLeaked code prose.\n```"],
+  ])("requires a valid %s fenced-code closer", (_label, fenced) => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          `# Title\n\n${fenced}\n\nActual public project purpose.`,
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Actual public project purpose.",
+        path: "README.md",
+      },
+    ]);
+  });
+
+  it("accepts a same-marker fenced-code closer with three-space indentation and trailing whitespace", () => {
+    expect(
+      briefFor({
+        files: [
+          fetched(
+            "README.md",
+            "# Title\n\n````text\nHidden code prose.\n   ```` \t\n\nActual public project purpose.",
+          ),
+        ],
+      }).excerpts,
+    ).toEqual([
+      {
+        source: "readme",
+        text: "Actual public project purpose.",
+        path: "README.md",
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      "double-quoted link destination",
+      '[Visible](https://example.invalid/path "quoted ) leaked-link") purpose text.',
+      "Visible purpose text.",
+    ],
+    [
+      "single-quoted link destination",
+      "[Visible](ssh://example.invalid/path 'quoted ) leaked-link') purpose text.",
+      "Visible purpose text.",
+    ],
+    [
+      "double-quoted HTML attribute",
+      'Visible <span data-note="quoted > leaked-attribute">project</span> purpose.',
+      "Visible project purpose.",
+    ],
+    [
+      "single-quoted HTML attribute",
+      "Visible <span data-note='quoted > leaked-attribute'>project</span> purpose.",
+      "Visible project purpose.",
+    ],
+  ])("does not leak a %s", (_label, prose, expected) => {
+    const brief = briefFor({
+      files: [fetched("README.md", `# Title\n\n${prose}`)],
+    });
+
+    expect(brief.excerpts).toEqual([
+      { source: "readme", text: expected, path: "README.md" },
+    ]);
+    expect(JSON.stringify(brief)).not.toMatch(
+      /example\.invalid|leaked-link|leaked-attribute/u,
+    );
+  });
+
+  it("recognizes Setext titles and overview headings before selecting prose", () => {
+    const title = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          "Project Name\n============\nActual purpose after the title.",
+        ),
+      ],
+    });
+    const overview = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          [
+            "# Project Name",
+            "",
+            "Generic lead that should lose.",
+            "",
+            "Overview",
+            "--------",
+            "Actual overview purpose.",
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(title.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Actual purpose after the title.",
+        path: "README.md",
+      },
+    ]);
+    expect(overview.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Actual overview purpose.",
+        path: "README.md",
+      },
+    ]);
+  });
+
   it("reuses the unchanged preferred README ordering in both analyzers", () => {
     const files = [
       fetched(
@@ -419,6 +563,7 @@ describe("project kind and caution evidence", () => {
             'example = "fixture.plugin:Plugin"',
           ].join("\n"),
         ),
+        fetched("src/fixture/__init__.py", ""),
       ],
     });
 
@@ -430,6 +575,30 @@ describe("project kind and caution evidence", () => {
       },
       { kind: "library", source: "manifest", path: "pyproject.toml" },
       { kind: "plugin", source: "manifest", path: "pyproject.toml" },
+    ]);
+  });
+
+  it("does not classify a CLI-only pyproject name as a library", () => {
+    expect(
+      briefFor({
+        files: [
+          fetched(
+            "pyproject.toml",
+            [
+              "[project]",
+              'name = "fixture"',
+              "[project.scripts]",
+              'fixture = "fixture.cli:main"',
+            ].join("\n"),
+          ),
+        ],
+      }).kinds,
+    ).toEqual([
+      {
+        kind: "command-line-tool",
+        source: "manifest",
+        path: "pyproject.toml",
+      },
     ]);
   });
 
