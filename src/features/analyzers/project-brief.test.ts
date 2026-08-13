@@ -360,6 +360,46 @@ describe("project brief purpose extraction", () => {
   });
 
   it.each([
+    "blob:https://example.invalid/project-purpose",
+    "filesystem:https://example.invalid/temporary/project-purpose",
+    "about:project-purpose",
+    "doi:10.1000/project-purpose",
+    "custom:project-purpose",
+    "   custom:project-purpose",
+  ])(
+    "rejects any syntactically valid raw URI at candidate start: %s",
+    (readme) => {
+      const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+      expect(brief.excerpts).toEqual([]);
+      expect(JSON.stringify(brief)).not.toContain("project-purpose");
+    },
+  );
+
+  it.each([
+    ["after CJK text", "工具custom://example.invalid/project-purpose", "工具"],
+    [
+      "after CJK punctuation",
+      "项目：custom://example.invalid/project-purpose",
+      "项目:",
+    ],
+    [
+      "after ASCII prose punctuation",
+      "Purpose—custom://example.invalid/project-purpose",
+      "Purpose—",
+    ],
+  ])("removes an embedded scheme URL %s", (_label, readme, expected) => {
+    const brief = briefFor({ files: [fetched("README.md", readme)] });
+
+    expect(brief.excerpts).toEqual([
+      { source: "readme", text: expected, path: "README.md" },
+    ]);
+    expect(JSON.stringify(brief)).not.toMatch(
+      /example\.invalid|project-purpose/u,
+    );
+  });
+
+  it.each([
     "1custom://host remains a literal identifier.",
     "custom:// URI syntax is documented.",
     "The data: field stores repository text.",
@@ -370,6 +410,19 @@ describe("project brief purpose extraction", () => {
       briefFor({ files: [fetched("README.md", readme)] }).excerpts,
     ).toContainEqual({ source: "readme", text: readme, path: "README.md" });
   });
+
+  it.each([
+    "custom:",
+    "custom: URI syntax is documented.",
+    "doi: field values are documented here.",
+  ])(
+    "preserves a scheme token with an empty or space-separated payload: %s",
+    (readme) => {
+      expect(
+        briefFor({ files: [fetched("README.md", readme)] }).excerpts,
+      ).toEqual([{ source: "readme", text: readme, path: "README.md" }]);
+    },
+  );
 
   it.each([
     ["over-indented", "```text\n    ```\nLeaked code prose.\n```"],
@@ -476,6 +529,109 @@ describe("project brief purpose extraction", () => {
         path: "README.md",
       },
     ]);
+  });
+
+  it("keeps nested same-tag HTML hidden until the outer tag closes", () => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          [
+            "# Title",
+            "",
+            '<div data-note="<div></div>">',
+            "<!-- <div>fake nested block</div> -->",
+            "<div>",
+            "Nested hidden purpose.",
+            "</div>",
+            "Outer hidden purpose.",
+            "</div>",
+            "Actual public project purpose.",
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Actual public project purpose.",
+        path: "README.md",
+      },
+    ]);
+    expect(JSON.stringify(brief)).not.toMatch(/Nested hidden|Outer hidden/u);
+  });
+
+  it.each([
+    [
+      "different nested tag",
+      [
+        "<div>",
+        "<section>",
+        "Different-tag hidden purpose.",
+        "</section>",
+        "</div>",
+      ],
+    ],
+    [
+      "self-closing same tag",
+      ["<div>", "<div />", "Self-closing hidden purpose.", "</div>"],
+    ],
+    [
+      "blank lines inside a nested same tag",
+      [
+        "<div>",
+        "<div>",
+        "",
+        "Blank-line hidden purpose.",
+        "",
+        "</div>",
+        "",
+        "</div>",
+      ],
+    ],
+  ])("handles a nearby HTML block case: %s", (_label, htmlLines) => {
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          ["# Title", "", ...htmlLines, "Actual public project purpose."].join(
+            "\n",
+          ),
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([
+      {
+        source: "readme",
+        text: "Actual public project purpose.",
+        path: "README.md",
+      },
+    ]);
+    expect(JSON.stringify(brief)).not.toContain("hidden purpose");
+  });
+
+  it("fails closed when same-tag HTML nesting exceeds the scanner depth bound", () => {
+    const openings = Array.from({ length: 130 }, () => "<div>");
+    const closings = Array.from({ length: 130 }, () => "</div>");
+    const brief = briefFor({
+      files: [
+        fetched(
+          "README.md",
+          [
+            "# Title",
+            "",
+            ...openings,
+            "Deeply nested hidden purpose.",
+            ...closings,
+            "Must remain hidden after the bound is exceeded.",
+          ].join("\n"),
+        ),
+      ],
+    });
+
+    expect(brief.excerpts).toEqual([]);
   });
 
   it("recognizes Setext titles and overview headings before selecting prose", () => {

@@ -22,6 +22,7 @@ const MAX_KINDS = 3;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_STRUCTURED_TARGET_NODES = 4_096;
 const MAX_STRUCTURED_TARGET_DEPTH = 128;
+const MAX_HTML_BLOCK_DEPTH = 128;
 
 const OVERVIEW_HEADINGS = new Set([
   "overview",
@@ -162,6 +163,8 @@ interface FenceLine {
 interface HtmlBlockState {
   tag: string;
   inComment: boolean;
+  depth: number;
+  failedClosed: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -264,7 +267,7 @@ function visibleLabel(value: string): string | null {
   const sanitized: string[] = [];
 
   for (let index = 0; index < label.length; index += 1) {
-    const urlLength = rawUriLength(label, index);
+    const urlLength = rawUriLength(label, index, 0);
 
     if (urlLength > 0) {
       index += urlLength - 1;
@@ -430,7 +433,7 @@ function hasUriTokenBoundary(value: string, start: number): boolean {
     return true;
   }
 
-  return !/[\p{L}\p{N}+._-]/u.test(value[start - 1] ?? "");
+  return !/[A-Za-z0-9+._-]/u.test(value[start - 1] ?? "");
 }
 
 function hasProtocolRelativeBoundary(value: string, start: number): boolean {
@@ -455,7 +458,11 @@ function uriPayloadLength(value: string, start: number): number {
   return index - start;
 }
 
-function rawUriLength(value: string, start: number): number {
+function rawUriLength(
+  value: string,
+  start: number,
+  candidateStart: number,
+): number {
   if (!hasUriTokenBoundary(value, start)) {
     return 0;
   }
@@ -491,7 +498,7 @@ function rawUriLength(value: string, start: number): number {
   let payloadStart: number;
   if (value[cursor + 1] === "/" && value[cursor + 2] === "/") {
     payloadStart = cursor + 3;
-  } else if (OPAQUE_URI_SCHEMES.has(scheme)) {
+  } else if (OPAQUE_URI_SCHEMES.has(scheme) || start === candidateStart) {
     payloadStart = cursor + 1;
   } else {
     return 0;
@@ -509,6 +516,11 @@ function visibleMarkdownLine(value: string): string | null {
   }
 
   const visible: string[] = [];
+  let candidateStart = 0;
+
+  while (/\s/u.test(value[candidateStart] ?? "")) {
+    candidateStart += 1;
+  }
 
   for (let index = 0; index < value.length; index += 1) {
     const character = value[index];
@@ -516,7 +528,7 @@ function visibleMarkdownLine(value: string): string | null {
     if (character === undefined) {
       return null;
     }
-    const urlLength = rawUriLength(value, index);
+    const urlLength = rawUriLength(value, index, candidateStart);
 
     if (urlLength > 0) {
       index += urlLength - 1;
@@ -854,13 +866,48 @@ function isClosingHtmlTag(
   return cursor === end;
 }
 
+function isOpeningHtmlTag(
+  value: string,
+  start: number,
+  end: number,
+  tag: string,
+): boolean {
+  if (value[start] !== "<" || value[start + 1] === "/") {
+    return false;
+  }
+
+  const nameStart = start + 1;
+  const nameEnd = nameStart + tag.length;
+  if (value.slice(nameStart, nameEnd).toLocaleLowerCase("en-US") !== tag) {
+    return false;
+  }
+
+  return nameEnd === end || /[\s/]/u.test(value[nameEnd] ?? "");
+}
+
+function isSelfClosingHtmlTag(value: string, end: number): boolean {
+  let cursor = end - 1;
+
+  while (value[cursor] === " " || value[cursor] === "\t") {
+    cursor -= 1;
+  }
+
+  return value[cursor] === "/";
+}
+
 function scanHtmlBlockLine(
   value: string,
   state: HtmlBlockState,
-): { closed: boolean; inComment: boolean } {
-  let inComment = state.inComment;
+  start = 0,
+): { closed: boolean; state: HtmlBlockState } {
+  if (state.failedClosed) {
+    return { closed: false, state };
+  }
 
-  for (let index = 0; index < value.length; index += 1) {
+  let inComment = state.inComment;
+  let depth = state.depth;
+
+  for (let index = start; index < value.length; index += 1) {
     if (inComment) {
       if (value.startsWith("-->", index)) {
         inComment = false;
@@ -879,15 +926,38 @@ function scanHtmlBlockLine(
 
     const end = skipAngleConstruct(value, index);
     if (end === null) {
-      return { closed: false, inComment };
+      return {
+        closed: false,
+        state: { ...state, depth, inComment },
+      };
     }
     if (isClosingHtmlTag(value, index, end, state.tag)) {
-      return { closed: true, inComment: false };
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          closed: true,
+          state: { ...state, depth: 0, inComment: false },
+        };
+      }
+    } else if (
+      isOpeningHtmlTag(value, index, end, state.tag) &&
+      !isSelfClosingHtmlTag(value, end)
+    ) {
+      depth += 1;
+      if (depth > MAX_HTML_BLOCK_DEPTH) {
+        return {
+          closed: false,
+          state: { ...state, depth, inComment, failedClosed: true },
+        };
+      }
     }
     index = end;
   }
 
-  return { closed: false, inComment };
+  return {
+    closed: false,
+    state: { ...state, depth, inComment },
+  };
 }
 
 function extractReadmeProse(file: FetchedTextFile): string[] {
@@ -965,7 +1035,7 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
       if (scan.closed) {
         inHtmlBlock = null;
       } else {
-        inHtmlBlock = { tag: state.tag, inComment: scan.inComment };
+        inHtmlBlock = scan.state;
       }
       continue;
     }
@@ -978,16 +1048,28 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
     const blockTag = htmlBlockTag(line);
     if (blockTag !== null) {
       finalizeParagraph();
-      const scan = scanHtmlBlockLine(line, {
+      const openingStart = line.length - line.trimStart().length;
+      const openingEnd = skipAngleConstruct(line, openingStart);
+      const state: HtmlBlockState = {
         tag: blockTag,
         inComment: false,
-      });
-      if (!VOID_HTML_TAGS.has(blockTag) && !line.trimEnd().endsWith("/>")) {
+        depth: 1,
+        failedClosed: false,
+      };
+      const scan = scanHtmlBlockLine(
+        line,
+        state,
+        openingEnd === null ? line.length : openingEnd + 1,
+      );
+      if (
+        !VOID_HTML_TAGS.has(blockTag) &&
+        !(openingEnd !== null && isSelfClosingHtmlTag(line, openingEnd))
+      ) {
         if (!scan.closed) {
-          inHtmlBlock = { tag: blockTag, inComment: scan.inComment };
+          inHtmlBlock = scan.state;
         }
       } else {
-        inHtmlComment = scan.inComment;
+        inHtmlComment = scan.state.inComment;
       }
       continue;
     }
