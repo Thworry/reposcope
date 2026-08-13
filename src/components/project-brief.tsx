@@ -174,7 +174,8 @@ export function ProjectBriefView({
     style: "long",
     type: "conjunction",
   }).format(localizedKinds);
-  const hasKnownFit = brief.excerpts.length > 0 && localizedKinds.length > 0;
+  const hasPurpose = brief.excerpts.length > 0;
+  const hasKnownKind = localizedKinds.length > 0;
 
   return (
     <section className="project-brief" aria-labelledby={headingId}>
@@ -217,11 +218,13 @@ export function ProjectBriefView({
           <div className="project-brief__panel project-brief__fit">
             <h4>{copy.projectBriefFit}</h4>
             <p>
-              {hasKnownFit
-                ? formatMessage(language, "projectBriefFitKnown", {
-                    kinds: kindsList,
-                  })
-                : copy.projectBriefFitUnknown}
+              {!hasPurpose
+                ? copy.projectBriefFitInsufficient
+                : hasKnownKind
+                  ? formatMessage(language, "projectBriefFitKnown", {
+                      kinds: kindsList,
+                    })
+                  : copy.projectBriefFitUnknown}
             </p>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type {
+  Language,
   ProjectBrief,
   ProjectBriefCaution,
 } from "../features/analysis/model";
@@ -162,13 +163,126 @@ describe("ProjectBriefView", () => {
         "Public repository evidence is insufficient to explain this project reliably.",
       ),
     ).toBeVisible();
-    expect(
-      screen.getByText(
-        "Compare the stated purpose with your needs; the repository type could not be established reliably.",
-      ),
-    ).toBeVisible();
     expect(screen.getByText("Unknown from public evidence.")).toBeVisible();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it.each<{
+    name: string;
+    language: Language;
+    brief: ProjectBrief;
+    expected: string;
+  }>([
+    {
+      name: "English missing purpose with a known kind",
+      language: "en",
+      brief: {
+        excerpts: [],
+        kinds: [{ kind: "library", source: "manifest", path: "package.json" }],
+        cautions: [],
+      },
+      expected: "Public evidence is insufficient to judge fit.",
+    },
+    {
+      name: "English missing purpose with no known kind",
+      language: "en",
+      brief: { excerpts: [], kinds: [], cautions: [] },
+      expected: "Public evidence is insufficient to judge fit.",
+    },
+    {
+      name: "English stated purpose without a known kind",
+      language: "en",
+      brief: {
+        excerpts: [
+          {
+            source: "github-description",
+            text: "A bounded purpose.",
+            path: null,
+          },
+        ],
+        kinds: [],
+        cautions: [],
+      },
+      expected:
+        "Compare the stated purpose with your needs; the repository type could not be established reliably.",
+    },
+    {
+      name: "English stated purpose and known kind",
+      language: "en",
+      brief: {
+        excerpts: [
+          {
+            source: "github-description",
+            text: "A bounded purpose.",
+            path: null,
+          },
+        ],
+        kinds: [{ kind: "library", source: "manifest", path: "package.json" }],
+        cautions: [],
+      },
+      expected:
+        "Worth considering if you need a Library for the stated purpose above.",
+    },
+    {
+      name: "Chinese missing purpose with a known kind",
+      language: "zh-CN",
+      brief: {
+        excerpts: [],
+        kinds: [{ kind: "library", source: "manifest", path: "package.json" }],
+        cautions: [],
+      },
+      expected: "公开证据不足，无法判断是否适用。",
+    },
+    {
+      name: "Chinese missing purpose with no known kind",
+      language: "zh-CN",
+      brief: { excerpts: [], kinds: [], cautions: [] },
+      expected: "公开证据不足，无法判断是否适用。",
+    },
+    {
+      name: "Chinese stated purpose without a known kind",
+      language: "zh-CN",
+      brief: {
+        excerpts: [
+          {
+            source: "github-description",
+            text: "用途证据。",
+            path: null,
+          },
+        ],
+        kinds: [],
+        cautions: [],
+      },
+      expected: "请将公开说明与自己的需求对照；目前无法可靠确定仓库类型。",
+    },
+    {
+      name: "Chinese stated purpose and known kind",
+      language: "zh-CN",
+      brief: {
+        excerpts: [
+          {
+            source: "github-description",
+            text: "用途证据。",
+            path: null,
+          },
+        ],
+        kinds: [{ kind: "library", source: "manifest", path: "package.json" }],
+        cautions: [],
+      },
+      expected: "若你需要一个用于上述用途的软件库，可将它列入考虑范围。",
+    },
+  ])("uses honest fit copy for $name", ({ language, brief, expected }) => {
+    render(
+      <ProjectBriefView
+        brief={brief}
+        owner="owner"
+        repo="repo"
+        commitSha={commitSha}
+        language={language}
+      />,
+    );
+
+    expect(screen.getByText(expected, { exact: true })).toBeVisible();
   });
 
   it.each<[ProjectBriefCaution, string]>([
