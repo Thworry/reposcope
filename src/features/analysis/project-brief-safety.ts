@@ -12,6 +12,7 @@ const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
   `(?:\\\\?["'])?${CREDENTIAL_KEY}(?:\\\\?["'])?\\s*([=:])\\s*`,
   "iu",
 );
+const METADATA_FIELD_PATTERN = /^[\p{L}_][\p{L}\p{N}_.-]*\s*[:=]/u;
 const DOCUMENTATION_VALUE_WORDS = new Set([
   "avoid",
   "bearer",
@@ -34,6 +35,7 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "generated",
   "guidance",
   "identifies",
+  "identifier",
   "keep",
   "metadata",
   "masked",
@@ -43,11 +45,14 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "null",
   "obtained",
   "optional",
+  "object",
+  "parameter",
   "placeholder",
   "placeholders",
   "policies",
   "policy",
   "provided",
+  "property",
   "required",
   "rotate",
   "sample",
@@ -63,20 +68,46 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "types",
   "unset",
   "validation",
+  "variable",
   "values",
   "value",
   "false",
 ]);
+const STRUCTURED_DOCUMENTATION_VALUE_WORDS = new Set([
+  "boolean",
+  "false",
+  "null",
+  "optional",
+  "required",
+  "string",
+  "true",
+]);
 
-function isLikelyCredentialValue(value: string | undefined): boolean {
-  if (value === undefined) return false;
+function normalizedValueWords(value: string | undefined): string[] {
+  if (value === undefined) return [];
 
-  const normalized = value
+  return value
     .normalize("NFKC")
     .replace(/[.:!?]+$/u, "")
-    .toLocaleLowerCase("en-US");
+    .toLocaleLowerCase("en-US")
+    .split(/[\s_-]+/u)
+    .filter(Boolean);
+}
 
-  return normalized.length > 0 && !DOCUMENTATION_VALUE_WORDS.has(normalized);
+function isLikelyCredentialValue(value: string | undefined): boolean {
+  const words = normalizedValueWords(value);
+  return (
+    words.length > 0 &&
+    !words.every((word) => DOCUMENTATION_VALUE_WORDS.has(word))
+  );
+}
+
+function isLikelyStructuredCredentialValue(value: string): boolean {
+  const words = normalizedValueWords(value);
+  return (
+    words.length > 0 &&
+    !words.every((word) => STRUCTURED_DOCUMENTATION_VALUE_WORDS.has(word))
+  );
 }
 
 function allMatches(
@@ -111,7 +142,10 @@ function jsonValueHasCredential(value: unknown): boolean {
 
     for (const [key, entry] of Object.entries(current)) {
       if (EXACT_CREDENTIAL_KEY_PATTERN.test(key.normalize("NFKC"))) {
-        if (typeof entry === "string" && isLikelyCredentialValue(entry)) {
+        if (
+          typeof entry === "string" &&
+          isLikelyStructuredCredentialValue(entry)
+        ) {
           return true;
         }
         if (
@@ -596,6 +630,12 @@ function hasAssignedCredential(value: string): boolean {
         value[afterSeparator] === "\r" ||
         value[afterSeparator] === "\n" ||
         value[afterSeparator] === "#"
+      )
+        return true;
+      if (
+        METADATA_FIELD_PATTERN.test(
+          value.slice(afterSeparator, afterSeparator + 128),
+        )
       )
         return true;
       if (
