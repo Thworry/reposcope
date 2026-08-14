@@ -731,7 +731,6 @@ function hasAssignedCredential(value: string): boolean {
       )
         return true;
       if (
-        lowercaseCredentialKey &&
         METADATA_FIELD_PATTERN.test(
           value.slice(afterSeparator, afterSeparator + 128),
         )
