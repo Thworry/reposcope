@@ -253,18 +253,26 @@ const BRACKET_DOCUMENTATION_PREFIX_WORDS = new Set([
   "values",
 ]);
 const DOCUMENTATION_QUALIFIER_WORDS = new Set([
+  "and",
   "compact",
   "encoded",
   "characters",
   "for",
+  "form",
+  "format",
+  "in",
   "length",
+  "maximum",
   "minimum",
   "production",
   "recommended",
   "rfc",
   "section",
+  "sections",
   "serialization",
   "settings",
+  "to",
+  "use",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
   /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|(?:der(?:-encoded)?)|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
@@ -341,29 +349,71 @@ function isQualifiedDocumentationValue(value: string | undefined): boolean {
   const documentationQualifiers = qualifiers.filter((word) =>
     DOCUMENTATION_QUALIFIER_WORDS.has(word),
   );
-  return (
-    qualifiers.length > 0 &&
-    documentationQualifiers.length > 0 &&
-    qualifiers.every(
+  const numericQualifiers = qualifiers.filter((word) => /^\d+$/u.test(word));
+  if (
+    qualifiers.length === 0 ||
+    documentationQualifiers.length === 0 ||
+    !qualifiers.every(
       (word) =>
         DOCUMENTATION_QUALIFIER_WORDS.has(word) || /^\d{1,4}$/u.test(word),
     )
-  );
+  )
+    return false;
+  if (numericQualifiers.length === 0) return true;
+
+  if (documentationQualifiers.includes("rfc")) {
+    const [rfcNumber, ...sectionNumbers] = numericQualifiers;
+    return (
+      /^\d{4}$/u.test(rfcNumber ?? "") &&
+      sectionNumbers.length <= 2 &&
+      sectionNumbers.every((word) => /^\d{1,2}$/u.test(word))
+    );
+  }
+  if (
+    documentationQualifiers.includes("section") ||
+    documentationQualifiers.includes("sections")
+  )
+    return (
+      numericQualifiers.length <= 2 &&
+      numericQualifiers.every((word) => /^\d{1,2}$/u.test(word))
+    );
+  if (
+    firstWords[0] === "string" &&
+    documentationQualifiers.includes("length") &&
+    (documentationQualifiers.includes("minimum") ||
+      documentationQualifiers.includes("maximum"))
+  )
+    return (
+      numericQualifiers.length <= 2 &&
+      numericQualifiers.every((word) => Number(word) <= 4_096)
+    );
+  return false;
 }
 
 function isBracketDocumentationPhrase(
   value: string | undefined,
   words: readonly string[],
 ): boolean {
+  const remainingWords = words.slice(1);
+  const numericWords = remainingWords.filter((word) => /^\d+$/u.test(word));
+  const hasDocumentationWord = remainingWords.some((word) =>
+    DOCUMENTATION_VALUE_WORDS.has(word),
+  );
+  const safeSmallExample =
+    (words[0] ?? "") === "metadata" &&
+    remainingWords.includes("details") &&
+    numericWords.length <= 3 &&
+    numericWords.every((word) => /^\d$/u.test(word));
   return (
     value !== undefined &&
     (value.includes("{") || value.includes("[")) &&
     BRACKET_DOCUMENTATION_PREFIX_WORDS.has(words[0] ?? "") &&
     words.length > 1 &&
-    words.slice(1).some((word) => DOCUMENTATION_VALUE_WORDS.has(word)) &&
+    hasDocumentationWord &&
     words.every(
-      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d{1,4}$/u.test(word),
-    )
+      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d+$/u.test(word),
+    ) &&
+    (numericWords.length === 0 || safeSmallExample)
   );
 }
 
