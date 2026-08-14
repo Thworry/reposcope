@@ -257,7 +257,9 @@ const DOCUMENTATION_QUALIFIER_WORDS = new Set([
   "according",
   "as",
   "between",
+  "by",
   "compact",
+  "compliant",
   "defined",
   "encoded",
   "characters",
@@ -275,21 +277,29 @@ const DOCUMENTATION_QUALIFIER_WORDS = new Set([
   "production",
   "recommended",
   "rfc",
+  "rfcs",
   "section",
   "sections",
   "serialization",
   "settings",
+  "specified",
   "to",
   "use",
   "with",
+  "is",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
   /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|(?:der(?:-encoded)?)|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
-const RFC_QUALIFIER_PATTERN =
-  /^(?:(?:per|as defined in|according to) )?rfc \d{4}(?: sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2})?(?: and rfc \d{4}(?: sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2})?)?$/u;
-const SECTION_QUALIFIER_PATTERN = /^sections? \d{1,2}(?: \d{1,2}){0,2}$/u;
+const SECTION_REFERENCE = "\\d{1,2}(?: \\d{1,2}){0,2}";
+const RFC_CLAUSE = `rfc \\d{4}(?: section ${SECTION_REFERENCE}| sections ${SECTION_REFERENCE}(?: and ${SECTION_REFERENCE})?)?`;
+const RFC_QUALIFIER_PATTERN = new RegExp(
+  `^(?:(?:per|as (?:defined|specified) (?:in|by)|according to|compliant with) )?(?:${RFC_CLAUSE}(?: and ${RFC_CLAUSE})?|rfcs \\d{4} and \\d{4})$`,
+  "u",
+);
+const SECTION_QUALIFIER_PATTERN =
+  /^sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2}$/u;
 const LENGTH_QUALIFIER_PATTERN =
-  /^(?:(?:minimum|maximum) length(?: of)? \d{1,4}(?: to \d{1,4})?|length \d{1,4}(?: to \d{1,4})?|length between \d{1,4} and \d{1,4}|min max length between \d{1,4} and \d{1,4})(?: characters)?$/u;
+  /^(?:(?:min|minimum|max|maximum) length(?: of| is)? \d{1,4}(?: to \d{1,4})?|length \d{1,4}(?: to \d{1,4})?|length between \d{1,4} and \d{1,4}|min max length between \d{1,4} and \d{1,4})(?: characters)?$/u;
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -359,7 +369,12 @@ function isQualifiedDocumentationValue(value: string | undefined): boolean {
     )
   )
     return false;
-  const qualifiers = normalizedValueWords(normalized.slice(firstToken.length));
+  const rawQualifiers = normalized.slice(firstToken.length);
+  const grammarSource = rawQualifiers
+    .replace(/min\/max/giu, "min max")
+    .replace(/(\d)[-–](\d)/gu, "$1 to $2");
+  if (/[^A-Za-z0-9\s()[\],.]/u.test(grammarSource)) return false;
+  const qualifiers = normalizedValueWords(grammarSource);
   const documentationQualifiers = qualifiers.filter((word) =>
     DOCUMENTATION_QUALIFIER_WORDS.has(word),
   );
