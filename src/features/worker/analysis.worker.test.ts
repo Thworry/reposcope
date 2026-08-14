@@ -319,6 +319,7 @@ describe("executeAnalysis", () => {
     "Password: passphrase requirements are documented.",
     "Token: user's browser stores no secrets.",
     "Token: values, configuration: guidance for users.",
+    '{"note":"Intro, Token: values, configuration: guidance for users."}',
   ])(
     "keeps ordinary credential documentation in repository metadata: %s",
     async (description) => {
@@ -358,6 +359,9 @@ describe("executeAnalysis", () => {
     "{token: zircon9876, app.name: demo}",
     "Owner's settings are {token: zircon9876, name: app}.",
     "Developer's example {name: app, token: zircon9876}",
+    'Example: "{name: app, token: zircon9876}"',
+    'password: "correct horse battery staple"',
+    '{"password":"correct horse battery staple","name":"app"}',
   ])(
     "removes structured YAML credential text from repository metadata: %s",
     async (credential) => {

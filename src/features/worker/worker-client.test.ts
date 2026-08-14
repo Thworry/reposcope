@@ -203,6 +203,8 @@ describe("runAnalysis", () => {
     "{token: zircon9876, $schema: v1}",
     "{token: zircon9876, app.name: demo}",
     "Owner's settings are {token: zircon9876, name: app}.",
+    'Example: "{name: app, token: zircon9876}"',
+    'password: "correct horse battery staple"',
   ])("rejects structured YAML credential text: %s", async (credential) => {
     const worker = new FakeWorker();
     const run = runAnalysis(

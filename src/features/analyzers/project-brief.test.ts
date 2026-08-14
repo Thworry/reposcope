@@ -705,6 +705,8 @@ describe("project brief purpose extraction", () => {
     "API key: developer's responsibility is rotation.",
     "Token: values, configuration: guidance for users.",
     "Password: rules; validation: handled by the server.",
+    '{"note":"Intro, Token: values, configuration: guidance for users."}',
+    '{note: "Intro, Password: rules; validation: handled by server."}',
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
@@ -755,6 +757,15 @@ describe("project brief purpose extraction", () => {
     "It's configured as {password: zircon9876, mode: local}.",
     "Developer's example {name: app, token: zircon9876}",
     'Example "{name: app, token: zircon9876}"',
+    'Example: "{name: app, token: zircon9876}"',
+    '"{name: app, token: zircon9876}" is the example.',
+    "Example = '{name: app, token: zircon9876}'",
+    'Configuration: "[{password: zircon9876, mode: local}]"',
+    'password: "correct horse battery staple"',
+    '{"password":"correct horse battery staple","name":"app"}',
+    '{password: "correct horse battery staple", name: app}',
+    'token: "hunter,secret"',
+    "passphrase: 'alpha beta gamma delta'",
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });

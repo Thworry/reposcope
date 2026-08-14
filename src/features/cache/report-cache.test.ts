@@ -180,6 +180,8 @@ describe("report cache", () => {
     "{token: zircon9876, $schema: v1}",
     "{token: zircon9876, app.name: demo}",
     "Owner's settings are {token: zircon9876, name: app}.",
+    'password: "correct horse battery staple"',
+    '{"password":"correct horse battery staple","name":"app"}',
   ])("never persists structured YAML credential text: %s", (credential) => {
     for (const target of ["description", "excerpt"] as const) {
       const report = validReport();

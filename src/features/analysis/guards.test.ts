@@ -484,6 +484,8 @@ describe("isAnalysisReport", () => {
     "API key: developer's responsibility is rotation.",
     "Token: values, configuration: guidance for users.",
     "Password: rules; validation: handled by the server.",
+    '{"note":"Intro, Token: values, configuration: guidance for users."}',
+    '{note: "Intro, Password: rules; validation: handled by server."}',
   ])("accepts ordinary credential documentation: %s", (generic) => {
     const report = cloneReport();
     const firstExcerpt = report.projectBrief.excerpts[0];
@@ -518,6 +520,15 @@ describe("isAnalysisReport", () => {
     "It's configured as {password: zircon9876, mode: local}.",
     "Developer's example {name: app, token: zircon9876}",
     'Example "{name: app, token: zircon9876}"',
+    'Example: "{name: app, token: zircon9876}"',
+    '"{name: app, token: zircon9876}" is the example.',
+    "Example = '{name: app, token: zircon9876}'",
+    'Configuration: "[{password: zircon9876, mode: local}]"',
+    'password: "correct horse battery staple"',
+    '{"password":"correct horse battery staple","name":"app"}',
+    '{password: "correct horse battery staple", name: app}',
+    'token: "hunter,secret"',
+    "passphrase: 'alpha beta gamma delta'",
   ])("rejects structured YAML credential text: %s", (credential) => {
     const descriptionReport = cloneReport();
     descriptionReport.repository.description = credential;

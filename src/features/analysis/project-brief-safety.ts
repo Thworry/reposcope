@@ -8,13 +8,8 @@ const PEM_PRIVATE_KEY_PATTERN =
   /-----BEGIN(?: [A-Z0-9]+){0,4} PRIVATE KEY-----/iu;
 const CREDENTIAL_KEY =
   "(?:password|passphrase|passwd|pwd|secret|token|api[-_ ]?key|access[-_ ]?token|auth(?:orization)?|client[-_ ]?secret|private[-_ ]?key)";
-const SECRET_VALUE = "(?:(?:\"|'|`|\\{|\\[)\\s*)?([^\\s\"'`,;}{)\\]]{4,})";
-const EQUAL_CREDENTIAL_PATTERN = new RegExp(
-  `["']?${CREDENTIAL_KEY}["']?\\s*=\\s*${SECRET_VALUE}`,
-  "iu",
-);
-const STRUCTURED_COLON_CREDENTIAL_PATTERN = new RegExp(
-  `["']?${CREDENTIAL_KEY}["']?\\s*:\\s*${SECRET_VALUE}`,
+const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
+  `["']?${CREDENTIAL_KEY}["']?\\s*([=:])\\s*`,
   "iu",
 );
 const DOCUMENTATION_VALUE_WORDS = new Set([
@@ -65,18 +60,19 @@ function hasAssignmentBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_]/u.test(value[index - 1] ?? "");
 }
 
-interface ColonScanState {
+interface CredentialScanState {
   cursor: number;
   linePrefix: "indent" | "dash" | "list" | "other";
   flowDepth: number;
   quote: '"' | "'" | "`" | null;
+  quotedFlowDepth: number;
   escaped: boolean;
   lastNonWhitespace: string | null;
 }
 
-function advanceColonContext(
+function advanceCredentialContext(
   value: string,
-  state: ColonScanState,
+  state: CredentialScanState,
   end: number,
 ): void {
   while (state.cursor < end) {
@@ -108,6 +104,11 @@ function advanceColonContext(
         state.escaped = true;
       } else if (character === state.quote) {
         state.quote = null;
+        state.quotedFlowDepth = 0;
+      } else if (character === "{" || character === "[") {
+        state.quotedFlowDepth += 1;
+      } else if (character === "}" || character === "]") {
+        state.quotedFlowDepth = Math.max(0, state.quotedFlowDepth - 1);
       }
       continue;
     }
@@ -122,6 +123,7 @@ function advanceColonContext(
         previousNonWhitespace === "=")
     ) {
       state.quote = character;
+      state.quotedFlowDepth = 0;
     } else if (character === "{" || character === "[") {
       state.flowDepth += 1;
     } else if (character === "}" || character === "]") {
@@ -130,45 +132,106 @@ function advanceColonContext(
   }
 }
 
-function closingWrapper(
-  match: RegExpExecArray,
-  credential: string,
-): string | null {
-  const beforeCredential = match[0].slice(0, -credential.length).trimEnd();
-  const opening = beforeCredential.at(-1);
-
-  if (opening === '"' || opening === "'" || opening === "`") return opening;
-  if (opening === "{") return "}";
-  if (opening === "[") return "]";
-  return null;
+interface ParsedCredentialValue {
+  value: string;
+  end: number;
+  wrapped: boolean;
 }
 
-function hasEqualCredential(value: string): boolean {
-  for (const match of allMatches(value, EQUAL_CREDENTIAL_PATTERN)) {
-    if (
-      hasAssignmentBoundary(value, match.index) &&
-      isLikelyCredentialValue(match[1])
-    )
-      return true;
+function parseCredentialValue(
+  source: string,
+  start: number,
+  flowContext: boolean,
+): ParsedCredentialValue {
+  const opening = source[start];
+  const closing =
+    opening === '"' || opening === "'" || opening === "`"
+      ? opening
+      : opening === "{"
+        ? "}"
+        : opening === "["
+          ? "]"
+          : null;
+
+  if (closing !== null) {
+    let cursor = start + 1;
+    let escaped = false;
+    let depth = opening === "{" || opening === "[" ? 1 : 0;
+
+    while (cursor < source.length) {
+      const character = source[cursor] ?? "";
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (opening === "{" || opening === "[") {
+        if (character === opening) depth += 1;
+        if (character === closing) {
+          depth -= 1;
+          if (depth === 0)
+            return {
+              value: source.slice(start + 1, cursor).trim(),
+              end: cursor + 1,
+              wrapped: true,
+            };
+        }
+      } else if (character === closing) {
+        return {
+          value: source.slice(start + 1, cursor).trim(),
+          end: cursor + 1,
+          wrapped: true,
+        };
+      }
+      cursor += 1;
+    }
+
+    return {
+      value: source.slice(start + 1).trim(),
+      end: source.length,
+      wrapped: true,
+    };
   }
 
-  return false;
+  let end = start;
+  while (end < source.length) {
+    const character = source[end] ?? "";
+    if (
+      character === "\r" ||
+      character === "\n" ||
+      (flowContext &&
+        (character === "," ||
+          character === ";" ||
+          character === "}" ||
+          character === "]")) ||
+      (!flowContext && /[\s"'`,;}{)\]]/u.test(character))
+    )
+      break;
+    end += 1;
+  }
+
+  return { value: source.slice(start, end).trim(), end, wrapped: false };
 }
 
-function hasStructuredColonCredential(value: string): boolean {
-  const state: ColonScanState = {
+function hasAssignedCredential(value: string): boolean {
+  const state: CredentialScanState = {
     cursor: 0,
     linePrefix: "indent",
     flowDepth: 0,
     quote: null,
+    quotedFlowDepth: 0,
     escaped: false,
     lastNonWhitespace: null,
   };
 
-  for (const match of allMatches(value, STRUCTURED_COLON_CREDENTIAL_PATTERN)) {
-    advanceColonContext(value, state, match.index);
+  for (const match of allMatches(value, CREDENTIAL_ASSIGNMENT_PATTERN)) {
+    advanceCredentialContext(value, state, match.index);
+    if (!hasAssignmentBoundary(value, match.index)) continue;
+
+    const equalsAssignment = match[1] === "=";
+    const insidePlainString =
+      state.quote !== null && state.quotedFlowDepth === 0;
     const flowContext =
-      state.flowDepth > 0 &&
+      (state.flowDepth > 0 || state.quotedFlowDepth > 0) &&
       (state.lastNonWhitespace === "{" ||
         state.lastNonWhitespace === "[" ||
         state.lastNonWhitespace === ",");
@@ -177,17 +240,26 @@ function hasStructuredColonCredential(value: string): boolean {
       state.lastNonWhitespace === "!" ||
       state.lastNonWhitespace === "?";
     if (
-      !(
-        state.linePrefix === "indent" ||
-        state.linePrefix === "list" ||
-        flowContext ||
-        sentenceContext
-      ) ||
-      !isLikelyCredentialValue(match[1])
+      !equalsAssignment &&
+      (insidePlainString ||
+        !(
+          state.linePrefix === "indent" ||
+          state.linePrefix === "list" ||
+          flowContext ||
+          sentenceContext
+        ))
     )
       continue;
 
-    let remainderStart = match.index + match[0].length;
+    const parsed = parseCredentialValue(
+      value,
+      match.index + match[0].length,
+      flowContext,
+    );
+    if (!isLikelyCredentialValue(parsed.value)) continue;
+    if (equalsAssignment || parsed.wrapped || flowContext) return true;
+
+    let remainderStart = parsed.end;
     while (value[remainderStart] === " " || value[remainderStart] === "\t") {
       remainderStart += 1;
     }
@@ -199,19 +271,14 @@ function hasStructuredColonCredential(value: string): boolean {
     )
       return true;
     if (firstRemainder === "#") return true;
-    const expectedWrapper = closingWrapper(match, match[1] ?? "");
-    if (expectedWrapper !== null && firstRemainder === expectedWrapper)
-      return true;
     if (
       firstRemainder === ")" ||
       firstRemainder === "}" ||
       firstRemainder === "]"
     )
       return true;
-    if (flowContext && (firstRemainder === "," || firstRemainder === ";"))
-      return true;
     const boundedRemainder = value.slice(remainderStart, remainderStart + 512);
-    if (STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(boundedRemainder)?.index === 0)
+    if (CREDENTIAL_ASSIGNMENT_PATTERN.exec(boundedRemainder)?.index === 0)
       return true;
   }
 
@@ -224,8 +291,7 @@ export function containsCredentialLikeValue(value: string): boolean {
     PEM_PRIVATE_KEY_PATTERN.test(value) ||
     GITHUB_TOKEN_PATTERN.test(value) ||
     COMMON_TOKEN_PATTERN.test(value) ||
-    hasEqualCredential(value) ||
-    hasStructuredColonCredential(value)
+    hasAssignedCredential(value)
   );
 }
 
