@@ -513,13 +513,20 @@ function hasAssignedCredential(value: string): boolean {
     )
       return true;
     if (firstRemainder === "#") return true;
-    if (firstRemainder === "{" || firstRemainder === "[") return true;
+    if (
+      (firstRemainder === "{" || firstRemainder === "[") &&
+      inspectJsonCandidates(value.slice(remainderStart)).structured
+    )
+      return true;
     if (firstRemainder === ";") {
       let afterSeparator = remainderStart + 1;
       while (value[afterSeparator] === " " || value[afterSeparator] === "\t") {
         afterSeparator += 1;
       }
-      if (value[afterSeparator] === "{" || value[afterSeparator] === "[")
+      if (
+        (value[afterSeparator] === "{" || value[afterSeparator] === "[") &&
+        inspectJsonCandidates(value.slice(afterSeparator)).structured
+      )
         return true;
     }
     if (
@@ -546,7 +553,9 @@ export function containsCredentialLikeValue(value: string): boolean {
     COMMON_TOKEN_PATTERN.test(value) ||
     inspectJsonCandidates(normalizedValue).credential ||
     structured.credential ||
-    hasAssignedCredential(decodeJsonUnicodeEscapes(structured.value))
+    hasAssignedCredential(
+      decodeJsonUnicodeEscapes(structured.value).normalize("NFKC"),
+    )
   );
 }
 

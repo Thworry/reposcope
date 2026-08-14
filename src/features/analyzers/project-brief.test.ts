@@ -727,6 +727,11 @@ describe("project brief purpose extraction", () => {
     '{"private_key":false}',
     'Configuration uses {"token": false} to disable token support.',
     String.raw`Configuration: "{\"token\":false,\"note\":\"feature disabled\"}"`,
+    "Token: values {documented in configuration}.",
+    "Password: rules [see validation guidance].",
+    "API key: metadata [documented below].",
+    "Token: values; [see configuration guide].",
+    "Password: rules; {see the security guide}.",
   ])("keeps boolean credential feature flags: %s", (generic) => {
     expect(containsCredentialLikeValue(generic)).toBe(false);
     expect(briefFor({ description: generic }).excerpts).toHaveLength(1);
@@ -765,6 +770,8 @@ describe("project brief purpose extraction", () => {
     `Configuration: ${JSON.stringify('prefix "name": app; passphrase: alpha-beta-gamma')}`,
     `Configuration: ${JSON.stringify(JSON.stringify(JSON.stringify(JSON.stringify({ token: "zircon9876" }))))}`,
     '{"Ｔｏｋｅｎ":"zircon9876"}',
+    `${"{ ".repeat(129)}{"Ｔｏｋｅｎ":"zircon9876"}`,
+    `${"{ ".repeat(129)}{"Ｐａｓｓｗｏｒｄ":"zircon9876"}`,
   ])(
     "detects a credential after decoding structured metadata: %s",
     (credential) => {
