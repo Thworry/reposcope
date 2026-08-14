@@ -49,13 +49,13 @@ function validReport(): AnalysisReport {
       commitSha: "a".repeat(40),
       analyzedAt,
     },
-    projectBrief: perfectProjectBrief,
+    projectBrief: structuredClone(perfectProjectBrief),
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
     strengths: findings.strengths,
     weaknesses: findings.weaknesses,
-    coverage: perfectCoverage,
+    coverage: structuredClone(perfectCoverage),
   };
 }
 
@@ -226,11 +226,12 @@ describe("report cache", () => {
       },
     ],
     [
-      "inconsistent skipped count",
+      "more skipped details than the aggregate count",
       (report: AnalysisReport) => {
-        report.coverage.skippedFiles = 2;
+        report.coverage.skippedFiles = 1;
         report.coverage.skipped = [
           { path: "excluded/file.txt", reason: "excluded" },
+          { path: "excluded/other.txt", reason: "excluded" },
         ];
       },
     ],

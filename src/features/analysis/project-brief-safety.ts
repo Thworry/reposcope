@@ -14,40 +14,48 @@ const EQUAL_CREDENTIAL_PATTERN = new RegExp(
   "iu",
 );
 const STRUCTURED_COLON_CREDENTIAL_PATTERN = new RegExp(
-  `(?:^|[^\\p{L}\\p{N}_])["']?${CREDENTIAL_KEY}["']?\\s*:\\s*${SECRET_VALUE}`,
+  `(?:^|[\\[{,]\\s*)["']?${CREDENTIAL_KEY}["']?\\s*:\\s*${SECRET_VALUE}`,
   "iu",
 );
+const DOCUMENTATION_VALUE_WORDS = new Set([
+  "bearer",
+  "boolean",
+  "field",
+  "identifies",
+  "nil",
+  "none",
+  "null",
+  "optional",
+  "required",
+  "rotate",
+  "securely",
+  "string",
+  "true",
+  "false",
+]);
+
+function isLikelyCredentialValue(value: string | undefined): boolean {
+  if (value === undefined) return false;
+
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[.:!?]+$/u, "")
+    .toLocaleLowerCase("en-US");
+
+  return normalized.length > 0 && !DOCUMENTATION_VALUE_WORDS.has(normalized);
+}
 
 /** Returns true for bounded, high-confidence credential material. */
 export function containsCredentialLikeValue(value: string): boolean {
+  const equalMatch = EQUAL_CREDENTIAL_PATTERN.exec(value);
   const colonMatch = STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(value);
-  const colonValue =
-    colonMatch === null
-      ? ""
-      : colonMatch[0].slice(colonMatch[0].indexOf(":") + 1).trimStart();
-  const colonWrapper = colonValue[0];
-  const wrappedColonValue =
-    colonWrapper === '"' ||
-    colonWrapper === "'" ||
-    colonWrapper === "`" ||
-    colonWrapper === "{" ||
-    colonWrapper === "[";
-  const colonRemainder =
-    colonMatch === null
-      ? value
-      : value.slice(colonMatch.index + colonMatch[0].length);
-  const standaloneColonValue = /^[\s"'`}\]),;]*$/u.test(colonRemainder);
 
   return (
     PEM_PRIVATE_KEY_PATTERN.test(value) ||
     GITHUB_TOKEN_PATTERN.test(value) ||
     COMMON_TOKEN_PATTERN.test(value) ||
-    EQUAL_CREDENTIAL_PATTERN.test(value) ||
-    (colonMatch !== null &&
-      (wrappedColonValue ||
-        standaloneColonValue ||
-        /\d/u.test(colonMatch[1] ?? "") ||
-        (colonMatch[1]?.length ?? 0) >= 20))
+    isLikelyCredentialValue(equalMatch?.[1]) ||
+    isLikelyCredentialValue(colonMatch?.[1])
   );
 }
 

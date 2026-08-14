@@ -268,7 +268,6 @@ describe("project brief purpose extraction", () => {
     ["README GitHub token", "readme", `ghp_${"a".repeat(36)}`],
     ["description inline password", "description", "password=`hunter2`"],
     ["README braced secret", "readme", "secret={hunter2}"],
-    ["description YAML token", "description", "token: hunter2"],
     ["README JSON secret", "readme", '{"secret":"hunter2"}'],
     [
       "description PEM private key",
@@ -679,10 +678,24 @@ describe("project brief purpose extraction", () => {
     "OAuth token: rotate it every 90 days.",
     "Configuration field password: required for sign-in.",
     "The API key: identifies the configuration field.",
+    "Password: required.",
+    "API key: optional",
+    "OAuth token: bearer",
+    "password: null",
+    '{"password": null}',
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic, path: null },
     ]);
+  });
+
+  it.each([
+    "token: hunter2",
+    "password: huntersecret # local development only",
+    "api_key: alphasecret # rotate monthly",
+    "token: abcdef # comment",
+  ])("omits an unquoted YAML credential with a comment: %s", (credential) => {
+    expect(briefFor({ description: credential }).excerpts).toEqual([]);
   });
 
   it("drops an entire multiline PEM private-key block without leaking its payload", () => {
