@@ -299,7 +299,7 @@ const RFC_QUALIFIER_PATTERN = new RegExp(
 const SECTION_QUALIFIER_PATTERN =
   /^sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2}$/u;
 const LENGTH_QUALIFIER_PATTERN =
-  /^(?:(?:min|minimum|max|maximum) length(?: of| is)? \d{1,4}(?: to \d{1,4})?|length \d{1,4}(?: to \d{1,4})?|length between \d{1,4} and \d{1,4}|min max length between \d{1,4} and \d{1,4})(?: characters)?$/u;
+  /^(?:(?:min|minimum|max|maximum) length(?: of| is)? \d{1,4}(?: to \d{1,4})?|(?:minimum|maximum) length(?: is)? between \d{1,4} and \d{1,4}|length(?: is)? \d{1,4}(?: to \d{1,4})?|length between \d{1,4} and \d{1,4}|min max length(?: \d{1,4} to \d{1,4}| between \d{1,4} and \d{1,4}))(?: characters)?$/u;
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -321,6 +321,43 @@ function isDocumentationTechnicalValue(value: string | undefined): boolean {
       .replace(/[.!?]+$/u, "")
       .toLocaleLowerCase("en-US"),
   );
+}
+
+function normalizedQualifierGrammarSource(value: string): string | null {
+  let source = value
+    .normalize("NFKC")
+    .trim()
+    .replace(/[.!?]+$/u, "")
+    .trim();
+
+  const opening = source[0];
+  const closing = source.at(-1);
+  if (
+    (opening === "(" && closing === ")") ||
+    (opening === "[" && closing === "]")
+  )
+    source = source.slice(1, -1).trim();
+
+  source = source
+    .replace(/min\/max/giu, "min max")
+    .replace(/(\d)[-–](\d)/gu, "$1 to $2");
+
+  if (
+    /[()[\]@+\-/]/u.test(source) ||
+    /,\s*,/u.test(source) ||
+    /,(?!\s)/u.test(source)
+  )
+    return null;
+
+  source = source
+    .replace(/(\d(?:\.\d{1,2}){0,2}),\s*(?=\d)/gu, "$1 and ")
+    .replace(/,\s*(?=sections?\b)/giu, " ")
+    .replace(/,\s*(?=and\b)/giu, " ");
+  if (source.includes(",")) return null;
+
+  source = source.replace(/(\d)\.(?=\d)/gu, "$1 ");
+  if (/[^A-Za-z0-9\s]/u.test(source)) return null;
+  return source.replace(/\s+/gu, " ").trim();
 }
 
 function isLikelyCredentialValue(
@@ -370,10 +407,8 @@ function isQualifiedDocumentationValue(value: string | undefined): boolean {
   )
     return false;
   const rawQualifiers = normalized.slice(firstToken.length);
-  const grammarSource = rawQualifiers
-    .replace(/min\/max/giu, "min max")
-    .replace(/(\d)[-–](\d)/gu, "$1 to $2");
-  if (/[^A-Za-z0-9\s()[\],.]/u.test(grammarSource)) return false;
+  const grammarSource = normalizedQualifierGrammarSource(rawQualifiers);
+  if (grammarSource === null) return false;
   const qualifiers = normalizedValueWords(grammarSource);
   const documentationQualifiers = qualifiers.filter((word) =>
     DOCUMENTATION_QUALIFIER_WORDS.has(word),
