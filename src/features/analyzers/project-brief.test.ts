@@ -723,6 +723,7 @@ describe("project brief purpose extraction", () => {
     String.raw`Configuration: "{\"note\":\"Intro, Token: values, configuration: guidance for users.\"}"`,
     String.raw`{"note":"embedded {\"note\":\"Password: rules; validation: handled by server.\"}"}`,
     String.raw`Configuration: "{\"note\":\"literal \\\" mark, Token: values, configuration: guidance\"}"`,
+    String.raw`Configuration: "two notes {\"note\":\"Token: values, configuration: guidance\"} and {\"note\":\"Password: rules; validation: handled\"}"`,
   ])(
     "keeps ordinary documentation inside escaped structured text: %s",
     (generic) => {
@@ -730,6 +731,12 @@ describe("project brief purpose extraction", () => {
       expect(briefFor({ description: generic }).excerpts).toHaveLength(1);
     },
   );
+
+  it("does not classify two JSON-string wrappers around ordinary documentation as a credential", () => {
+    const generic = `Configuration: ${JSON.stringify(JSON.stringify(JSON.stringify({ note: 'literal quote " mark, Token: values, configuration: guidance' })))}`;
+
+    expect(containsCredentialLikeValue(generic)).toBe(false);
+  });
 
   it.each([
     "token: hunter2",
@@ -791,6 +798,10 @@ describe("project brief purpose extraction", () => {
     String.raw`Configuration: "[{\"password\":\"zircon9876\",\"mode\":\"local\"}]"`,
     String.raw`Configuration: "{\"note\":\"size is 5\\\"\",\"token\":\"zircon9876\"}"`,
     String.raw`Configuration: "[{\"note\":\"size is 5\\\"\",\"password\":\"zircon9876\"}]"`,
+    String.raw`{"\u0074oken":"zircon9876","name":"app"}`,
+    String.raw`Configuration: "{\"\\u0074oken\":\"zircon9876\"}"`,
+    String.raw`Configuration: "{\"pass\\u0077ord\":\"zircon9876\"}"`,
+    String.raw`Configuration: "prefix { marker \" then {\"token\":\"zircon9876\",\"name\":\"app\"}"`,
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });

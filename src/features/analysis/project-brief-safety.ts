@@ -60,34 +60,70 @@ function hasAssignmentBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_]/u.test(value[index - 1] ?? "");
 }
 
-function containsJsonObjectOrArray(value: string): boolean {
-  for (const [opening, closing] of [
-    ["{", "}"],
-    ["[", "]"],
-  ] as const) {
-    const start = value.indexOf(opening);
-    const end = value.lastIndexOf(closing);
-    if (start < 0 || end <= start) continue;
+const QUOTED_JSON_KEY_PATTERN = /(?:\\?")(?:\\.|[^"\\])+(?:\\?")\s*:/u;
+const EXPLICIT_JSON_CREDENTIAL_PATTERN = new RegExp(
+  `(?:\\\\?")${CREDENTIAL_KEY}(?:\\\\?")\\s*:\\s*`,
+  "iu",
+);
 
-    try {
-      const parsed: unknown = JSON.parse(value.slice(start, end + 1));
-      if (typeof parsed === "object" && parsed !== null) return true;
-    } catch {
-      // It is prose or a non-JSON example, so leave it for the normal scanner.
-    }
+function decodeJsonUnicodeEscapes(value: string): string {
+  return value.replace(/\\u([0-9a-f]{4})/giu, (_match, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+}
+
+function hasExplicitJsonCredential(value: string): boolean {
+  const normalized = decodeJsonUnicodeEscapes(value);
+  for (const match of allMatches(
+    normalized,
+    EXPLICIT_JSON_CREDENTIAL_PATTERN,
+  )) {
+    const parsed = parseCredentialValue(
+      normalized,
+      match.index + match[0].length,
+      true,
+    );
+    if (isLikelyCredentialValue(parsed.value)) return true;
   }
-
   return false;
 }
 
-function decodeStructuredJsonStringsOnce(value: string): {
+function inspectStructuredJsonText(value: string): {
+  structured: boolean;
+  credential: boolean;
+  decodedString: string | null;
+} {
+  const normalized = decodeJsonUnicodeEscapes(value);
+  const credential = hasExplicitJsonCredential(normalized);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value.trim());
+  } catch {
+    return {
+      structured: QUOTED_JSON_KEY_PATTERN.test(normalized),
+      credential,
+      decodedString: null,
+    };
+  }
+
+  return {
+    structured:
+      credential ||
+      (typeof parsed === "object" && parsed !== null) ||
+      QUOTED_JSON_KEY_PATTERN.test(normalized),
+    credential,
+    decodedString: typeof parsed === "string" ? parsed : null,
+  };
+}
+
+function stripEncodedStructuredJsonStrings(value: string): {
   value: string;
-  changed: boolean;
+  credential: boolean;
 } {
   const parts: string[] = [];
   let copiedUntil = 0;
   let cursor = 0;
-  let changed = false;
+  let credential = false;
 
   while (cursor < value.length) {
     if (value[cursor] !== '"') {
@@ -114,29 +150,29 @@ function decodeStructuredJsonStringsOnce(value: string): {
 
     try {
       const decoded: unknown = JSON.parse(value.slice(start, cursor));
-      if (typeof decoded === "string" && containsJsonObjectOrArray(decoded)) {
-        parts.push(value.slice(copiedUntil, start), decoded);
-        copiedUntil = cursor;
-        changed = true;
+      if (typeof decoded === "string") {
+        let current = decoded;
+        let structured = false;
+        for (let depth = 0; depth < 3; depth += 1) {
+          const inspection = inspectStructuredJsonText(current);
+          structured ||= inspection.structured;
+          credential ||= inspection.credential;
+          if (inspection.decodedString === null) break;
+          current = inspection.decodedString;
+        }
+        if (structured) {
+          parts.push(value.slice(copiedUntil, start), " ");
+          copiedUntil = cursor;
+        }
       }
     } catch {
       // Invalid JSON strings remain unchanged and are handled conservatively.
     }
   }
 
-  if (!changed) return { value, changed: false };
+  if (copiedUntil === 0) return { value, credential };
   parts.push(value.slice(copiedUntil));
-  return { value: parts.join(""), changed: true };
-}
-
-function decodeStructuredJsonStrings(value: string): string {
-  let decoded = value;
-  for (let depth = 0; depth < 2; depth += 1) {
-    const pass = decodeStructuredJsonStringsOnce(decoded);
-    decoded = pass.value;
-    if (!pass.changed) break;
-  }
-  return decoded;
+  return { value: parts.join(""), credential };
 }
 
 interface CredentialScanState {
@@ -409,12 +445,15 @@ function hasAssignedCredential(value: string): boolean {
 
 /** Returns true for bounded, high-confidence credential material. */
 export function containsCredentialLikeValue(value: string): boolean {
-  const structuredValue = decodeStructuredJsonStrings(value);
+  const normalizedValue = decodeJsonUnicodeEscapes(value);
+  const structured = stripEncodedStructuredJsonStrings(normalizedValue);
   return (
     PEM_PRIVATE_KEY_PATTERN.test(value) ||
     GITHUB_TOKEN_PATTERN.test(value) ||
     COMMON_TOKEN_PATTERN.test(value) ||
-    hasAssignedCredential(structuredValue)
+    hasExplicitJsonCredential(normalizedValue) ||
+    structured.credential ||
+    hasAssignedCredential(structured.value)
   );
 }
 
