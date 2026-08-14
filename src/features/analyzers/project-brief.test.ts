@@ -933,6 +933,8 @@ describe("project brief purpose extraction", () => {
     "Token: JWT RFC 7519 sections 1.1, 2.1–2.3",
     "Token: JWT sections 1.1 and 2.1-2.3",
     "Token: JWT per RFC 822",
+    "Token: JWT RFC822 section 4.1",
+    "Token: JWT RFC7519",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },

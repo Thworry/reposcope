@@ -298,7 +298,7 @@ const RAW_SECTION_ITEM_SEPARATOR = "\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)";
 const RAW_SECTION_LIST = `(?:${RAW_SECTION_RANGE}(?:${RAW_SECTION_ITEM_SEPARATOR}${RAW_SECTION_REFERENCE})?|${RAW_SECTION_REFERENCE}${RAW_SECTION_ITEM_SEPARATOR}${RAW_SECTION_RANGE}|${RAW_SECTION_ENUMERATION})`;
 const RAW_SECTION_CLAUSE = `sections?\\s+${RAW_SECTION_LIST}`;
 const RAW_RFC_NUMBER = "[1-9]\\d{0,3}";
-const RAW_RFC_CLAUSE = `rfc(?:\\s+|-)${RAW_RFC_NUMBER}(?:(?:\\s+|\\s*,\\s+)(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
+const RAW_RFC_CLAUSE = `rfc(?:\\s+|-)?${RAW_RFC_NUMBER}(?:(?:\\s+|\\s*,\\s+)(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
 const RAW_RFC_QUALIFIER_PATTERN = new RegExp(
   `^(?:(?:per|see|conforms to|as (?:defined|specified) (?:in|by)|according to|compliant with)\\s+)?(?:${RAW_RFC_CLAUSE}(?:\\s*(?:,\\s+|\\s+and\\s+)(?:${RAW_RFC_CLAUSE}|${RAW_RFC_NUMBER}))?|rfcs\\s+${RAW_RFC_NUMBER}(?:\\s*,\\s+|\\s+and\\s+)${RAW_RFC_NUMBER})$`,
   "iu",
