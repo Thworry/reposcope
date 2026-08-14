@@ -254,7 +254,11 @@ const BRACKET_DOCUMENTATION_PREFIX_WORDS = new Set([
 ]);
 const DOCUMENTATION_QUALIFIER_WORDS = new Set([
   "and",
+  "according",
+  "as",
+  "between",
   "compact",
+  "defined",
   "encoded",
   "characters",
   "for",
@@ -263,7 +267,11 @@ const DOCUMENTATION_QUALIFIER_WORDS = new Set([
   "in",
   "length",
   "maximum",
+  "max",
   "minimum",
+  "min",
+  "of",
+  "per",
   "production",
   "recommended",
   "rfc",
@@ -273,9 +281,15 @@ const DOCUMENTATION_QUALIFIER_WORDS = new Set([
   "settings",
   "to",
   "use",
+  "with",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
   /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|(?:der(?:-encoded)?)|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
+const RFC_QUALIFIER_PATTERN =
+  /^(?:(?:per|as defined in|according to) )?rfc \d{4}(?: sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2})?(?: and rfc \d{4}(?: sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2})?)?$/u;
+const SECTION_QUALIFIER_PATTERN = /^sections? \d{1,2}(?: \d{1,2}){0,2}$/u;
+const LENGTH_QUALIFIER_PATTERN =
+  /^(?:(?:minimum|maximum) length(?: of)? \d{1,4}(?: to \d{1,4})?|length \d{1,4}(?: to \d{1,4})?|length between \d{1,4} and \d{1,4}|min max length between \d{1,4} and \d{1,4})(?: characters)?$/u;
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -360,33 +374,15 @@ function isQualifiedDocumentationValue(value: string | undefined): boolean {
   )
     return false;
   if (numericQualifiers.length === 0) return true;
-
-  if (documentationQualifiers.includes("rfc")) {
-    const [rfcNumber, ...sectionNumbers] = numericQualifiers;
+  const qualifierSequence = qualifiers.join(" ");
+  if (RFC_QUALIFIER_PATTERN.test(qualifierSequence)) return true;
+  if (SECTION_QUALIFIER_PATTERN.test(qualifierSequence)) return true;
+  if (firstWords[0] === "string") {
     return (
-      /^\d{4}$/u.test(rfcNumber ?? "") &&
-      sectionNumbers.length <= 2 &&
-      sectionNumbers.every((word) => /^\d{1,2}$/u.test(word))
-    );
-  }
-  if (
-    documentationQualifiers.includes("section") ||
-    documentationQualifiers.includes("sections")
-  )
-    return (
-      numericQualifiers.length <= 2 &&
-      numericQualifiers.every((word) => /^\d{1,2}$/u.test(word))
-    );
-  if (
-    firstWords[0] === "string" &&
-    documentationQualifiers.includes("length") &&
-    (documentationQualifiers.includes("minimum") ||
-      documentationQualifiers.includes("maximum"))
-  )
-    return (
-      numericQualifiers.length <= 2 &&
+      LENGTH_QUALIFIER_PATTERN.test(qualifierSequence) &&
       numericQualifiers.every((word) => Number(word) <= 4_096)
     );
+  }
   return false;
 }
 
