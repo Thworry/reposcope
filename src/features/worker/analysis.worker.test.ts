@@ -356,6 +356,8 @@ describe("executeAnalysis", () => {
     "token: `huntersecret` with notes",
     "{token: zircon9876, $schema: v1}",
     "{token: zircon9876, app.name: demo}",
+    "Owner's settings are {token: zircon9876, name: app}.",
+    "Developer's example {name: app, token: zircon9876}",
   ])(
     "removes structured YAML credential text from repository metadata: %s",
     async (credential) => {

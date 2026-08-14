@@ -81,6 +81,7 @@ function advanceColonContext(
 ): void {
   while (state.cursor < end) {
     const character = value[state.cursor] ?? "";
+    const previousNonWhitespace = state.lastNonWhitespace;
     state.cursor += 1;
 
     if (character === "\r" || character === "\n") {
@@ -111,7 +112,15 @@ function advanceColonContext(
       continue;
     }
 
-    if (character === '"' || character === "'" || character === "`") {
+    if (
+      (character === '"' || character === "'" || character === "`") &&
+      (previousNonWhitespace === null ||
+        previousNonWhitespace === "{" ||
+        previousNonWhitespace === "[" ||
+        previousNonWhitespace === "," ||
+        previousNonWhitespace === ":" ||
+        previousNonWhitespace === "=")
+    ) {
       state.quote = character;
     } else if (character === "{" || character === "[") {
       state.flowDepth += 1;

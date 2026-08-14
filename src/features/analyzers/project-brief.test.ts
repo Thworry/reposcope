@@ -750,6 +750,11 @@ describe("project brief purpose extraction", () => {
     "{token: zircon9876, app.name: demo}",
     "{token: zircon9876, x/y: demo}",
     "{token: zircon9876, 1: app}",
+    "Owner's settings are {token: zircon9876, name: app}.",
+    "The user's config is [{token: zircon9876, name: app}].",
+    "It's configured as {password: zircon9876, mode: local}.",
+    "Developer's example {name: app, token: zircon9876}",
+    'Example "{name: app, token: zircon9876}"',
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });
