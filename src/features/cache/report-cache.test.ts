@@ -175,6 +175,8 @@ describe("report cache", () => {
     "- password: huntersecret # list item",
     "Password: required.\ntoken: hunter2",
     "token: hunter2\nPassword: required.",
+    '{"token":"huntersecret","name":"app"}',
+    "{token: huntersecret, name: app}",
   ])("never persists structured YAML credential text: %s", (credential) => {
     for (const target of ["description", "excerpt"] as const) {
       const report = validReport();

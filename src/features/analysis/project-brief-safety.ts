@@ -106,6 +106,9 @@ function hasStructuredColonCredential(value: string): boolean {
     if (lineRemainder === undefined || lineRemainder.length === 0) return true;
     if (lineRemainder.startsWith("#")) return true;
     if (/^["'`,;)}\]]+(?:\s*#.*)?$/u.test(lineRemainder)) return true;
+    if (/^["'`}\]]/u.test(lineRemainder)) return true;
+    if (/^[,;]\s*["']?[\p{L}_][\p{L}\p{N}_ -]*["']?\s*:/u.test(lineRemainder))
+      return true;
     if (STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(lineRemainder)?.index === 0)
       return true;
   }

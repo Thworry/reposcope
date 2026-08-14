@@ -197,6 +197,9 @@ describe("runAnalysis", () => {
     "Password: required.\ntoken: hunter2",
     "Password: required. token: hunter2",
     "token: hunter2\nPassword: required.",
+    '{"token":"huntersecret","name":"app"}',
+    "{token: huntersecret, name: app}",
+    "token: `huntersecret` with notes",
   ])("rejects structured YAML credential text: %s", async (credential) => {
     const worker = new FakeWorker();
     const run = runAnalysis(

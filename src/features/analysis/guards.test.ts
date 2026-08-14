@@ -500,6 +500,11 @@ describe("isAnalysisReport", () => {
     "Password: required. token: hunter2",
     "Configuration guidance. token: hunter2 # local only",
     "token: hunter2\nPassword: required.",
+    '{"token":"huntersecret","name":"app"}',
+    "{token: huntersecret, name: app}",
+    '{"token":"huntersecret","password":null}',
+    '[{"token":"huntersecret","name":"app"}]',
+    "token: `huntersecret` with notes",
   ])("rejects structured YAML credential text: %s", (credential) => {
     const descriptionReport = cloneReport();
     descriptionReport.repository.description = credential;

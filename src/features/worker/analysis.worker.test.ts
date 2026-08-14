@@ -349,6 +349,9 @@ describe("executeAnalysis", () => {
     "Password: required.\ntoken: hunter2",
     "Password: required. token: hunter2",
     "token: hunter2\nPassword: required.",
+    '{"token":"huntersecret","name":"app"}',
+    "{token: huntersecret, name: app}",
+    "token: `huntersecret` with notes",
   ])(
     "removes structured YAML credential text from repository metadata: %s",
     async (credential) => {

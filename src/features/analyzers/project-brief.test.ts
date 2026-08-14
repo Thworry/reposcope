@@ -727,6 +727,11 @@ describe("project brief purpose extraction", () => {
     "token=string password=huntersecret",
     "password=configure secret={hunter2}",
     "token: hunter2\nPassword: required.",
+    '{"token":"huntersecret","name":"app"}',
+    "{token: huntersecret, name: app}",
+    '{"token":"huntersecret","password":null}',
+    '[{"token":"huntersecret","name":"app"}]',
+    "token: `huntersecret` with notes",
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });
