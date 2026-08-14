@@ -691,6 +691,15 @@ describe("project brief purpose extraction", () => {
     "Password: validation and rotation guidance.",
     "  Token: never log it.",
     "- API key: keep it out of source control.",
+    "Token: SHA256 hashes identify values.",
+    "Password: user-provided values are accepted.",
+    "API key: keychain storage is recommended.",
+    "Token: token-based authentication is supported.",
+    "Password: passphrase requirements are documented.",
+    "Secret: secret-management guidance is included.",
+    "Private key: hardware-backed storage is supported.",
+    "Token: base64-encoded values are accepted.",
+    "API key: read-only access is sufficient.",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
@@ -708,6 +717,29 @@ describe("project brief purpose extraction", () => {
     "token: abcdef # comment",
   ])("omits an unquoted YAML credential with a comment: %s", (credential) => {
     expect(briefFor({ description: credential }).excerpts).toEqual([]);
+  });
+
+  it.each([
+    "Password: required.\ntoken: hunter2",
+    "Password: required. token: hunter2",
+    "Configuration guidance. token: hunter2 # local only",
+    "password=required token=hunter2",
+    "token=string password=huntersecret",
+    "password=configure secret={hunter2}",
+    "token: hunter2\nPassword: required.",
+  ])("omits a later or earlier credential among benign fields: %s", (text) => {
+    expect(briefFor({ description: text }).excerpts).toEqual([]);
+  });
+
+  it.each([
+    ["benign first", "Password: required.\ntoken: hunter2 # local"],
+    ["credential first", "token: hunter2 # local\nPassword: required."],
+  ])("does not join %s README credentials into evidence", (_label, lines) => {
+    const brief = briefFor({
+      files: [fetched("README.md", `## Overview\n\n${lines}`)],
+    });
+
+    expect(JSON.stringify(brief)).not.toContain("hunter2");
   });
 
   it("drops an entire multiline PEM private-key block without leaking its payload", () => {

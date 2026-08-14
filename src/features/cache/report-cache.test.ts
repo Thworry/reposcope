@@ -173,6 +173,8 @@ describe("report cache", () => {
   it.each([
     "  token: hunter2 # nested YAML",
     "- password: huntersecret # list item",
+    "Password: required.\ntoken: hunter2",
+    "token: hunter2\nPassword: required.",
   ])("never persists structured YAML credential text: %s", (credential) => {
     for (const target of ["description", "excerpt"] as const) {
       const report = validReport();

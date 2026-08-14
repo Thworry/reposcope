@@ -1007,7 +1007,7 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
       }
       continue;
     }
-    if (/^-----BEGIN(?: [A-Z0-9]+){0,4} PRIVATE KEY-----$/iu.test(trimmed)) {
+    if (/-----BEGIN(?: [A-Z0-9]+){0,4} PRIVATE KEY-----/iu.test(trimmed)) {
       finalizeParagraph();
       inPemPrivateKey = true;
       continue;
@@ -1145,6 +1145,10 @@ function extractReadmeProse(file: FetchedTextFile): string[] {
 
     const visible = visibleMarkdownLine(line);
     if (visible === null || visible.length === 0) {
+      finalizeParagraph();
+      continue;
+    }
+    if (containsCredentialLikeValue(visible)) {
       finalizeParagraph();
       continue;
     }

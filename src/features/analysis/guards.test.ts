@@ -471,6 +471,15 @@ describe("isAnalysisReport", () => {
     "Password: validation and rotation guidance.",
     "  Token: never log it.",
     "- API key: keep it out of source control.",
+    "Token: SHA256 hashes identify values.",
+    "Password: user-provided values are accepted.",
+    "API key: keychain storage is recommended.",
+    "Token: token-based authentication is supported.",
+    "Password: passphrase requirements are documented.",
+    "Secret: secret-management guidance is included.",
+    "Private key: hardware-backed storage is supported.",
+    "Token: base64-encoded values are accepted.",
+    "API key: read-only access is sufficient.",
   ])("accepts ordinary credential documentation: %s", (generic) => {
     const report = cloneReport();
     const firstExcerpt = report.projectBrief.excerpts[0];
@@ -487,6 +496,10 @@ describe("isAnalysisReport", () => {
     "  token: hunter2 # nested YAML",
     "- token: hunter2",
     "- password: huntersecret # list item",
+    "Password: required.\ntoken: hunter2",
+    "Password: required. token: hunter2",
+    "Configuration guidance. token: hunter2 # local only",
+    "token: hunter2\nPassword: required.",
   ])("rejects structured YAML credential text: %s", (credential) => {
     const descriptionReport = cloneReport();
     descriptionReport.repository.description = credential;
