@@ -310,6 +310,37 @@ describe("executeAnalysis", () => {
     },
   );
 
+  it.each([
+    "  token: hunter2 # nested YAML",
+    "- password: huntersecret # list item",
+  ])(
+    "removes structured YAML credential text from repository metadata: %s",
+    async (credential) => {
+      const dependencies = dependenciesFor([], () =>
+        Promise.reject(new Error("must not fetch")),
+      );
+      vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+        repository: { ...perfectRepository, description: credential },
+        commitSha: "a".repeat(40),
+        treeSha: sha,
+        entries: [],
+        treeComplete: true,
+        rateLimit: { remaining: 57, resetAt: null },
+      });
+      const { events, emit } = eventCollector();
+
+      await executeAnalysis(
+        { type: "start", requestId: 87, ref, analyzedAt },
+        dependencies,
+        emit,
+      );
+
+      const report = completedReport(events);
+      expect(report.repository.description).toBeNull();
+      expect(JSON.stringify(report)).not.toContain(credential);
+    },
+  );
+
   it("keeps the exact skipped total when serializable details reach their cap", async () => {
     const dependencies = dependenciesFor([], () =>
       Promise.reject(new Error("must not fetch")),

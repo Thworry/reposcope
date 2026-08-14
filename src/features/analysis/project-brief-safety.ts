@@ -14,8 +14,8 @@ const EQUAL_CREDENTIAL_PATTERN = new RegExp(
   "iu",
 );
 const STRUCTURED_COLON_CREDENTIAL_PATTERN = new RegExp(
-  `(?:^|[\\[{,]\\s*)["']?${CREDENTIAL_KEY}["']?\\s*:\\s*${SECRET_VALUE}`,
-  "iu",
+  `(?:^[\\t ]*(?:-[\\t ]+)?|[\\[{,]\\s*)["']?${CREDENTIAL_KEY}["']?\\s*:\\s*${SECRET_VALUE}`,
+  "imu",
 );
 const DOCUMENTATION_VALUE_WORDS = new Set([
   "bearer",

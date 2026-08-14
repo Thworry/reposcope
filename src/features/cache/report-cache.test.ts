@@ -170,6 +170,31 @@ describe("report cache", () => {
     }
   });
 
+  it.each([
+    "  token: hunter2 # nested YAML",
+    "- password: huntersecret # list item",
+  ])("never persists structured YAML credential text: %s", (credential) => {
+    for (const target of ["description", "excerpt"] as const) {
+      const report = validReport();
+      report.repository.owner = ref.owner;
+      report.repository.repo = ref.repo;
+      report.repository.fullName = `${ref.owner}/${ref.repo}`;
+      report.repository.url = `https://github.com/${ref.owner}/${ref.repo}`;
+      if (target === "description") {
+        report.repository.description = credential;
+      } else {
+        const firstExcerpt = report.projectBrief.excerpts[0];
+        expect(firstExcerpt).toBeDefined();
+        if (firstExcerpt === undefined)
+          throw new Error("Missing fixture excerpt");
+        firstExcerpt.text = credential;
+      }
+
+      setCachedReport(ref, report, now);
+      expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
+    }
+  });
+
   it.each([now + 1, now - 900_001])(
     "removes invalid saved time %s",
     (savedAt) => {

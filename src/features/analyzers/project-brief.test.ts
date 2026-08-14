@@ -691,6 +691,10 @@ describe("project brief purpose extraction", () => {
 
   it.each([
     "token: hunter2",
+    " token: hunter2",
+    "  token: hunter2 # nested YAML",
+    "- token: hunter2",
+    "- password: huntersecret # list item",
     "password: huntersecret # local development only",
     "api_key: alphasecret # rotate monthly",
     "token: abcdef # comment",

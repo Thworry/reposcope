@@ -475,6 +475,24 @@ describe("isAnalysisReport", () => {
   });
 
   it.each([
+    " token: hunter2",
+    "  token: hunter2 # nested YAML",
+    "- token: hunter2",
+    "- password: huntersecret # list item",
+  ])("rejects structured YAML credential text: %s", (credential) => {
+    const descriptionReport = cloneReport();
+    descriptionReport.repository.description = credential;
+    expect(isAnalysisReport(descriptionReport)).toBe(false);
+
+    const excerptReport = cloneReport();
+    const firstExcerpt = excerptReport.projectBrief.excerpts[0];
+    expect(firstExcerpt).toBeDefined();
+    if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
+    firstExcerpt.text = credential;
+    expect(isAnalysisReport(excerptReport)).toBe(false);
+  });
+
+  it.each([
     ["invalid path", "Purpose", "../README.md"],
     ["bidi control", "Purpose\u202ehidden", "README.md"],
     ["malformed surrogate", "Purpose\ud800", "README.md"],
