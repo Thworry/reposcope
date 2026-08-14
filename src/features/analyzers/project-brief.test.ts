@@ -932,6 +932,7 @@ describe("project brief purpose extraction", () => {
     "Token: JWT RFC 7519 sections 1.1 and 2.1–2.3",
     "Token: JWT RFC 7519 sections 1.1, 2.1–2.3",
     "Token: JWT sections 1.1 and 2.1-2.3",
+    "Token: JWT per RFC 822",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
@@ -1308,6 +1309,10 @@ describe("project brief purpose extraction", () => {
     "Password: string minimum length 0128-0128, Username: admin",
     "Password: string maximum length 0000 to 0000, Username: admin",
     "Password: string minimum length (0128-0128 chars)",
+    "Token: JWT sections 00.00.00, 00.00.00, 00.00.00, Name: app",
+    "Token: JWT RFC 0000 sections 00.00.00-00.00.00, Name: app",
+    "Token: JWT sections 01.02.03, 04.05.06, 07.08.09, Name: app",
+    "Token: JWT sections 00-00, Name: app",
     'password: zircon9876, "username": "admin"',
     "token: huntersecret, $schema: v1",
     "secret: zircon9876, 1: app",

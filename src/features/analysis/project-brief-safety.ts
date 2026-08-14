@@ -290,15 +290,17 @@ const DOCUMENTATION_QUALIFIER_WORDS = new Set([
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
   /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|(?:der(?:-encoded)?)|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
-const RAW_SECTION_REFERENCE = "\\d{1,2}(?:\\.\\d{1,2}){0,2}(?:\\([a-z]\\))?";
+const RAW_SECTION_COMPONENT = "(?:0|[1-9]\\d?)";
+const RAW_SECTION_REFERENCE = `${RAW_SECTION_COMPONENT}(?:\\.${RAW_SECTION_COMPONENT}){0,2}(?:\\([a-z]\\))?`;
 const RAW_SECTION_ENUMERATION = `${RAW_SECTION_REFERENCE}(?:\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${RAW_SECTION_REFERENCE}){0,2}`;
 const RAW_SECTION_RANGE = `${RAW_SECTION_REFERENCE}(?:\\s*[-–]\\s*|\\s+(?:to|through)\\s+)${RAW_SECTION_REFERENCE}`;
 const RAW_SECTION_ITEM_SEPARATOR = "\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)";
 const RAW_SECTION_LIST = `(?:${RAW_SECTION_RANGE}(?:${RAW_SECTION_ITEM_SEPARATOR}${RAW_SECTION_REFERENCE})?|${RAW_SECTION_REFERENCE}${RAW_SECTION_ITEM_SEPARATOR}${RAW_SECTION_RANGE}|${RAW_SECTION_ENUMERATION})`;
 const RAW_SECTION_CLAUSE = `sections?\\s+${RAW_SECTION_LIST}`;
-const RAW_RFC_CLAUSE = `rfc(?:\\s+|-)\\d{4}(?:(?:\\s+|\\s*,\\s+)(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
+const RAW_RFC_NUMBER = "[1-9]\\d{0,3}";
+const RAW_RFC_CLAUSE = `rfc(?:\\s+|-)${RAW_RFC_NUMBER}(?:(?:\\s+|\\s*,\\s+)(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
 const RAW_RFC_QUALIFIER_PATTERN = new RegExp(
-  `^(?:(?:per|see|conforms to|as (?:defined|specified) (?:in|by)|according to|compliant with)\\s+)?(?:${RAW_RFC_CLAUSE}(?:\\s*(?:,\\s+|\\s+and\\s+)(?:${RAW_RFC_CLAUSE}|\\d{4}))?|rfcs\\s+\\d{4}(?:\\s*,\\s+|\\s+and\\s+)\\d{4})$`,
+  `^(?:(?:per|see|conforms to|as (?:defined|specified) (?:in|by)|according to|compliant with)\\s+)?(?:${RAW_RFC_CLAUSE}(?:\\s*(?:,\\s+|\\s+and\\s+)(?:${RAW_RFC_CLAUSE}|${RAW_RFC_NUMBER}))?|rfcs\\s+${RAW_RFC_NUMBER}(?:\\s*,\\s+|\\s+and\\s+)${RAW_RFC_NUMBER})$`,
   "iu",
 );
 const RAW_SECTION_QUALIFIER_PATTERN = new RegExp(
