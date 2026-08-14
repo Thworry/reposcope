@@ -290,16 +290,23 @@ const DOCUMENTATION_QUALIFIER_WORDS = new Set([
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
   /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|(?:der(?:-encoded)?)|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
-const SECTION_REFERENCE = "\\d{1,2}(?: \\d{1,2}){0,2}";
-const RFC_CLAUSE = `rfc \\d{4}(?: section ${SECTION_REFERENCE}| sections ${SECTION_REFERENCE}(?: and ${SECTION_REFERENCE})?)?`;
-const RFC_QUALIFIER_PATTERN = new RegExp(
-  `^(?:(?:per|as (?:defined|specified) (?:in|by)|according to|compliant with) )?(?:${RFC_CLAUSE}(?: and ${RFC_CLAUSE})?|rfcs \\d{4} and \\d{4})$`,
-  "u",
+const RAW_SECTION_REFERENCE = "\\d{1,2}(?:\\.\\d{1,2}){0,2}";
+const RAW_SECTION_LIST = `${RAW_SECTION_REFERENCE}(?:\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${RAW_SECTION_REFERENCE}){0,2}`;
+const RAW_SECTION_CLAUSE = `sections?\\s+${RAW_SECTION_LIST}`;
+const RAW_RFC_CLAUSE = `rfc\\s+\\d{4}(?:\\s*(?:,\\s*)?(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
+const RAW_RFC_QUALIFIER_PATTERN = new RegExp(
+  `^(?:(?:per|as (?:defined|specified) (?:in|by)|according to|compliant with)\\s+)?(?:${RAW_RFC_CLAUSE}(?:\\s*(?:,\\s*|\\s+and\\s+)${RAW_RFC_CLAUSE})?|rfcs\\s+\\d{4}(?:\\s*,\\s*|\\s+and\\s+)\\d{4})$`,
+  "iu",
 );
-const SECTION_QUALIFIER_PATTERN =
-  /^sections? \d{1,2}(?: (?:and )?\d{1,2}){0,2}$/u;
-const LENGTH_QUALIFIER_PATTERN =
-  /^(?:(?:min|minimum|max|maximum) length(?: of| is)? \d{1,4}(?: to \d{1,4})?|(?:minimum|maximum) length(?: is)? between \d{1,4} and \d{1,4}|length(?: is)? \d{1,4}(?: to \d{1,4})?|length between \d{1,4} and \d{1,4}|min max length(?: \d{1,4} to \d{1,4}| between \d{1,4} and \d{1,4}))(?: characters)?$/u;
+const RAW_SECTION_QUALIFIER_PATTERN = new RegExp(
+  `^${RAW_SECTION_CLAUSE}$`,
+  "iu",
+);
+const RAW_LENGTH_NUMBER = "(?:[1-9]\\d{0,2},\\d{3}|\\d{1,4})";
+const RAW_LENGTH_QUALIFIER_PATTERN = new RegExp(
+  `^(?:(?:min|minimum|max|maximum)\\s+length(?:\\s+(?:of|is))?\\s+${RAW_LENGTH_NUMBER}(?:\\s+to\\s+${RAW_LENGTH_NUMBER})?|(?:minimum|maximum)\\s+length(?:\\s+is)?\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|length(?:\\s+is)?\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|length(?:\\s+is)?\\s+${RAW_LENGTH_NUMBER}|length\\s+${RAW_LENGTH_NUMBER}\\s*(?:to|-|–)\\s*${RAW_LENGTH_NUMBER}|min/max\\s+length(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_NUMBER}\\s*(?:to|-|–)\\s*${RAW_LENGTH_NUMBER})|min\\s+max\\s+length(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_NUMBER}\\s+to\\s+${RAW_LENGTH_NUMBER})|length\\s+\\(\\s*${RAW_LENGTH_NUMBER}(?:\\s+characters)?\\s*\\))(?:\\s+characters)?$`,
+  "iu",
+);
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -323,41 +330,38 @@ function isDocumentationTechnicalValue(value: string | undefined): boolean {
   );
 }
 
-function normalizedQualifierGrammarSource(value: string): string | null {
+function stripSingleQualifierWrapper(value: string): string | null {
+  const opening = value[0];
+  const closing = opening === "(" ? ")" : opening === "[" ? "]" : null;
+  if (closing === null) return value;
+  if (value.at(-1) !== closing) return null;
+
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === opening) depth += 1;
+    else if (character === closing) depth -= 1;
+    if (depth < 0 || (depth === 0 && index < value.length - 1)) return null;
+  }
+  return depth === 0 ? value.slice(1, -1).trim() : null;
+}
+
+function normalizedRawQualifier(value: string): string | null {
   let source = value
     .normalize("NFKC")
     .trim()
     .replace(/[.!?]+$/u, "")
     .trim();
+  if (source.startsWith(",")) source = source.slice(1).trimStart();
+  return stripSingleQualifierWrapper(source);
+}
 
-  const opening = source[0];
-  const closing = source.at(-1);
-  if (
-    (opening === "(" && closing === ")") ||
-    (opening === "[" && closing === "]")
-  )
-    source = source.slice(1, -1).trim();
-
-  source = source
-    .replace(/min\/max/giu, "min max")
-    .replace(/(\d)[-–](\d)/gu, "$1 to $2");
-
-  if (
-    /[()[\]@+\-/]/u.test(source) ||
-    /,\s*,/u.test(source) ||
-    /,(?!\s)/u.test(source)
-  )
-    return null;
-
-  source = source
-    .replace(/(\d(?:\.\d{1,2}){0,2}),\s*(?=\d)/gu, "$1 and ")
-    .replace(/,\s*(?=sections?\b)/giu, " ")
-    .replace(/,\s*(?=and\b)/giu, " ");
-  if (source.includes(",")) return null;
-
-  source = source.replace(/(\d)\.(?=\d)/gu, "$1 ");
-  if (/[^A-Za-z0-9\s]/u.test(source)) return null;
-  return source.replace(/\s+/gu, " ").trim();
+function hasValidLengthValues(value: string): boolean {
+  const numbers = value.match(/[1-9]\d{0,2},\d{3}|\d{1,4}/gu) ?? [];
+  return (
+    numbers.length > 0 &&
+    numbers.every((number) => Number(number.replace(",", "")) <= 4_096)
+  );
 }
 
 function isLikelyCredentialValue(
@@ -395,7 +399,7 @@ function isLikelyCredentialValue(
 function isQualifiedDocumentationValue(value: string | undefined): boolean {
   if (value === undefined) return false;
   const normalized = value.normalize("NFKC").trim();
-  const firstToken = normalized.match(/^[^\s([{]+/u)?.[0];
+  const firstToken = normalized.match(/^[^\s([{,]+/u)?.[0];
   if (firstToken === undefined) return false;
   const firstWords = normalizedValueWords(firstToken);
   if (
@@ -407,33 +411,28 @@ function isQualifiedDocumentationValue(value: string | undefined): boolean {
   )
     return false;
   const rawQualifiers = normalized.slice(firstToken.length);
-  const grammarSource = normalizedQualifierGrammarSource(rawQualifiers);
-  if (grammarSource === null) return false;
+  const grammarSource = normalizedRawQualifier(rawQualifiers);
+  if (grammarSource === null || grammarSource.length === 0) return false;
+  if (RAW_RFC_QUALIFIER_PATTERN.test(grammarSource)) return true;
+  if (RAW_SECTION_QUALIFIER_PATTERN.test(grammarSource)) return true;
+  if (
+    firstWords[0] === "string" &&
+    RAW_LENGTH_QUALIFIER_PATTERN.test(grammarSource)
+  )
+    return hasValidLengthValues(grammarSource);
+  if (/\d/u.test(grammarSource) || /[^A-Za-z\s-]/u.test(grammarSource))
+    return false;
   const qualifiers = normalizedValueWords(grammarSource);
   const documentationQualifiers = qualifiers.filter((word) =>
     DOCUMENTATION_QUALIFIER_WORDS.has(word),
   );
-  const numericQualifiers = qualifiers.filter((word) => /^\d+$/u.test(word));
   if (
     qualifiers.length === 0 ||
     documentationQualifiers.length === 0 ||
-    !qualifiers.every(
-      (word) =>
-        DOCUMENTATION_QUALIFIER_WORDS.has(word) || /^\d{1,4}$/u.test(word),
-    )
+    !qualifiers.every((word) => DOCUMENTATION_QUALIFIER_WORDS.has(word))
   )
     return false;
-  if (numericQualifiers.length === 0) return true;
-  const qualifierSequence = qualifiers.join(" ");
-  if (RFC_QUALIFIER_PATTERN.test(qualifierSequence)) return true;
-  if (SECTION_QUALIFIER_PATTERN.test(qualifierSequence)) return true;
-  if (firstWords[0] === "string") {
-    return (
-      LENGTH_QUALIFIER_PATTERN.test(qualifierSequence) &&
-      numericQualifiers.every((word) => Number(word) <= 4_096)
-    );
-  }
-  return false;
+  return true;
 }
 
 function isBracketDocumentationPhrase(
