@@ -60,6 +60,85 @@ function hasAssignmentBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_]/u.test(value[index - 1] ?? "");
 }
 
+function containsJsonObjectOrArray(value: string): boolean {
+  for (const [opening, closing] of [
+    ["{", "}"],
+    ["[", "]"],
+  ] as const) {
+    const start = value.indexOf(opening);
+    const end = value.lastIndexOf(closing);
+    if (start < 0 || end <= start) continue;
+
+    try {
+      const parsed: unknown = JSON.parse(value.slice(start, end + 1));
+      if (typeof parsed === "object" && parsed !== null) return true;
+    } catch {
+      // It is prose or a non-JSON example, so leave it for the normal scanner.
+    }
+  }
+
+  return false;
+}
+
+function decodeStructuredJsonStringsOnce(value: string): {
+  value: string;
+  changed: boolean;
+} {
+  const parts: string[] = [];
+  let copiedUntil = 0;
+  let cursor = 0;
+  let changed = false;
+
+  while (cursor < value.length) {
+    if (value[cursor] !== '"') {
+      cursor += 1;
+      continue;
+    }
+
+    const start = cursor;
+    cursor += 1;
+    let escaped = false;
+    while (cursor < value.length) {
+      const character = value[cursor] ?? "";
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        cursor += 1;
+        break;
+      }
+      cursor += 1;
+    }
+    if (cursor > value.length || value[cursor - 1] !== '"') break;
+
+    try {
+      const decoded: unknown = JSON.parse(value.slice(start, cursor));
+      if (typeof decoded === "string" && containsJsonObjectOrArray(decoded)) {
+        parts.push(value.slice(copiedUntil, start), decoded);
+        copiedUntil = cursor;
+        changed = true;
+      }
+    } catch {
+      // Invalid JSON strings remain unchanged and are handled conservatively.
+    }
+  }
+
+  if (!changed) return { value, changed: false };
+  parts.push(value.slice(copiedUntil));
+  return { value: parts.join(""), changed: true };
+}
+
+function decodeStructuredJsonStrings(value: string): string {
+  let decoded = value;
+  for (let depth = 0; depth < 2; depth += 1) {
+    const pass = decodeStructuredJsonStringsOnce(decoded);
+    decoded = pass.value;
+    if (!pass.changed) break;
+  }
+  return decoded;
+}
+
 interface CredentialScanState {
   cursor: number;
   linePrefix: "indent" | "dash" | "list" | "other";
@@ -330,11 +409,12 @@ function hasAssignedCredential(value: string): boolean {
 
 /** Returns true for bounded, high-confidence credential material. */
 export function containsCredentialLikeValue(value: string): boolean {
+  const structuredValue = decodeStructuredJsonStrings(value);
   return (
     PEM_PRIVATE_KEY_PATTERN.test(value) ||
     GITHUB_TOKEN_PATTERN.test(value) ||
     COMMON_TOKEN_PATTERN.test(value) ||
-    hasAssignedCredential(value)
+    hasAssignedCredential(structuredValue)
   );
 }
 

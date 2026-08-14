@@ -722,6 +722,7 @@ describe("project brief purpose extraction", () => {
   it.each([
     String.raw`Configuration: "{\"note\":\"Intro, Token: values, configuration: guidance for users.\"}"`,
     String.raw`{"note":"embedded {\"note\":\"Password: rules; validation: handled by server.\"}"}`,
+    String.raw`Configuration: "{\"note\":\"literal \\\" mark, Token: values, configuration: guidance\"}"`,
   ])(
     "keeps ordinary documentation inside escaped structured text: %s",
     (generic) => {
@@ -788,6 +789,8 @@ describe("project brief purpose extraction", () => {
     String.raw`Configuration: "{\"token\":\"zircon9876\",\"name\":\"app\"}"`,
     String.raw`{"note":"embedded {\"token\":\"zircon9876\",\"name\":\"app\"}"}`,
     String.raw`Configuration: "[{\"password\":\"zircon9876\",\"mode\":\"local\"}]"`,
+    String.raw`Configuration: "{\"note\":\"size is 5\\\"\",\"token\":\"zircon9876\"}"`,
+    String.raw`Configuration: "[{\"note\":\"size is 5\\\"\",\"password\":\"zircon9876\"}]"`,
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });
