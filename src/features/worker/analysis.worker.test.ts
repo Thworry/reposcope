@@ -317,6 +317,8 @@ describe("executeAnalysis", () => {
     "Token: SHA256 hashes identify values.",
     "API key: keychain storage is recommended.",
     "Password: passphrase requirements are documented.",
+    "Token: user's browser stores no secrets.",
+    "Token: values, configuration: guidance for users.",
   ])(
     "keeps ordinary credential documentation in repository metadata: %s",
     async (description) => {
@@ -352,6 +354,8 @@ describe("executeAnalysis", () => {
     '{"token":"huntersecret","name":"app"}',
     "{token: huntersecret, name: app}",
     "token: `huntersecret` with notes",
+    "{token: zircon9876, $schema: v1}",
+    "{token: zircon9876, app.name: demo}",
   ])(
     "removes structured YAML credential text from repository metadata: %s",
     async (credential) => {

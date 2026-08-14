@@ -7,6 +7,7 @@ import type {
   ProjectBrief,
 } from "../analysis/model";
 import { PROJECT_BRIEF_CAUTIONS, PROJECT_KINDS } from "../analysis/model";
+import { containsCredentialLikeValue } from "../analysis/project-brief-safety";
 import {
   perfectGeneralMetrics,
   perfectRepository,
@@ -700,6 +701,10 @@ describe("project brief purpose extraction", () => {
     "Private key: hardware-backed storage is supported.",
     "Token: base64-encoded values are accepted.",
     "API key: read-only access is sufficient.",
+    "Token: user's browser stores no secrets.",
+    "API key: developer's responsibility is rotation.",
+    "Token: values, configuration: guidance for users.",
+    "Password: rules; validation: handled by the server.",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
@@ -719,6 +724,15 @@ describe("project brief purpose extraction", () => {
     expect(briefFor({ description: credential }).excerpts).toEqual([]);
   });
 
+  it("scans the maximum benign structured text without quadratic work", () => {
+    const line = "token: required\n";
+    const input = line.repeat(Math.floor((256 * 1024) / line.length));
+    const startedAt = performance.now();
+
+    expect(containsCredentialLikeValue(input)).toBe(false);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+  });
+
   it.each([
     "Password: required.\ntoken: hunter2",
     "Password: required. token: hunter2",
@@ -732,6 +746,10 @@ describe("project brief purpose extraction", () => {
     '{"token":"huntersecret","password":null}',
     '[{"token":"huntersecret","name":"app"}]',
     "token: `huntersecret` with notes",
+    "{token: zircon9876, $schema: v1}",
+    "{token: zircon9876, app.name: demo}",
+    "{token: zircon9876, x/y: demo}",
+    "{token: zircon9876, 1: app}",
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });

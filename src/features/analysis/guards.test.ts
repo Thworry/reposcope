@@ -480,6 +480,10 @@ describe("isAnalysisReport", () => {
     "Private key: hardware-backed storage is supported.",
     "Token: base64-encoded values are accepted.",
     "API key: read-only access is sufficient.",
+    "Token: user's browser stores no secrets.",
+    "API key: developer's responsibility is rotation.",
+    "Token: values, configuration: guidance for users.",
+    "Password: rules; validation: handled by the server.",
   ])("accepts ordinary credential documentation: %s", (generic) => {
     const report = cloneReport();
     const firstExcerpt = report.projectBrief.excerpts[0];
@@ -505,6 +509,10 @@ describe("isAnalysisReport", () => {
     '{"token":"huntersecret","password":null}',
     '[{"token":"huntersecret","name":"app"}]',
     "token: `huntersecret` with notes",
+    "{token: zircon9876, $schema: v1}",
+    "{token: zircon9876, app.name: demo}",
+    "{token: zircon9876, x/y: demo}",
+    "{token: zircon9876, 1: app}",
   ])("rejects structured YAML credential text: %s", (credential) => {
     const descriptionReport = cloneReport();
     descriptionReport.repository.description = credential;

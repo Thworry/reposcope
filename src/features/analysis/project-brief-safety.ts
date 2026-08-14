@@ -65,18 +65,73 @@ function hasAssignmentBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_]/u.test(value[index - 1] ?? "");
 }
 
-function hasStructuredColonPrefix(value: string, index: number): boolean {
-  const lineStart =
-    Math.max(
-      value.lastIndexOf("\n", index - 1),
-      value.lastIndexOf("\r", index - 1),
-    ) + 1;
-  const linePrefix = value.slice(lineStart, index);
+interface ColonScanState {
+  cursor: number;
+  linePrefix: "indent" | "dash" | "list" | "other";
+  flowDepth: number;
+  quote: '"' | "'" | "`" | null;
+  escaped: boolean;
+  lastNonWhitespace: string | null;
+}
 
-  return (
-    /^[\t ]*(?:-[\t ]+)?$/u.test(linePrefix) ||
-    /(?:[{},]|\[|[.!?])[\t ]*$/u.test(value.slice(0, index))
-  );
+function advanceColonContext(
+  value: string,
+  state: ColonScanState,
+  end: number,
+): void {
+  while (state.cursor < end) {
+    const character = value[state.cursor] ?? "";
+    state.cursor += 1;
+
+    if (character === "\r" || character === "\n") {
+      state.linePrefix = "indent";
+      state.lastNonWhitespace = null;
+      continue;
+    }
+
+    if (character === " " || character === "\t") {
+      if (state.linePrefix === "dash") state.linePrefix = "list";
+    } else {
+      if (state.linePrefix === "indent") {
+        state.linePrefix = character === "-" ? "dash" : "other";
+      } else if (state.linePrefix === "dash" || state.linePrefix === "list") {
+        state.linePrefix = "other";
+      }
+      state.lastNonWhitespace = character;
+    }
+
+    if (state.quote !== null) {
+      if (state.escaped) {
+        state.escaped = false;
+      } else if (character === "\\") {
+        state.escaped = true;
+      } else if (character === state.quote) {
+        state.quote = null;
+      }
+      continue;
+    }
+
+    if (character === '"' || character === "'" || character === "`") {
+      state.quote = character;
+    } else if (character === "{" || character === "[") {
+      state.flowDepth += 1;
+    } else if (character === "}" || character === "]") {
+      state.flowDepth = Math.max(0, state.flowDepth - 1);
+    }
+  }
+}
+
+function closingWrapper(
+  match: RegExpExecArray,
+  credential: string,
+): string | null {
+  const beforeCredential = match[0].slice(0, -credential.length).trimEnd();
+  const opening = beforeCredential.at(-1);
+
+  if (opening === '"' || opening === "'" || opening === "`") return opening;
+  if (opening === "{") return "}";
+  if (opening === "[") return "]";
+  return null;
 }
 
 function hasEqualCredential(value: string): boolean {
@@ -92,24 +147,62 @@ function hasEqualCredential(value: string): boolean {
 }
 
 function hasStructuredColonCredential(value: string): boolean {
+  const state: ColonScanState = {
+    cursor: 0,
+    linePrefix: "indent",
+    flowDepth: 0,
+    quote: null,
+    escaped: false,
+    lastNonWhitespace: null,
+  };
+
   for (const match of allMatches(value, STRUCTURED_COLON_CREDENTIAL_PATTERN)) {
+    advanceColonContext(value, state, match.index);
+    const flowContext =
+      state.flowDepth > 0 &&
+      (state.lastNonWhitespace === "{" ||
+        state.lastNonWhitespace === "[" ||
+        state.lastNonWhitespace === ",");
+    const sentenceContext =
+      state.lastNonWhitespace === "." ||
+      state.lastNonWhitespace === "!" ||
+      state.lastNonWhitespace === "?";
     if (
-      !hasStructuredColonPrefix(value, match.index) ||
+      !(
+        state.linePrefix === "indent" ||
+        state.linePrefix === "list" ||
+        flowContext ||
+        sentenceContext
+      ) ||
       !isLikelyCredentialValue(match[1])
     )
       continue;
 
-    const lineRemainder = value
-      .slice(match.index + match[0].length)
-      .split(/[\r\n]/u, 1)[0]
-      ?.trimStart();
-    if (lineRemainder === undefined || lineRemainder.length === 0) return true;
-    if (lineRemainder.startsWith("#")) return true;
-    if (/^["'`,;)}\]]+(?:\s*#.*)?$/u.test(lineRemainder)) return true;
-    if (/^["'`}\]]/u.test(lineRemainder)) return true;
-    if (/^[,;]\s*["']?[\p{L}_][\p{L}\p{N}_ -]*["']?\s*:/u.test(lineRemainder))
+    let remainderStart = match.index + match[0].length;
+    while (value[remainderStart] === " " || value[remainderStart] === "\t") {
+      remainderStart += 1;
+    }
+    const firstRemainder = value[remainderStart];
+    if (
+      firstRemainder === undefined ||
+      firstRemainder === "\r" ||
+      firstRemainder === "\n"
+    )
       return true;
-    if (STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(lineRemainder)?.index === 0)
+    if (firstRemainder === "#") return true;
+    const expectedWrapper = closingWrapper(match, match[1] ?? "");
+    if (expectedWrapper !== null && firstRemainder === expectedWrapper)
+      return true;
+    if (
+      firstRemainder === ")" ||
+      firstRemainder === "}" ||
+      firstRemainder === "]"
+    )
+      return true;
+    if (flowContext && (firstRemainder === "," || firstRemainder === ";"))
+      return true;
+    const boundedRemainder = value.slice(remainderStart, remainderStart + 512);
+    if (STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(boundedRemainder)?.index === 0)
       return true;
   }
 
