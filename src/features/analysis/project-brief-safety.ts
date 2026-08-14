@@ -20,6 +20,7 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "an",
   "avoid",
   "bearer",
+  "based",
   "boolean",
   "configure",
   "config",
@@ -67,6 +68,7 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "policy",
   "provided",
   "property",
+  "reference",
   "read",
   "required",
   "rotate",
@@ -85,6 +87,7 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "the",
   "text",
   "textual",
+  "token",
   "true",
   "type",
   "types",
@@ -98,6 +101,10 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "values",
   "value",
   "false",
+  "aes256",
+  "oauth2",
+  "pbkdf2",
+  "rsa2048",
 ]);
 const STRUCTURED_DOCUMENTATION_VALUE_WORDS = new Set([
   "boolean",
@@ -152,21 +159,23 @@ function isWeakDefaultCredentialValue(value: string | undefined): boolean {
   );
 }
 
-function isDefaultCredentialValue(value: string | undefined): boolean {
-  const words = normalizedValueWords(value);
-  return (
-    words.length > 0 &&
-    words.every((word) => word === "default" || word === "defaults")
-  );
-}
-
 function hasStrongCredentialShape(value: string | undefined): boolean {
   if (value === undefined) return false;
   const normalized = value.normalize("NFKC").toLocaleLowerCase("en-US");
+  const words = normalizedValueWords(value);
+  if (
+    /\p{L}+(?:['’]s|s['’])/u.test(normalized) &&
+    DOCUMENTATION_VALUE_WORDS.has(words.at(-1) ?? "")
+  )
+    return false;
+  if (!isLikelyCredentialValue(value) || normalized === "secret-reference")
+    return false;
+  const compact = normalized.replace(/[^\p{L}\p{N}]+/gu, "");
   return (
-    /\p{N}/u.test(normalized) ||
-    /(?:password|passphrase|passwd|secret|token|api[^\p{L}\p{N}]*key|private[^\p{L}\p{N}]*key)/u.test(
-      normalized,
+    (/\p{N}/u.test(compact) && compact.length >= 9) ||
+    compact.length >= 20 ||
+    /(?:password|passphrase|passwd|secret|token|apikey|privatekey)$/u.test(
+      compact,
     )
   );
 }
@@ -218,6 +227,20 @@ function hasStructuredYamlTerminator(
     METADATA_FIELD_PATTERN.test(
       value.slice(afterSeparator, afterSeparator + 128),
     )
+  );
+}
+
+function hasTopLevelWeakYamlTerminator(
+  value: string,
+  remainderStart: number,
+): boolean {
+  if (isLineEndOrComment(value, remainderStart)) return true;
+
+  const separator = value[remainderStart];
+  if (separator !== "," && separator !== ";") return false;
+  const afterSeparator = afterHorizontalWhitespace(value, remainderStart + 1);
+  return METADATA_FIELD_PATTERN.test(
+    value.slice(afterSeparator, afterSeparator + 128),
   );
 }
 
@@ -704,23 +727,19 @@ function hasAssignedCredential(value: string): boolean {
     const proseLikely = isLikelyCredentialValue(parsed.value);
     const structuredLikely = isLikelyStructuredCredentialValue(parsed.value);
     const weakDefaultCredential = isWeakDefaultCredentialValue(parsed.value);
-    const defaultCredential = isDefaultCredentialValue(parsed.value);
     const strongCredentialShape = hasStrongCredentialShape(parsed.value);
     const quotedCredentialKey = /^(?:\\?["'])/u.test(match[0]);
     const leadingYamlIndent =
       state.linePrefix === "indent" &&
       match.index > 0 &&
       (value[match.index - 1] === " " || value[match.index - 1] === "\t");
-    const capitalizedPasswordDefault =
-      /^(?:\\?["'])?password\b/iu.test(match[0]) && defaultCredential;
-    const explicitWeakYamlContext =
+    const strictWeakYamlContext =
       lowercaseCredentialKey ||
       state.linePrefix === "list" ||
       leadingYamlIndent ||
       quotedCredentialKey ||
       state.lastNonWhitespace === "," ||
-      state.lastNonWhitespace === ";" ||
-      capitalizedPasswordDefault;
+      state.lastNonWhitespace === ";";
     const explicitProseContext =
       lowercaseCredentialKey ||
       state.linePrefix === "list" ||
@@ -740,8 +759,10 @@ function hasAssignedCredential(value: string): boolean {
     if (!proseLikely) {
       if (
         weakDefaultCredential &&
-        explicitWeakYamlContext &&
-        hasStructuredYamlTerminator(value, remainderStart)
+        ((strictWeakYamlContext &&
+          hasStructuredYamlTerminator(value, remainderStart)) ||
+          (!strictWeakYamlContext &&
+            hasTopLevelWeakYamlTerminator(value, remainderStart)))
       )
         return true;
       continue;
