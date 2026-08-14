@@ -707,11 +707,28 @@ describe("project brief purpose extraction", () => {
     "Password: rules; validation: handled by the server.",
     '{"note":"Intro, Token: values, configuration: guidance for users."}',
     '{note: "Intro, Password: rules; validation: handled by server."}',
+    "token == null",
+    "password == required",
+    "token === undefined",
+    "token => validate(token)",
+    "Checks whether token === undefined before use.",
+    "The password == required comparison is documented.",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
     ]);
   });
+
+  it.each([
+    String.raw`Configuration: "{\"note\":\"Intro, Token: values, configuration: guidance for users.\"}"`,
+    String.raw`{"note":"embedded {\"note\":\"Password: rules; validation: handled by server.\"}"}`,
+  ])(
+    "keeps ordinary documentation inside escaped structured text: %s",
+    (generic) => {
+      expect(containsCredentialLikeValue(generic)).toBe(false);
+      expect(briefFor({ description: generic }).excerpts).toHaveLength(1);
+    },
+  );
 
   it.each([
     "token: hunter2",
@@ -766,6 +783,11 @@ describe("project brief purpose extraction", () => {
     '{password: "correct horse battery staple", name: app}',
     'token: "hunter,secret"',
     "passphrase: 'alpha beta gamma delta'",
+    "password: 'null''huntersecret'",
+    "password: 'required''huntersecret'",
+    String.raw`Configuration: "{\"token\":\"zircon9876\",\"name\":\"app\"}"`,
+    String.raw`{"note":"embedded {\"token\":\"zircon9876\",\"name\":\"app\"}"}`,
+    String.raw`Configuration: "[{\"password\":\"zircon9876\",\"mode\":\"local\"}]"`,
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });

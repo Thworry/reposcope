@@ -9,7 +9,7 @@ const PEM_PRIVATE_KEY_PATTERN =
 const CREDENTIAL_KEY =
   "(?:password|passphrase|passwd|pwd|secret|token|api[-_ ]?key|access[-_ ]?token|auth(?:orization)?|client[-_ ]?secret|private[-_ ]?key)";
 const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
-  `["']?${CREDENTIAL_KEY}["']?\\s*([=:])\\s*`,
+  `(?:\\\\?["'])?${CREDENTIAL_KEY}(?:\\\\?["'])?\\s*([=:])\\s*`,
   "iu",
 );
 const DOCUMENTATION_VALUE_WORDS = new Set([
@@ -66,6 +66,7 @@ interface CredentialScanState {
   flowDepth: number;
   quote: '"' | "'" | "`" | null;
   quotedFlowDepth: number;
+  quotedFlowString: boolean;
   escaped: boolean;
   lastNonWhitespace: string | null;
 }
@@ -99,15 +100,25 @@ function advanceCredentialContext(
 
     if (state.quote !== null) {
       if (state.escaped) {
+        if (character === state.quote && state.quotedFlowDepth > 0) {
+          state.quotedFlowString = !state.quotedFlowString;
+        }
         state.escaped = false;
       } else if (character === "\\") {
         state.escaped = true;
       } else if (character === state.quote) {
         state.quote = null;
         state.quotedFlowDepth = 0;
-      } else if (character === "{" || character === "[") {
+        state.quotedFlowString = false;
+      } else if (
+        !state.quotedFlowString &&
+        (character === "{" || character === "[")
+      ) {
         state.quotedFlowDepth += 1;
-      } else if (character === "}" || character === "]") {
+      } else if (
+        !state.quotedFlowString &&
+        (character === "}" || character === "]")
+      ) {
         state.quotedFlowDepth = Math.max(0, state.quotedFlowDepth - 1);
       }
       continue;
@@ -124,6 +135,7 @@ function advanceCredentialContext(
     ) {
       state.quote = character;
       state.quotedFlowDepth = 0;
+      state.quotedFlowString = false;
     } else if (character === "{" || character === "[") {
       state.flowDepth += 1;
     } else if (character === "}" || character === "]") {
@@ -143,7 +155,9 @@ function parseCredentialValue(
   start: number,
   flowContext: boolean,
 ): ParsedCredentialValue {
-  const opening = source[start];
+  const escapedQuoteWrapper =
+    source[start] === "\\" && /["'`]/u.test(source[start + 1] ?? "");
+  const opening = escapedQuoteWrapper ? source[start + 1] : source[start];
   const closing =
     opening === '"' || opening === "'" || opening === "`"
       ? opening
@@ -154,7 +168,7 @@ function parseCredentialValue(
           : null;
 
   if (closing !== null) {
-    let cursor = start + 1;
+    let cursor = start + (escapedQuoteWrapper ? 2 : 1);
     let escaped = false;
     let depth = opening === "{" || opening === "[" ? 1 : 0;
 
@@ -162,6 +176,19 @@ function parseCredentialValue(
       const character = source[cursor] ?? "";
       if (escaped) {
         escaped = false;
+      } else if (
+        escapedQuoteWrapper &&
+        character === "\\" &&
+        source[cursor + 1] === closing
+      ) {
+        return {
+          value: source
+            .slice(start + 2, cursor)
+            .replaceAll(`\\\\${closing}`, closing)
+            .trim(),
+          end: cursor + 2,
+          wrapped: true,
+        };
       } else if (character === "\\") {
         escaped = true;
       } else if (opening === "{" || opening === "[") {
@@ -175,6 +202,13 @@ function parseCredentialValue(
               wrapped: true,
             };
         }
+      } else if (
+        opening === "'" &&
+        character === closing &&
+        source[cursor + 1] === closing
+      ) {
+        cursor += 2;
+        continue;
       } else if (character === closing) {
         return {
           value: source.slice(start + 1, cursor).trim(),
@@ -219,6 +253,7 @@ function hasAssignedCredential(value: string): boolean {
     flowDepth: 0,
     quote: null,
     quotedFlowDepth: 0,
+    quotedFlowString: false,
     escaped: false,
     lastNonWhitespace: null,
   };
@@ -228,8 +263,16 @@ function hasAssignedCredential(value: string): boolean {
     if (!hasAssignmentBoundary(value, match.index)) continue;
 
     const equalsAssignment = match[1] === "=";
+    const nextOperatorCharacter = value[match.index + match[0].length];
+    if (
+      (equalsAssignment &&
+        (nextOperatorCharacter === "=" || nextOperatorCharacter === ">")) ||
+      (!equalsAssignment && nextOperatorCharacter === "=")
+    )
+      continue;
     const insidePlainString =
-      state.quote !== null && state.quotedFlowDepth === 0;
+      state.quote !== null &&
+      (state.quotedFlowDepth === 0 || state.quotedFlowString);
     const flowContext =
       (state.flowDepth > 0 || state.quotedFlowDepth > 0) &&
       (state.lastNonWhitespace === "{" ||
