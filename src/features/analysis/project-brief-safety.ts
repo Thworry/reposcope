@@ -21,6 +21,7 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "generated",
   "identifies",
   "keep",
+  "metadata",
   "nil",
   "never",
   "none",
@@ -30,11 +31,13 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "provided",
   "required",
   "rotate",
+  "rules",
   "securely",
   "store",
   "string",
   "true",
   "validation",
+  "values",
   "false",
 ]);
 
@@ -555,12 +558,20 @@ function hasAssignedCredential(value: string): boolean {
       startsWithJsonStructure(value.slice(remainderStart))
     )
       return true;
-    if (firstRemainder === ";") {
+    if (firstRemainder === ";" || firstRemainder === ",") {
       let afterSeparator = remainderStart + 1;
       while (value[afterSeparator] === " " || value[afterSeparator] === "\t") {
         afterSeparator += 1;
       }
       if (
+        value[afterSeparator] === undefined ||
+        value[afterSeparator] === "\r" ||
+        value[afterSeparator] === "\n" ||
+        value[afterSeparator] === "#"
+      )
+        return true;
+      if (
+        firstRemainder === ";" &&
         (value[afterSeparator] === "{" || value[afterSeparator] === "[") &&
         startsWithJsonStructure(value.slice(afterSeparator))
       )
