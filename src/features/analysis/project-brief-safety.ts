@@ -168,28 +168,48 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "protocol",
   "and",
   "at",
+  "after",
+  "app",
+  "account",
   "authentication",
+  "automatically",
   "below",
   "by",
+  "cloud",
   "details",
   "device",
   "docs",
   "during",
+  "environment",
+  "expires",
+  "feature",
   "guide",
   "hashes",
   "identify",
   "in",
   "leaves",
   "login",
+  "machine",
+  "name",
+  "note",
   "oauth",
   "ordinary",
+  "operator",
+  "per",
+  "protected",
+  "scoped",
   "security",
   "see",
   "sha256",
   "sufficient",
+  "supplied",
   "supported",
+  "tenant",
   "through",
+  "tpm",
+  "stored",
   "your",
+  "x",
   "aes256",
   "oauth2",
   "pbkdf2",
@@ -213,7 +233,7 @@ const WEAK_DEFAULT_CREDENTIAL_VALUE_WORDS = new Set([
   "samples",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
-  /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac-?sha-?\d{2,4})|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
+  /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|der|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -260,7 +280,9 @@ function isLikelyCredentialValue(
     return false;
   const broadCredential =
     words.length > 0 &&
-    !words.every((word) => DOCUMENTATION_VALUE_WORDS.has(word));
+    !words.every(
+      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d$/u.test(word),
+    );
   return broadCredential;
 }
 
@@ -268,7 +290,9 @@ function isStructuredInstructionalDocumentationPhrase(value: string): boolean {
   const normalized = value.normalize("NFKC").trim();
   const words = normalizedValueWords(normalized);
   return (
-    /^(?:avoid|keep|never)\b/iu.test(normalized) &&
+    /^(?:avoid (?:logging|sharing|storing)\b|keep (?:it|this|them) out of\b|never log (?:it|this|them)\b)/iu.test(
+      normalized,
+    ) &&
     words.length > 1 &&
     words.every((word) => DOCUMENTATION_VALUE_WORDS.has(word))
   );
@@ -326,12 +350,12 @@ function afterHorizontalWhitespace(value: string, start: number): number {
 
 function hasPriorMetadataField(value: string, end: number): boolean {
   const boundedStart = Math.max(0, end - 512);
+  const window = value.slice(boundedStart, end);
   const lineStart = Math.max(
-    value.lastIndexOf("\n", end - 1),
-    value.lastIndexOf("\r", end - 1),
-    boundedStart - 1,
+    window.lastIndexOf("\n"),
+    window.lastIndexOf("\r"),
   );
-  return PRIOR_METADATA_FIELD_PATTERN.test(value.slice(lineStart + 1, end));
+  return PRIOR_METADATA_FIELD_PATTERN.test(window.slice(lineStart + 1));
 }
 
 function isLineEndOrComment(value: string, start: number): boolean {
@@ -815,8 +839,6 @@ function extendPlainCredentialValue(
     if (
       character === "\r" ||
       character === "\n" ||
-      character === "{" ||
-      character === "[" ||
       (character === "#" &&
         (end === start || /\s/u.test(source[end - 1] ?? "")))
     )
