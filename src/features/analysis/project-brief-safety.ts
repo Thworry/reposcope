@@ -293,7 +293,7 @@ const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
 const RAW_SECTION_REFERENCE = "\\d{1,2}(?:\\.\\d{1,2}){0,2}(?:\\([a-z]\\))?";
 const RAW_SECTION_ENUMERATION = `${RAW_SECTION_REFERENCE}(?:\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${RAW_SECTION_REFERENCE}){0,2}`;
 const RAW_SECTION_RANGE = `${RAW_SECTION_REFERENCE}(?:\\s*[-–]\\s*|\\s+(?:to|through)\\s+)${RAW_SECTION_REFERENCE}`;
-const RAW_SECTION_LIST = `(?:${RAW_SECTION_RANGE}|${RAW_SECTION_ENUMERATION})`;
+const RAW_SECTION_LIST = `(?:${RAW_SECTION_RANGE}(?:\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${RAW_SECTION_REFERENCE})?|${RAW_SECTION_ENUMERATION})`;
 const RAW_SECTION_CLAUSE = `sections?\\s+${RAW_SECTION_LIST}`;
 const RAW_RFC_CLAUSE = `rfc(?:\\s+|-)\\d{4}(?:(?:\\s+|\\s*,\\s+)(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
 const RAW_RFC_QUALIFIER_PATTERN = new RegExp(
@@ -309,7 +309,7 @@ const RAW_LENGTH_RANGE = `${RAW_LENGTH_NUMBER}\\s*(?:to|-|–)\\s*${RAW_LENGTH_N
 const RAW_LENGTH_UNIT = "(?:characters|chars)";
 const RAW_LENGTH_VALUE = `(?:${RAW_LENGTH_NUMBER}|${RAW_LENGTH_RANGE}|\\(\\s*${RAW_LENGTH_NUMBER}(?:\\s*(?:to|-|–)\\s*${RAW_LENGTH_NUMBER})?(?:\\s+${RAW_LENGTH_UNIT})?\\s*\\))`;
 const RAW_LENGTH_QUALIFIER_PATTERN = new RegExp(
-  `^(?:(?:min|minimum|max|maximum)\\s+length(?:\\s+(?:of|is))?\\s+${RAW_LENGTH_VALUE}|(?:minimum|maximum)\\s+length(?:\\s+is)?\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|length(?:\\s+is)?\\s+(?:between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|${RAW_LENGTH_VALUE})|length\\s+from\\s+${RAW_LENGTH_NUMBER}\\s+to\\s+${RAW_LENGTH_NUMBER}|length\\s+must\\s+be\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|min/max\\s+length(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_RANGE})|min\\s+max\\s+length(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_NUMBER}\\s+to\\s+${RAW_LENGTH_NUMBER}))(?:\\s+${RAW_LENGTH_UNIT})?$`,
+  `^(?:(?:min|minimum|max|maximum)\\s+length(?:\\s+(?:of|is))?\\s+${RAW_LENGTH_VALUE}|(?:minimum|maximum)\\s+length(?:\\s+is)?\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|length(?:\\s+is)?\\s+(?:between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|${RAW_LENGTH_VALUE})|length\\s+from\\s+${RAW_LENGTH_NUMBER}\\s+to\\s+${RAW_LENGTH_NUMBER}|length\\s+must\\s+be(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_RANGE})|min/max\\s+length(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_RANGE})|min\\s+max\\s+length(?:\\s+between\\s+${RAW_LENGTH_NUMBER}\\s+and\\s+${RAW_LENGTH_NUMBER}|\\s+${RAW_LENGTH_NUMBER}\\s+to\\s+${RAW_LENGTH_NUMBER}))(?:\\s+${RAW_LENGTH_UNIT})?$`,
   "iu",
 );
 
@@ -357,8 +357,8 @@ function normalizedRawQualifier(value: string): string | null {
     .trim()
     .replace(/[.!?]+$/u, "")
     .trim();
-  if (/^[,;—]/u.test(source)) {
-    if (!/^[,;—]\s+/u.test(source)) return null;
+  if (/^[,;:—–-]/u.test(source)) {
+    if (!/^[,;:—–-]\s+/u.test(source)) return null;
     source = source.slice(1).trimStart();
   }
   return stripSingleQualifierWrapper(source);
@@ -366,10 +366,19 @@ function normalizedRawQualifier(value: string): string | null {
 
 function hasValidLengthValues(value: string): boolean {
   const numbers = value.match(/[1-9]\d{0,2},\d{3}|\d{1,4}/gu) ?? [];
-  return (
-    numbers.length > 0 &&
-    numbers.every((number) => Number(number.replace(",", "")) <= 4_096)
-  );
+  const values = numbers.map((number) => Number(number.replace(",", "")));
+  if (
+    /\([^)]*\b(?:characters|chars)\s*\)\s+(?:characters|chars)$/iu.test(value)
+  )
+    return false;
+  if (
+    /^(?:min|minimum|max|maximum)\s+length/iu.test(value) &&
+    !/\bbetween\b/iu.test(value) &&
+    values.length > 1 &&
+    values.some((number) => number > 128)
+  )
+    return false;
+  return numbers.length > 0 && values.every((number) => number <= 4_096);
 }
 
 function isLikelyCredentialValue(
@@ -407,7 +416,7 @@ function isLikelyCredentialValue(
 function isQualifiedDocumentationValue(value: string | undefined): boolean {
   if (value === undefined) return false;
   const normalized = value.normalize("NFKC").trim();
-  const firstToken = normalized.match(/^[^\s([{,;—]+/u)?.[0];
+  const firstToken = normalized.match(/^[^\s([{,:;—]+/u)?.[0];
   if (firstToken === undefined) return false;
   const firstWords = normalizedValueWords(firstToken);
   if (
