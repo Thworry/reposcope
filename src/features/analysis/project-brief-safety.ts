@@ -33,11 +33,13 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "enabled",
   "example",
   "examples",
+  "external",
   "field",
   "format",
   "formats",
   "generated",
   "guidance",
+  "hashed",
   "identifies",
   "identifier",
   "implementation",
@@ -77,9 +79,12 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "securely",
   "store",
   "string",
+  "serialized",
   "source",
   "strong",
   "the",
+  "text",
+  "textual",
   "true",
   "type",
   "types",
@@ -88,6 +93,8 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "unset",
   "validation",
   "variable",
+  "user",
+  "s",
   "values",
   "value",
   "false",
@@ -100,6 +107,14 @@ const STRUCTURED_DOCUMENTATION_VALUE_WORDS = new Set([
   "required",
   "string",
   "true",
+]);
+const WEAK_DEFAULT_CREDENTIAL_VALUE_WORDS = new Set([
+  "default",
+  "defaults",
+  "example",
+  "examples",
+  "sample",
+  "samples",
 ]);
 
 function normalizedValueWords(value: string | undefined): string[] {
@@ -129,6 +144,14 @@ function isLikelyStructuredCredentialValue(value: string): boolean {
   );
 }
 
+function isWeakDefaultCredentialValue(value: string | undefined): boolean {
+  const words = normalizedValueWords(value);
+  return (
+    words.length > 0 &&
+    words.every((word) => WEAK_DEFAULT_CREDENTIAL_VALUE_WORDS.has(word))
+  );
+}
+
 function allMatches(
   value: string,
   pattern: RegExp,
@@ -138,6 +161,45 @@ function allMatches(
 
 function hasAssignmentBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_]/u.test(value[index - 1] ?? "");
+}
+
+function startsWithLowercaseCredentialKey(match: string): boolean {
+  const firstLetter = /[A-Za-z]/u.exec(match)?.[0];
+  return firstLetter !== undefined && firstLetter === firstLetter.toLowerCase();
+}
+
+function afterHorizontalWhitespace(value: string, start: number): number {
+  let cursor = start;
+  while (value[cursor] === " " || value[cursor] === "\t") cursor += 1;
+  return cursor;
+}
+
+function isLineEndOrComment(value: string, start: number): boolean {
+  const character = value[start];
+  return (
+    character === undefined ||
+    character === "\r" ||
+    character === "\n" ||
+    character === "#"
+  );
+}
+
+function hasStructuredYamlTerminator(
+  value: string,
+  remainderStart: number,
+): boolean {
+  if (isLineEndOrComment(value, remainderStart)) return true;
+
+  const separator = value[remainderStart];
+  if (separator !== "," && separator !== ";") return false;
+
+  const afterSeparator = afterHorizontalWhitespace(value, remainderStart + 1);
+  return (
+    isLineEndOrComment(value, afterSeparator) ||
+    METADATA_FIELD_PATTERN.test(
+      value.slice(afterSeparator, afterSeparator + 128),
+    )
+  );
 }
 
 const EXACT_CREDENTIAL_KEY_PATTERN = new RegExp(`^${CREDENTIAL_KEY}$`, "iu");
@@ -579,6 +641,7 @@ function hasAssignedCredential(value: string): boolean {
     if (!hasAssignmentBoundary(value, match.index)) continue;
 
     const equalsAssignment = match[1] === "=";
+    const lowercaseCredentialKey = startsWithLowercaseCredentialKey(match[0]);
     const nextOperatorCharacter = value[match.index + match[0].length];
     if (
       (equalsAssignment &&
@@ -621,24 +684,24 @@ function hasAssignedCredential(value: string): boolean {
     );
     const proseLikely = isLikelyCredentialValue(parsed.value);
     const structuredLikely = isLikelyStructuredCredentialValue(parsed.value);
+    const weakDefaultCredential = isWeakDefaultCredentialValue(parsed.value);
     if (equalsAssignment || flowContext || (parsed.wrapped && proseLikely)) {
       if (structuredLikely) return true;
       continue;
     }
     if (!proseLikely && !structuredLikely) continue;
 
-    let remainderStart = parsed.end;
-    while (value[remainderStart] === " " || value[remainderStart] === "\t") {
-      remainderStart += 1;
-    }
+    const remainderStart = afterHorizontalWhitespace(value, parsed.end);
     const firstRemainder = value[remainderStart];
     if (!proseLikely) {
-      if (firstRemainder === "#") return true;
       if (
-        state.linePrefix === "list" &&
-        (firstRemainder === undefined ||
-          firstRemainder === "\r" ||
-          firstRemainder === "\n")
+        weakDefaultCredential &&
+        lowercaseCredentialKey &&
+        (state.linePrefix === "indent" ||
+          state.linePrefix === "list" ||
+          state.lastNonWhitespace === "," ||
+          state.lastNonWhitespace === ";") &&
+        hasStructuredYamlTerminator(value, remainderStart)
       )
         return true;
       continue;
@@ -668,6 +731,7 @@ function hasAssignedCredential(value: string): boolean {
       )
         return true;
       if (
+        lowercaseCredentialKey &&
         METADATA_FIELD_PATTERN.test(
           value.slice(afterSeparator, afterSeparator + 128),
         )
