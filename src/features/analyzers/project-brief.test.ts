@@ -732,9 +732,21 @@ describe("project brief purpose extraction", () => {
     "API key: metadata [documented below].",
     "Token: values; [see configuration guide].",
     "Password: rules; {see the security guide}.",
+    'Token: values {documented below}. {"note":"feature disabled"}',
+    'Password: rules [see validation guidance]. ["ordinary"]',
+    "API key: metadata {details}. [1,2,3]",
+    'Token: values; [see docs]. {"name":"app"}',
+    "Password: rules; {see guide}. [false]",
+    `Token: values ${"{x}".repeat(129)}.`,
   ])("keeps boolean credential feature flags: %s", (generic) => {
     expect(containsCredentialLikeValue(generic)).toBe(false);
     expect(briefFor({ description: generic }).excerpts).toHaveLength(1);
+  });
+
+  it("does not equate an unterminated bracket budget with finding a credential", () => {
+    expect(
+      containsCredentialLikeValue(`Password: rules; ${"[ ".repeat(129)}`),
+    ).toBe(false);
   });
 
   it("keeps an ordinary quoted credential-key explanation inside a JSON note", () => {

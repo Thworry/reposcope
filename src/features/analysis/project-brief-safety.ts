@@ -155,6 +155,43 @@ function inspectJsonCandidates(value: string): {
   return { structured, credential: false };
 }
 
+function startsWithJsonStructure(value: string): boolean {
+  const opening = value[0];
+  if (opening !== "{" && opening !== "[") return false;
+  const stack = [opening];
+  let quote = false;
+  let escaped = false;
+
+  for (let cursor = 1; cursor < value.length; cursor += 1) {
+    const character = value[cursor] ?? "";
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quote = false;
+      continue;
+    }
+    if (character === '"') {
+      quote = true;
+      continue;
+    }
+    if (character === "{" || character === "[") stack.push(character);
+    else if (character === "}" || character === "]") {
+      const expected = character === "}" ? "{" : "[";
+      if (stack.at(-1) !== expected) return false;
+      stack.pop();
+      if (stack.length > 0) continue;
+      try {
+        const parsed: unknown = JSON.parse(value.slice(0, cursor + 1));
+        return typeof parsed === "object" && parsed !== null;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  return false;
+}
+
 function inspectStructuredJsonText(value: string): {
   structured: boolean;
   credential: boolean;
@@ -515,7 +552,7 @@ function hasAssignedCredential(value: string): boolean {
     if (firstRemainder === "#") return true;
     if (
       (firstRemainder === "{" || firstRemainder === "[") &&
-      inspectJsonCandidates(value.slice(remainderStart)).structured
+      startsWithJsonStructure(value.slice(remainderStart))
     )
       return true;
     if (firstRemainder === ";") {
@@ -525,7 +562,7 @@ function hasAssignedCredential(value: string): boolean {
       }
       if (
         (value[afterSeparator] === "{" || value[afterSeparator] === "[") &&
-        inspectJsonCandidates(value.slice(afterSeparator)).structured
+        startsWithJsonStructure(value.slice(afterSeparator))
       )
         return true;
     }
