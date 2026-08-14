@@ -311,6 +311,36 @@ describe("executeAnalysis", () => {
   );
 
   it.each([
+    "Password: configure it in settings.",
+    "  Token: never log it.",
+    "- API key: keep it out of source control.",
+  ])(
+    "keeps ordinary credential documentation in repository metadata: %s",
+    async (description) => {
+      const dependencies = dependenciesFor([], () =>
+        Promise.reject(new Error("must not fetch")),
+      );
+      vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+        repository: { ...perfectRepository, description },
+        commitSha: "a".repeat(40),
+        treeSha: sha,
+        entries: [],
+        treeComplete: true,
+        rateLimit: { remaining: 57, resetAt: null },
+      });
+      const { events, emit } = eventCollector();
+
+      await executeAnalysis(
+        { type: "start", requestId: 88, ref, analyzedAt },
+        dependencies,
+        emit,
+      );
+
+      expect(completedReport(events).repository.description).toBe(description);
+    },
+  );
+
+  it.each([
     "  token: hunter2 # nested YAML",
     "- password: huntersecret # list item",
   ])(

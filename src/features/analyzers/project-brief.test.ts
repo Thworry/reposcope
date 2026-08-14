@@ -683,9 +683,17 @@ describe("project brief purpose extraction", () => {
     "OAuth token: bearer",
     "password: null",
     '{"password": null}',
+    "Password: configure it in settings.",
+    "Token: generated during login.",
+    "API key: provided by the user at runtime.",
+    "Access token: obtained through OAuth.",
+    "Private key: never leaves your device.",
+    "Password: validation and rotation guidance.",
+    "  Token: never log it.",
+    "- API key: keep it out of source control.",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
-      { source: "github-description", text: generic, path: null },
+      { source: "github-description", text: generic.trim(), path: null },
     ]);
   });
 

@@ -18,19 +18,28 @@ const STRUCTURED_COLON_CREDENTIAL_PATTERN = new RegExp(
   "imu",
 );
 const DOCUMENTATION_VALUE_WORDS = new Set([
+  "avoid",
   "bearer",
   "boolean",
+  "configure",
   "field",
+  "generated",
   "identifies",
+  "keep",
   "nil",
+  "never",
   "none",
   "null",
+  "obtained",
   "optional",
+  "provided",
   "required",
   "rotate",
   "securely",
+  "store",
   "string",
   "true",
+  "validation",
   "false",
 ]);
 
@@ -45,17 +54,54 @@ function isLikelyCredentialValue(value: string | undefined): boolean {
   return normalized.length > 0 && !DOCUMENTATION_VALUE_WORDS.has(normalized);
 }
 
+function hasStrongCredentialShape(value: string): boolean {
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[.:!?]+$/u, "")
+    .toLocaleLowerCase("en-US");
+
+  return (
+    normalized.length >= 20 ||
+    /\d/u.test(normalized) ||
+    /(?:key|pass|secret|token)/u.test(normalized) ||
+    /[^a-z]/u.test(normalized)
+  );
+}
+
+function hasStructuredColonCredential(value: string): boolean {
+  const match = STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(value);
+  const credential = match?.[1];
+  if (
+    match === null ||
+    credential === undefined ||
+    !isLikelyCredentialValue(credential)
+  )
+    return false;
+
+  const lineRemainder = value
+    .slice(match.index + match[0].length)
+    .split(/[\r\n]/u, 1)[0]
+    ?.trimStart();
+  if (lineRemainder === undefined || lineRemainder.length === 0) return true;
+  if (lineRemainder.startsWith("#")) return true;
+  if (/^["'`,;)}\]]+(?:\s*#.*)?$/u.test(lineRemainder)) return true;
+
+  const beforeCredential = match[0].slice(0, -credential.length);
+  const wrapped = /["'`{\[]\s*$/u.test(beforeCredential);
+
+  return wrapped || hasStrongCredentialShape(credential);
+}
+
 /** Returns true for bounded, high-confidence credential material. */
 export function containsCredentialLikeValue(value: string): boolean {
   const equalMatch = EQUAL_CREDENTIAL_PATTERN.exec(value);
-  const colonMatch = STRUCTURED_COLON_CREDENTIAL_PATTERN.exec(value);
 
   return (
     PEM_PRIVATE_KEY_PATTERN.test(value) ||
     GITHUB_TOKEN_PATTERN.test(value) ||
     COMMON_TOKEN_PATTERN.test(value) ||
     isLikelyCredentialValue(equalMatch?.[1]) ||
-    isLikelyCredentialValue(colonMatch?.[1])
+    hasStructuredColonCredential(value)
   );
 }
 

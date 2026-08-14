@@ -463,6 +463,14 @@ describe("isAnalysisReport", () => {
     "OAuth token: rotate it every 90 days.",
     "Configuration field password: required for sign-in.",
     "The API key: identifies the configuration field.",
+    "Password: configure it in settings.",
+    "Token: generated during login.",
+    "API key: provided by the user at runtime.",
+    "Access token: obtained through OAuth.",
+    "Private key: never leaves your device.",
+    "Password: validation and rotation guidance.",
+    "  Token: never log it.",
+    "- API key: keep it out of source control.",
   ])("accepts ordinary credential documentation: %s", (generic) => {
     const report = cloneReport();
     const firstExcerpt = report.projectBrief.excerpts[0];
