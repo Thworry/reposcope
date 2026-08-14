@@ -255,14 +255,19 @@ const BRACKET_DOCUMENTATION_PREFIX_WORDS = new Set([
 const DOCUMENTATION_QUALIFIER_WORDS = new Set([
   "compact",
   "encoded",
+  "characters",
+  "for",
   "length",
   "minimum",
+  "production",
   "recommended",
   "rfc",
+  "section",
   "serialization",
+  "settings",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
-  /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|der|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
+  /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|(?:der(?:-encoded)?)|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -333,10 +338,15 @@ function isQualifiedDocumentationValue(value: string | undefined): boolean {
   )
     return false;
   const qualifiers = normalizedValueWords(normalized.slice(firstToken.length));
+  const documentationQualifiers = qualifiers.filter((word) =>
+    DOCUMENTATION_QUALIFIER_WORDS.has(word),
+  );
   return (
     qualifiers.length > 0 &&
+    documentationQualifiers.length > 0 &&
     qualifiers.every(
-      (word) => DOCUMENTATION_QUALIFIER_WORDS.has(word) || /^\d+$/u.test(word),
+      (word) =>
+        DOCUMENTATION_QUALIFIER_WORDS.has(word) || /^\d{1,4}$/u.test(word),
     )
   );
 }
@@ -350,8 +360,9 @@ function isBracketDocumentationPhrase(
     (value.includes("{") || value.includes("[")) &&
     BRACKET_DOCUMENTATION_PREFIX_WORDS.has(words[0] ?? "") &&
     words.length > 1 &&
+    words.slice(1).some((word) => DOCUMENTATION_VALUE_WORDS.has(word)) &&
     words.every(
-      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d+$/u.test(word),
+      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d{1,4}$/u.test(word),
     )
   );
 }

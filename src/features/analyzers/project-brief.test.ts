@@ -859,6 +859,11 @@ describe("project brief purpose extraction", () => {
     "Token: issued per application.",
     "Token: synchronized from vault.",
     "Private key: stored in HSM.",
+    "Token: JWT (RFC 7519, section 3)",
+    "Private key: PEM (RFC 7468 section 2)",
+    "Private key: RSA-4096 (recommended for production)",
+    "Password: Argon2id (recommended settings)",
+    "Token: DER-encoded",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
@@ -870,6 +875,10 @@ describe("project brief purpose extraction", () => {
     [
       "Password: string [minimum length 12]",
       "Password: string minimum length 12",
+    ],
+    [
+      "Password: string [minimum length 12 characters]",
+      "Password: string minimum length 12 characters",
     ],
   ])("keeps bracketed credential documentation: %s", (generic, visible) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
@@ -1181,6 +1190,16 @@ describe("project brief purpose extraction", () => {
     "Password: 1 2 3 4 5 6 7 8",
     "Secret: 1.2.3.4.5.6.7.8.9",
     "API key: value-1-2-3-4-5-6-7-8",
+    "Token: JWT 12345678901234567890",
+    "Token: JWT 1234 5678 9012 3456",
+    "Token: OAuth2 98765432109876543210",
+    "Password: string 12345678901234567890",
+    "Token: JWT RFC 12345678901234567890",
+    "Password: string minimum length 12345678901234567890",
+    "Token: values [12345678901234567890]",
+    "Token: values [1-2-3-4-5-6-7-8-9-0]",
+    "Password: rules {12345678901234567890}",
+    "Secret: metadata [98765432109876543210]",
     'password: zircon9876, "username": "admin"',
     "token: huntersecret, $schema: v1",
     "secret: zircon9876, 1: app",
