@@ -843,9 +843,37 @@ describe("project brief purpose extraction", () => {
     "Secret: stored in environment.",
     "Private key: protected by TPM.",
     "Token: scoped per tenant.",
+    "password: avoid logging credentials",
+    "secret: avoid sharing credentials",
+    "token: keep it out of logs",
+    "token: never log them in application logs",
+    "password: avoid storing credentials in logs",
+    "Private key: PEM (RFC 7468)",
+    "Private key: RSA-4096 (recommended)",
+    "Password: Argon2id (recommended)",
+    "Token: HMAC-SHA512 (recommended)",
+    "Token: DER encoded",
+    "Token: JWT compact serialization",
+    "Token: resettable by users.",
+    "Token: revoked on logout.",
+    "Token: issued per application.",
+    "Token: synchronized from vault.",
+    "Private key: stored in HSM.",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
+    ]);
+  });
+
+  it.each([
+    ["Token: JWT [RFC 7519]", "Token: JWT RFC 7519"],
+    [
+      "Password: string [minimum length 12]",
+      "Password: string minimum length 12",
+    ],
+  ])("keeps bracketed credential documentation: %s", (generic, visible) => {
+    expect(briefFor({ description: generic }).excerpts).toEqual([
+      { source: "github-description", text: visible, path: null },
     ]);
   });
 
@@ -1145,6 +1173,14 @@ describe("project brief purpose extraction", () => {
     "Password: generated {huntersecret}",
     "password: required{huntersecret}",
     "token: string[abc12345]",
+    "Password: 1 2 3 4",
+    "Password: 1 2 3 4, Username: admin",
+    "Token: 9 8 7 6 5 4, Name: app",
+    "Password: user’s 1 2 3 4, Username: admin",
+    "Token: 1-2-3-4-5-6-7-8-9-0",
+    "Password: 1 2 3 4 5 6 7 8",
+    "Secret: 1.2.3.4.5.6.7.8.9",
+    "API key: value-1-2-3-4-5-6-7-8",
     'password: zircon9876, "username": "admin"',
     "token: huntersecret, $schema: v1",
     "secret: zircon9876, 1: app",

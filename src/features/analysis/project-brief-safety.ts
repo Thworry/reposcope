@@ -210,6 +210,21 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "stored",
   "your",
   "x",
+  "credentials",
+  "from",
+  "hsm",
+  "issued",
+  "logging",
+  "logs",
+  "logout",
+  "resettable",
+  "revoked",
+  "sharing",
+  "storing",
+  "synchronized",
+  "users",
+  "them",
+  "on",
   "aes256",
   "oauth2",
   "pbkdf2",
@@ -231,6 +246,20 @@ const WEAK_DEFAULT_CREDENTIAL_VALUE_WORDS = new Set([
   "examples",
   "sample",
   "samples",
+]);
+const BRACKET_DOCUMENTATION_PREFIX_WORDS = new Set([
+  "metadata",
+  "rules",
+  "values",
+]);
+const DOCUMENTATION_QUALIFIER_WORDS = new Set([
+  "compact",
+  "encoded",
+  "length",
+  "minimum",
+  "recommended",
+  "rfc",
+  "serialization",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
   /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac(?:-?sha-?\d{2,4})?)|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|der|jwe|jwt|totp|hotp|dpop|ssh|pgp|mtls|webauthn|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
@@ -275,15 +304,56 @@ function isLikelyCredentialValue(
       return false;
     return words.length > 0;
   }
-  if (isDocumentationTechnicalValue(value)) return false;
+  if (
+    isDocumentationTechnicalValue(value) ||
+    isQualifiedDocumentationValue(value) ||
+    isBracketDocumentationPhrase(value, words)
+  )
+    return false;
   if (value !== undefined && isPossessiveDocumentationPhrase(value))
     return false;
   const broadCredential =
     words.length > 0 &&
-    !words.every(
-      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d$/u.test(word),
-    );
+    !words.every((word) => DOCUMENTATION_VALUE_WORDS.has(word));
   return broadCredential;
+}
+
+function isQualifiedDocumentationValue(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const normalized = value.normalize("NFKC").trim();
+  const firstToken = normalized.match(/^[^\s([{]+/u)?.[0];
+  if (firstToken === undefined) return false;
+  const firstWords = normalizedValueWords(firstToken);
+  if (
+    !isDocumentationTechnicalValue(firstToken) &&
+    !(
+      firstWords.length === 1 &&
+      STRUCTURED_DOCUMENTATION_VALUE_WORDS.has(firstWords[0] ?? "")
+    )
+  )
+    return false;
+  const qualifiers = normalizedValueWords(normalized.slice(firstToken.length));
+  return (
+    qualifiers.length > 0 &&
+    qualifiers.every(
+      (word) => DOCUMENTATION_QUALIFIER_WORDS.has(word) || /^\d+$/u.test(word),
+    )
+  );
+}
+
+function isBracketDocumentationPhrase(
+  value: string | undefined,
+  words: readonly string[],
+): boolean {
+  return (
+    value !== undefined &&
+    (value.includes("{") || value.includes("[")) &&
+    BRACKET_DOCUMENTATION_PREFIX_WORDS.has(words[0] ?? "") &&
+    words.length > 1 &&
+    words.every(
+      (word) => DOCUMENTATION_VALUE_WORDS.has(word) || /^\d+$/u.test(word),
+    )
+  );
 }
 
 function isStructuredInstructionalDocumentationPhrase(value: string): boolean {
