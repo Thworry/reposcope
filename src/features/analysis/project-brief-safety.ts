@@ -60,11 +60,7 @@ function hasAssignmentBoundary(value: string, index: number): boolean {
   return index === 0 || !/[\p{L}\p{N}_]/u.test(value[index - 1] ?? "");
 }
 
-const QUOTED_JSON_KEY_PATTERN = /(?:\\?")(?:\\.|[^"\\])+(?:\\?")\s*:/u;
-const EXPLICIT_JSON_CREDENTIAL_PATTERN = new RegExp(
-  `(?:\\\\?")${CREDENTIAL_KEY}(?:\\\\?")\\s*:\\s*`,
-  "iu",
-);
+const EXACT_CREDENTIAL_KEY_PATTERN = new RegExp(`^${CREDENTIAL_KEY}$`, "iu");
 
 function decodeJsonUnicodeEscapes(value: string): string {
   return value.replace(/\\u([0-9a-f]{4})/giu, (_match, hex: string) =>
@@ -72,20 +68,89 @@ function decodeJsonUnicodeEscapes(value: string): string {
   );
 }
 
-function hasExplicitJsonCredential(value: string): boolean {
-  const normalized = decodeJsonUnicodeEscapes(value);
-  for (const match of allMatches(
-    normalized,
-    EXPLICIT_JSON_CREDENTIAL_PATTERN,
-  )) {
-    const parsed = parseCredentialValue(
-      normalized,
-      match.index + match[0].length,
-      true,
-    );
-    if (isLikelyCredentialValue(parsed.value)) return true;
+function jsonValueHasCredential(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  let remaining = 4_096;
+
+  while (pending.length > 0) {
+    remaining -= 1;
+    if (remaining < 0) return true;
+    const current = pending.pop();
+    if (Array.isArray(current)) {
+      for (const entry of current) pending.push(entry);
+      continue;
+    }
+    if (typeof current !== "object" || current === null) continue;
+
+    for (const [key, entry] of Object.entries(current)) {
+      if (EXACT_CREDENTIAL_KEY_PATTERN.test(key)) {
+        if (typeof entry === "string" && isLikelyCredentialValue(entry)) {
+          return true;
+        }
+        if (entry !== null && typeof entry !== "string") return true;
+      }
+      pending.push(entry);
+    }
   }
   return false;
+}
+
+function inspectJsonCandidates(value: string): {
+  structured: boolean;
+  credential: boolean;
+} {
+  let attempts = 0;
+  let scanned = 0;
+  let structured = false;
+
+  for (let start = 0; start < value.length; start += 1) {
+    const opening = value[start];
+    if (opening !== "{" && opening !== "[") continue;
+    attempts += 1;
+    if (attempts > 128 || scanned > 1_048_576) {
+      return { structured: true, credential: true };
+    }
+
+    const stack = [opening];
+    let quote = false;
+    let escaped = false;
+    for (let cursor = start + 1; cursor < value.length; cursor += 1) {
+      scanned += 1;
+      const character = value[cursor] ?? "";
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') quote = false;
+        continue;
+      }
+      if (character === '"') {
+        quote = true;
+        continue;
+      }
+      if (character === "{" || character === "[") stack.push(character);
+      else if (character === "}" || character === "]") {
+        const expected = character === "}" ? "{" : "[";
+        if (stack.at(-1) !== expected) break;
+        stack.pop();
+        if (stack.length > 0) continue;
+
+        try {
+          const parsed: unknown = JSON.parse(value.slice(start, cursor + 1));
+          if (typeof parsed === "object" && parsed !== null) {
+            structured = true;
+            if (jsonValueHasCredential(parsed)) {
+              return { structured: true, credential: true };
+            }
+          }
+        } catch {
+          // A later opening delimiter can still begin a valid JSON structure.
+        }
+        break;
+      }
+    }
+  }
+
+  return { structured, credential: false };
 }
 
 function inspectStructuredJsonText(value: string): {
@@ -94,23 +159,33 @@ function inspectStructuredJsonText(value: string): {
   decodedString: string | null;
 } {
   const normalized = decodeJsonUnicodeEscapes(value);
-  const credential = hasExplicitJsonCredential(normalized);
   let parsed: unknown;
   try {
     parsed = JSON.parse(value.trim());
   } catch {
+    const candidates = inspectJsonCandidates(normalized);
     return {
-      structured: QUOTED_JSON_KEY_PATTERN.test(normalized),
-      credential,
+      structured: candidates.structured,
+      credential: hasAssignedCredential(normalized) || candidates.credential,
       decodedString: null,
     };
   }
 
+  if (typeof parsed === "string") {
+    return {
+      structured: false,
+      credential: false,
+      decodedString: parsed,
+    };
+  }
+
+  let credential = hasAssignedCredential(normalized);
+  if (typeof parsed === "object" && parsed !== null) {
+    credential ||= jsonValueHasCredential(parsed);
+  }
+
   return {
-    structured:
-      credential ||
-      (typeof parsed === "object" && parsed !== null) ||
-      QUOTED_JSON_KEY_PATTERN.test(normalized),
+    structured: credential || (typeof parsed === "object" && parsed !== null),
     credential,
     decodedString: typeof parsed === "string" ? parsed : null,
   };
@@ -396,7 +471,10 @@ function hasAssignedCredential(value: string): boolean {
     const sentenceContext =
       state.lastNonWhitespace === "." ||
       state.lastNonWhitespace === "!" ||
-      state.lastNonWhitespace === "?";
+      state.lastNonWhitespace === "?" ||
+      state.lastNonWhitespace === ";" ||
+      state.lastNonWhitespace === "}" ||
+      state.lastNonWhitespace === "]";
     if (
       !equalsAssignment &&
       (insidePlainString ||
@@ -446,14 +524,14 @@ function hasAssignedCredential(value: string): boolean {
 /** Returns true for bounded, high-confidence credential material. */
 export function containsCredentialLikeValue(value: string): boolean {
   const normalizedValue = decodeJsonUnicodeEscapes(value);
-  const structured = stripEncodedStructuredJsonStrings(normalizedValue);
+  const structured = stripEncodedStructuredJsonStrings(value);
   return (
     PEM_PRIVATE_KEY_PATTERN.test(value) ||
     GITHUB_TOKEN_PATTERN.test(value) ||
     COMMON_TOKEN_PATTERN.test(value) ||
-    hasExplicitJsonCredential(normalizedValue) ||
+    inspectJsonCandidates(normalizedValue).credential ||
     structured.credential ||
-    hasAssignedCredential(structured.value)
+    hasAssignedCredential(decodeJsonUnicodeEscapes(structured.value))
   );
 }
 

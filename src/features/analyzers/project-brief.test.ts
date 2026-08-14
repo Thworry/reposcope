@@ -713,10 +713,19 @@ describe("project brief purpose extraction", () => {
     "token => validate(token)",
     "Checks whether token === undefined before use.",
     "The password == required comparison is documented.",
+    'The field "token": values are documented.',
+    'The JSON key "token": required by clients.',
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
     ]);
+  });
+
+  it("keeps an ordinary quoted credential-key explanation inside a JSON note", () => {
+    const generic = '{"note":"The field \\"token\\": values are documented."}';
+
+    expect(containsCredentialLikeValue(generic)).toBe(false);
+    expect(briefFor({ description: generic }).excerpts).toHaveLength(1);
   });
 
   it.each([
@@ -737,6 +746,18 @@ describe("project brief purpose extraction", () => {
 
     expect(containsCredentialLikeValue(generic)).toBe(false);
   });
+
+  it.each([
+    `Configuration: ${JSON.stringify('{"\\u0074oken":"zircon9876","name":"app"}')}`,
+    `Configuration: ${JSON.stringify('{"pass\\u0077ord":"zircon9876"}')}`,
+    `Configuration: ${JSON.stringify('{"note":"demo"} token: huntersecret')}`,
+    `Configuration: ${JSON.stringify('prefix "name": app; passphrase: alpha-beta-gamma')}`,
+  ])(
+    "detects a credential after decoding structured metadata: %s",
+    (credential) => {
+      expect(containsCredentialLikeValue(credential)).toBe(true);
+    },
+  );
 
   it.each([
     "token: hunter2",
@@ -802,6 +823,13 @@ describe("project brief purpose extraction", () => {
     String.raw`Configuration: "{\"\\u0074oken\":\"zircon9876\"}"`,
     String.raw`Configuration: "{\"pass\\u0077ord\":\"zircon9876\"}"`,
     String.raw`Configuration: "prefix { marker \" then {\"token\":\"zircon9876\",\"name\":\"app\"}"`,
+    String.raw`Configuration: "{\"note\":\"password=zircon9876\"}"`,
+    String.raw`Configuration: "{\"note\":\"token=zircon9876\"}"`,
+    'Configuration: "{\\"note\\":\\"password=\\`zircon9876\\`\\"}"',
+    String.raw`Configuration: "{\"note\":\"secret={zircon9876}\"}"`,
+    `Configuration: ${JSON.stringify(JSON.stringify(JSON.stringify({ note: "password=zircon9876" })))}`,
+    `Configuration: ${JSON.stringify('{"note":"demo"} token: huntersecret')}`,
+    `Configuration: ${JSON.stringify('prefix "name": app; passphrase: alpha-beta-gamma')}`,
   ])("omits a later or earlier credential among benign fields: %s", (text) => {
     expect(briefFor({ description: text }).excerpts).toEqual([]);
   });
