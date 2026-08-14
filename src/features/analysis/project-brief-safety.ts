@@ -12,8 +12,12 @@ const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
   `(?:\\\\?["'])?${CREDENTIAL_KEY}(?:\\\\?["'])?\\s*([=:])\\s*`,
   "iu",
 );
-const METADATA_FIELD_PATTERN = /^[\p{L}_][\p{L}\p{N}_.-]*\s*[:=]/u;
+const METADATA_FIELD_PATTERN =
+  /^(?:"[^"]+"|'[^']+'|\$?[\p{L}_][\p{L}\p{N}_.-]*|\d+)\s*[:=]/u;
 const DOCUMENTATION_VALUE_WORDS = new Set([
+  "a",
+  "access",
+  "an",
   "avoid",
   "bearer",
   "boolean",
@@ -36,8 +40,12 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "guidance",
   "identifies",
   "identifier",
+  "implementation",
+  "it",
   "keep",
   "metadata",
+  "meaning",
+  "minimum",
   "masked",
   "nil",
   "never",
@@ -45,6 +53,10 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "null",
   "obtained",
   "optional",
+  "of",
+  "opaque",
+  "only",
+  "out",
   "object",
   "parameter",
   "placeholder",
@@ -53,8 +65,10 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "policy",
   "provided",
   "property",
+  "read",
   "required",
   "rotate",
+  "scope",
   "sample",
   "samples",
   "schema",
@@ -63,9 +77,14 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "securely",
   "store",
   "string",
+  "source",
+  "strong",
+  "the",
   "true",
   "type",
   "types",
+  "defined",
+  "control",
   "unset",
   "validation",
   "variable",
@@ -90,7 +109,7 @@ function normalizedValueWords(value: string | undefined): string[] {
     .normalize("NFKC")
     .replace(/[.:!?]+$/u, "")
     .toLocaleLowerCase("en-US")
-    .split(/[\s_-]+/u)
+    .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
 }
 
@@ -600,14 +619,30 @@ function hasAssignedCredential(value: string): boolean {
       match.index + match[0].length,
       flowContext,
     );
-    if (!isLikelyCredentialValue(parsed.value)) continue;
-    if (equalsAssignment || parsed.wrapped || flowContext) return true;
+    const proseLikely = isLikelyCredentialValue(parsed.value);
+    const structuredLikely = isLikelyStructuredCredentialValue(parsed.value);
+    if (equalsAssignment || flowContext || (parsed.wrapped && proseLikely)) {
+      if (structuredLikely) return true;
+      continue;
+    }
+    if (!proseLikely && !structuredLikely) continue;
 
     let remainderStart = parsed.end;
     while (value[remainderStart] === " " || value[remainderStart] === "\t") {
       remainderStart += 1;
     }
     const firstRemainder = value[remainderStart];
+    if (!proseLikely) {
+      if (firstRemainder === "#") return true;
+      if (
+        state.linePrefix === "list" &&
+        (firstRemainder === undefined ||
+          firstRemainder === "\r" ||
+          firstRemainder === "\n")
+      )
+        return true;
+      continue;
+    }
     if (
       firstRemainder === undefined ||
       firstRemainder === "\r" ||
