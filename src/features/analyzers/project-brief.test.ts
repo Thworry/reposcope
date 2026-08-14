@@ -721,6 +721,17 @@ describe("project brief purpose extraction", () => {
     ]);
   });
 
+  it.each([
+    '{"token":false}',
+    '{"password":true}',
+    '{"private_key":false}',
+    'Configuration uses {"token": false} to disable token support.',
+    String.raw`Configuration: "{\"token\":false,\"note\":\"feature disabled\"}"`,
+  ])("keeps boolean credential feature flags: %s", (generic) => {
+    expect(containsCredentialLikeValue(generic)).toBe(false);
+    expect(briefFor({ description: generic }).excerpts).toHaveLength(1);
+  });
+
   it("keeps an ordinary quoted credential-key explanation inside a JSON note", () => {
     const generic = '{"note":"The field \\"token\\": values are documented."}';
 
@@ -752,12 +763,37 @@ describe("project brief purpose extraction", () => {
     `Configuration: ${JSON.stringify('{"pass\\u0077ord":"zircon9876"}')}`,
     `Configuration: ${JSON.stringify('{"note":"demo"} token: huntersecret')}`,
     `Configuration: ${JSON.stringify('prefix "name": app; passphrase: alpha-beta-gamma')}`,
+    `Configuration: ${JSON.stringify(JSON.stringify(JSON.stringify(JSON.stringify({ token: "zircon9876" }))))}`,
+    '{"Ｔｏｋｅｎ":"zircon9876"}',
   ])(
     "detects a credential after decoding structured metadata: %s",
     (credential) => {
       expect(containsCredentialLikeValue(credential)).toBe(true);
     },
   );
+
+  it.each([
+    `Configuration: ${JSON.stringify('token: huntersecret {"note":"demo"}')}`,
+    `Configuration: ${JSON.stringify('token: huntersecret; {"note":"demo"}')}`,
+    `Configuration: ${JSON.stringify('password: zircon9876 {"name":"app"}')}`,
+    `Configuration: ${JSON.stringify('token: huntersecret ["demo"]')}`,
+  ])(
+    "detects a credential before decoded structured metadata: %s",
+    (credential) => {
+      expect(containsCredentialLikeValue(credential)).toBe(true);
+    },
+  );
+
+  it("does not equate structured-scan limits with finding a credential", () => {
+    const ordinaryObjects = JSON.stringify(
+      Array.from({ length: 256 }, (_value, index) => ({
+        name: `app${String(index)}`,
+      })),
+    );
+
+    expect(containsCredentialLikeValue(ordinaryObjects)).toBe(false);
+    expect(containsCredentialLikeValue("{ ".repeat(256))).toBe(false);
+  });
 
   it.each([
     "token: hunter2",

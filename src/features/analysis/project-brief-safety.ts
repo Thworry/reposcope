@@ -70,11 +70,8 @@ function decodeJsonUnicodeEscapes(value: string): string {
 
 function jsonValueHasCredential(value: unknown): boolean {
   const pending: unknown[] = [value];
-  let remaining = 4_096;
 
   while (pending.length > 0) {
-    remaining -= 1;
-    if (remaining < 0) return true;
     const current = pending.pop();
     if (Array.isArray(current)) {
       for (const entry of current) pending.push(entry);
@@ -83,11 +80,16 @@ function jsonValueHasCredential(value: unknown): boolean {
     if (typeof current !== "object" || current === null) continue;
 
     for (const [key, entry] of Object.entries(current)) {
-      if (EXACT_CREDENTIAL_KEY_PATTERN.test(key)) {
+      if (EXACT_CREDENTIAL_KEY_PATTERN.test(key.normalize("NFKC"))) {
         if (typeof entry === "string" && isLikelyCredentialValue(entry)) {
           return true;
         }
-        if (entry !== null && typeof entry !== "string") return true;
+        if (
+          entry !== null &&
+          typeof entry !== "string" &&
+          typeof entry !== "boolean"
+        )
+          return true;
       }
       pending.push(entry);
     }
@@ -108,7 +110,7 @@ function inspectJsonCandidates(value: string): {
     if (opening !== "{" && opening !== "[") continue;
     attempts += 1;
     if (attempts > 128 || scanned > 1_048_576) {
-      return { structured: true, credential: true };
+      return { structured: true, credential: false };
     }
 
     const stack = [opening];
@@ -234,6 +236,10 @@ function stripEncodedStructuredJsonStrings(value: string): {
           credential ||= inspection.credential;
           if (inspection.decodedString === null) break;
           current = inspection.decodedString;
+          if (depth === 2) {
+            structured = true;
+            credential = true;
+          }
         }
         if (structured) {
           parts.push(value.slice(copiedUntil, start), " ");
@@ -507,6 +513,15 @@ function hasAssignedCredential(value: string): boolean {
     )
       return true;
     if (firstRemainder === "#") return true;
+    if (firstRemainder === "{" || firstRemainder === "[") return true;
+    if (firstRemainder === ";") {
+      let afterSeparator = remainderStart + 1;
+      while (value[afterSeparator] === " " || value[afterSeparator] === "\t") {
+        afterSeparator += 1;
+      }
+      if (value[afterSeparator] === "{" || value[afterSeparator] === "[")
+        return true;
+    }
     if (
       firstRemainder === ")" ||
       firstRemainder === "}" ||
