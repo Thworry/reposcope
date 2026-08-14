@@ -16,6 +16,8 @@ const METADATA_FIELD_PATTERN =
   /^(?:"[^"]+"|'[^']+'|\$?[\p{L}_][\p{L}\p{N}_./-]*|\d+)\s*[:=]/u;
 const NEXT_METADATA_FIELD_PATTERN =
   /^(?:"[^"]+"|'[^']+'|\$?[\p{L}_][\p{L}\p{N}_./-]*|\d+)\s*[:=][ \t]+/u;
+const PRIOR_METADATA_FIELD_PATTERN =
+  /(?:^|[,;][ \t]*)(?:"[^"]+"|'[^']+'|\$?[\p{L}_][\p{L}\p{N}_./-]*|\d+)\s*[:=][ \t]*[^,;\r\n]*[,;][ \t]*$/u;
 const DOCUMENTATION_VALUE_WORDS = new Set([
   "a",
   "access",
@@ -108,6 +110,7 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "secure",
   "securely",
   "server",
+  "settings",
   "side",
   "store",
   "storage",
@@ -155,6 +158,38 @@ const DOCUMENTATION_VALUE_WORDS = new Set([
   "secret",
   "support",
   "vault",
+  "centrally",
+  "kms",
+  "rotatable",
+  "single",
+  "use",
+  "hash",
+  "header",
+  "protocol",
+  "and",
+  "at",
+  "authentication",
+  "below",
+  "by",
+  "details",
+  "device",
+  "docs",
+  "during",
+  "guide",
+  "hashes",
+  "identify",
+  "in",
+  "leaves",
+  "login",
+  "oauth",
+  "ordinary",
+  "security",
+  "see",
+  "sha256",
+  "sufficient",
+  "supported",
+  "through",
+  "your",
   "aes256",
   "oauth2",
   "pbkdf2",
@@ -178,7 +213,7 @@ const WEAK_DEFAULT_CREDENTIAL_VALUE_WORDS = new Set([
   "samples",
 ]);
 const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
-  /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:aes(?:-?(?:128|192|256))?(?:-[a-z0-9]{2,12})*)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|(?:hmac-?sha-?\d{2,4})|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake2[bs])|(?:pkcs\d{1,2})|(?:x\.509)|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
+  /^(?:(?:oauth[1-9]\d?(?:\.\d)?)|oidc|(?:saml[1-9]\d?)|(?:tls[1-9]\d?(?:\.\d)?)|(?:pbkdf[1-9]\d?(?:-(?:hmac-)?sha-?\d{3,4})?)|(?:hkdf-sha-?\d{3,4})|(?:aes(?:-?(?:128|192|256))?(?:-(?:gcm|cbc|ctr|ccm|xts))?)|(?:rsa-?\d{3,5})|(?:(?:rs|es|hs)\d{3,4})|(?:sha[1-5]?-?\d{2,4})|md5|(?:hmac-?sha-?\d{2,4})|(?:argon2(?:id|i|d)?)|(?:ed(?:25519|448))|(?:p-?\d{3,4})|(?:ecdh-?p?\d{3,4})|(?:ecdsa-?p?\d{3,4})|(?:x(?:25519|448))|(?:curve(?:25519|448))|(?:secp(?:256k1|256r1|384r1|521r1))|(?:x?chacha20(?:-?poly1305)?)|(?:utf-?(?:8|16|32))|(?:uuid(?:v[1-8])?)|(?:base(?:16|32|64|85))|(?:blake(?:2[bs]|3))|(?:pkcs#?\d{1,2})|(?:x\.509)|jwk|pem|bcrypt|scrypt|(?:(?:bearer|refresh|session|jwt)-token)|api-key|secret-reference)$/iu;
 
 function normalizedValueWords(value: string | undefined): string[] {
   if (value === undefined) return [];
@@ -207,24 +242,36 @@ function isLikelyCredentialValue(
   allowNaturalDocumentation: boolean,
 ): boolean {
   const words = normalizedValueWords(value);
-  if (allowNaturalDocumentation && isDocumentationTechnicalValue(value))
-    return false;
-  if (
-    allowNaturalDocumentation &&
-    value !== undefined &&
-    isPossessiveDocumentationPhrase(value)
-  )
+  if (!allowNaturalDocumentation) {
+    if (
+      words.length > 0 &&
+      words.every((word) => STRUCTURED_DOCUMENTATION_VALUE_WORDS.has(word))
+    )
+      return false;
+    if (
+      value !== undefined &&
+      isStructuredInstructionalDocumentationPhrase(value)
+    )
+      return false;
+    return words.length > 0;
+  }
+  if (isDocumentationTechnicalValue(value)) return false;
+  if (value !== undefined && isPossessiveDocumentationPhrase(value))
     return false;
   const broadCredential =
     words.length > 0 &&
     !words.every((word) => DOCUMENTATION_VALUE_WORDS.has(word));
-  if (broadCredential) return true;
-  if (!allowNaturalDocumentation && value !== undefined) {
-    const normalized = value.normalize("NFKC").trim();
-    if (!/\s/u.test(normalized) && normalized.split("-").length >= 4)
-      return true;
-  }
-  return false;
+  return broadCredential;
+}
+
+function isStructuredInstructionalDocumentationPhrase(value: string): boolean {
+  const normalized = value.normalize("NFKC").trim();
+  const words = normalizedValueWords(normalized);
+  return (
+    /^(?:avoid|keep|never)\b/iu.test(normalized) &&
+    words.length > 1 &&
+    words.every((word) => DOCUMENTATION_VALUE_WORDS.has(word))
+  );
 }
 
 function isPossessiveDocumentationPhrase(value: string): boolean {
@@ -275,6 +322,16 @@ function afterHorizontalWhitespace(value: string, start: number): number {
   let cursor = start;
   while (value[cursor] === " " || value[cursor] === "\t") cursor += 1;
   return cursor;
+}
+
+function hasPriorMetadataField(value: string, end: number): boolean {
+  const boundedStart = Math.max(0, end - 512);
+  const lineStart = Math.max(
+    value.lastIndexOf("\n", end - 1),
+    value.lastIndexOf("\r", end - 1),
+    boundedStart - 1,
+  );
+  return PRIOR_METADATA_FIELD_PATTERN.test(value.slice(lineStart + 1, end));
 }
 
 function isLineEndOrComment(value: string, start: number): boolean {
@@ -755,9 +812,24 @@ function extendPlainCredentialValue(
   const boundedEnd = Math.min(source.length, start + 512);
   while (end < boundedEnd) {
     const character = source[end] ?? "";
-    if (character === "#" || character === "\r" || character === "\n") break;
+    if (
+      character === "\r" ||
+      character === "\n" ||
+      character === "{" ||
+      character === "[" ||
+      (character === "#" &&
+        (end === start || /\s/u.test(source[end - 1] ?? "")))
+    )
+      break;
     if (character === "," || character === ";") {
       const afterSeparator = afterHorizontalWhitespace(source, end + 1);
+      if (
+        source[afterSeparator] === undefined ||
+        source[afterSeparator] === "\r" ||
+        source[afterSeparator] === "\n" ||
+        source[afterSeparator] === "#"
+      )
+        break;
       if (
         NEXT_METADATA_FIELD_PATTERN.test(
           source.slice(afterSeparator, afterSeparator + 128),
@@ -833,6 +905,16 @@ function hasAssignedCredential(value: string): boolean {
       state.linePrefix === "indent" &&
       !leadingYamlIndent &&
       !quotedCredentialKey;
+    const strictStructuredContext =
+      equalsAssignment ||
+      flowContext ||
+      leadingYamlIndent ||
+      state.linePrefix === "list" ||
+      quotedCredentialKey ||
+      (state.linePrefix === "indent" && lowercaseCredentialKey) ||
+      hasPriorMetadataField(value, match.index);
+    const allowNaturalDocumentation =
+      naturalTitleContext || !strictStructuredContext;
     const valueStart = match.index + match[0].length;
     const preliminaryValue = parseCredentialValue(
       value,
@@ -843,16 +925,11 @@ function hasAssignedCredential(value: string): boolean {
       value,
       valueStart,
       preliminaryValue,
-      !flowContext &&
-        (!naturalTitleContext ||
-          isLikelyCredentialValue(preliminaryValue.value, true) ||
-          /^\p{L}+(?:['’]s|s['’])(?:\s|$)/u.test(
-            value.slice(valueStart, valueStart + 128),
-          )),
+      !flowContext,
     );
     const proseLikely = isLikelyCredentialValue(
       parsed.value,
-      naturalTitleContext,
+      allowNaturalDocumentation,
     );
     const structuredLikely = isLikelyStructuredCredentialValue(parsed.value);
     const weakDefaultCredential = isWeakDefaultCredentialValue(parsed.value);
