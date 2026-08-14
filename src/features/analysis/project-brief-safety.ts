@@ -709,7 +709,8 @@ function extendPossessiveCredentialValue(
   if (!/^\p{L}+(?:['’]s|s['’])(?:\s|$)/u.test(prefix)) return parsed;
 
   let end = start;
-  while (end < source.length && !/[,;#\r\n]/u.test(source[end] ?? "")) {
+  const boundedEnd = Math.min(source.length, start + 512);
+  while (end < boundedEnd && !/[,;#\r\n]/u.test(source[end] ?? "")) {
     end += 1;
   }
   return { value: source.slice(start, end).trim(), end, wrapped: false };
