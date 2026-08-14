@@ -13,7 +13,7 @@ const CREDENTIAL_ASSIGNMENT_PATTERN = new RegExp(
   "iu",
 );
 const METADATA_FIELD_PATTERN =
-  /^(?:"[^"]+"|'[^']+'|\$?[\p{L}_][\p{L}\p{N}_.-]*|\d+)\s*[:=]/u;
+  /^(?:"[^"]+"|'[^']+'|\$?[\p{L}_][\p{L}\p{N}_./-]*|\d+)\s*[:=]/u;
 const DOCUMENTATION_VALUE_WORDS = new Set([
   "a",
   "access",
@@ -149,6 +149,25 @@ function isWeakDefaultCredentialValue(value: string | undefined): boolean {
   return (
     words.length > 0 &&
     words.every((word) => WEAK_DEFAULT_CREDENTIAL_VALUE_WORDS.has(word))
+  );
+}
+
+function isDefaultCredentialValue(value: string | undefined): boolean {
+  const words = normalizedValueWords(value);
+  return (
+    words.length > 0 &&
+    words.every((word) => word === "default" || word === "defaults")
+  );
+}
+
+function hasStrongCredentialShape(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const normalized = value.normalize("NFKC").toLocaleLowerCase("en-US");
+  return (
+    /\p{N}/u.test(normalized) ||
+    /(?:password|passphrase|passwd|secret|token|api[^\p{L}\p{N}]*key|private[^\p{L}\p{N}]*key)/u.test(
+      normalized,
+    )
   );
 }
 
@@ -685,7 +704,32 @@ function hasAssignedCredential(value: string): boolean {
     const proseLikely = isLikelyCredentialValue(parsed.value);
     const structuredLikely = isLikelyStructuredCredentialValue(parsed.value);
     const weakDefaultCredential = isWeakDefaultCredentialValue(parsed.value);
-    if (equalsAssignment || flowContext || (parsed.wrapped && proseLikely)) {
+    const defaultCredential = isDefaultCredentialValue(parsed.value);
+    const strongCredentialShape = hasStrongCredentialShape(parsed.value);
+    const quotedCredentialKey = /^(?:\\?["'])/u.test(match[0]);
+    const leadingYamlIndent =
+      state.linePrefix === "indent" &&
+      match.index > 0 &&
+      (value[match.index - 1] === " " || value[match.index - 1] === "\t");
+    const capitalizedPasswordDefault =
+      /^(?:\\?["'])?password\b/iu.test(match[0]) && defaultCredential;
+    const explicitWeakYamlContext =
+      lowercaseCredentialKey ||
+      state.linePrefix === "list" ||
+      leadingYamlIndent ||
+      quotedCredentialKey ||
+      state.lastNonWhitespace === "," ||
+      state.lastNonWhitespace === ";" ||
+      capitalizedPasswordDefault;
+    const explicitProseContext =
+      lowercaseCredentialKey ||
+      state.linePrefix === "list" ||
+      strongCredentialShape;
+    if (
+      equalsAssignment ||
+      flowContext ||
+      (parsed.wrapped && proseLikely && explicitProseContext)
+    ) {
       if (structuredLikely) return true;
       continue;
     }
@@ -696,16 +740,13 @@ function hasAssignedCredential(value: string): boolean {
     if (!proseLikely) {
       if (
         weakDefaultCredential &&
-        lowercaseCredentialKey &&
-        (state.linePrefix === "indent" ||
-          state.linePrefix === "list" ||
-          state.lastNonWhitespace === "," ||
-          state.lastNonWhitespace === ";") &&
+        explicitWeakYamlContext &&
         hasStructuredYamlTerminator(value, remainderStart)
       )
         return true;
       continue;
     }
+    if (!explicitProseContext) continue;
     if (
       firstRemainder === undefined ||
       firstRemainder === "\r" ||
