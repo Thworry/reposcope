@@ -929,6 +929,9 @@ describe("project brief purpose extraction", () => {
     "Token: JWT: see RFC 7519",
     "Password: string length must be 8-64 chars.",
     "Token: JWT RFC 7519 sections 4.1–4.3 and 5.1",
+    "Token: JWT RFC 7519 sections 1.1 and 2.1–2.3",
+    "Token: JWT RFC 7519 sections 1.1, 2.1–2.3",
+    "Token: JWT sections 1.1 and 2.1-2.3",
   ])("keeps ordinary credential documentation: %s", (generic) => {
     expect(briefFor({ description: generic }).excerpts).toEqual([
       { source: "github-description", text: generic.trim(), path: null },
@@ -1300,6 +1303,11 @@ describe("project brief purpose extraction", () => {
     "Password: string maximum length 1234 to 4096, Username: admin",
     "Password: string minimum length (1234-4096 chars)",
     "Password: string length (8-64 chars) chars",
+    "Password: string min/max length 1234-4096, Username: admin",
+    "Password: string min max length 1234 to 4096, Username: admin",
+    "Password: string minimum length 0128-0128, Username: admin",
+    "Password: string maximum length 0000 to 0000, Username: admin",
+    "Password: string minimum length (0128-0128 chars)",
     'password: zircon9876, "username": "admin"',
     "token: huntersecret, $schema: v1",
     "secret: zircon9876, 1: app",

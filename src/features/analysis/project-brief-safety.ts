@@ -293,7 +293,8 @@ const DOCUMENTATION_TECHNICAL_VALUE_PATTERN =
 const RAW_SECTION_REFERENCE = "\\d{1,2}(?:\\.\\d{1,2}){0,2}(?:\\([a-z]\\))?";
 const RAW_SECTION_ENUMERATION = `${RAW_SECTION_REFERENCE}(?:\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${RAW_SECTION_REFERENCE}){0,2}`;
 const RAW_SECTION_RANGE = `${RAW_SECTION_REFERENCE}(?:\\s*[-–]\\s*|\\s+(?:to|through)\\s+)${RAW_SECTION_REFERENCE}`;
-const RAW_SECTION_LIST = `(?:${RAW_SECTION_RANGE}(?:\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)${RAW_SECTION_REFERENCE})?|${RAW_SECTION_ENUMERATION})`;
+const RAW_SECTION_ITEM_SEPARATOR = "\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+)";
+const RAW_SECTION_LIST = `(?:${RAW_SECTION_RANGE}(?:${RAW_SECTION_ITEM_SEPARATOR}${RAW_SECTION_REFERENCE})?|${RAW_SECTION_REFERENCE}${RAW_SECTION_ITEM_SEPARATOR}${RAW_SECTION_RANGE}|${RAW_SECTION_ENUMERATION})`;
 const RAW_SECTION_CLAUSE = `sections?\\s+${RAW_SECTION_LIST}`;
 const RAW_RFC_CLAUSE = `rfc(?:\\s+|-)\\d{4}(?:(?:\\s+|\\s*,\\s+)(?:${RAW_SECTION_CLAUSE}|\\(\\s*${RAW_SECTION_CLAUSE}\\s*\\)))?`;
 const RAW_RFC_QUALIFIER_PATTERN = new RegExp(
@@ -304,7 +305,7 @@ const RAW_SECTION_QUALIFIER_PATTERN = new RegExp(
   `^${RAW_SECTION_CLAUSE}$`,
   "iu",
 );
-const RAW_LENGTH_NUMBER = "(?:[1-9]\\d{0,2},\\d{3}|\\d{1,4})";
+const RAW_LENGTH_NUMBER = "(?:[1-9]\\d{0,2},\\d{3}|0|[1-9]\\d{0,3})";
 const RAW_LENGTH_RANGE = `${RAW_LENGTH_NUMBER}\\s*(?:to|-|–)\\s*${RAW_LENGTH_NUMBER}`;
 const RAW_LENGTH_UNIT = "(?:characters|chars)";
 const RAW_LENGTH_VALUE = `(?:${RAW_LENGTH_NUMBER}|${RAW_LENGTH_RANGE}|\\(\\s*${RAW_LENGTH_NUMBER}(?:\\s*(?:to|-|–)\\s*${RAW_LENGTH_NUMBER})?(?:\\s+${RAW_LENGTH_UNIT})?\\s*\\))`;
@@ -365,14 +366,16 @@ function normalizedRawQualifier(value: string): string | null {
 }
 
 function hasValidLengthValues(value: string): boolean {
-  const numbers = value.match(/[1-9]\d{0,2},\d{3}|\d{1,4}/gu) ?? [];
+  const numbers = value.match(/[1-9]\d{0,2},\d{3}|0|[1-9]\d{0,3}/gu) ?? [];
   const values = numbers.map((number) => Number(number.replace(",", "")));
   if (
     /\([^)]*\b(?:characters|chars)\s*\)\s+(?:characters|chars)$/iu.test(value)
   )
     return false;
   if (
-    /^(?:min|minimum|max|maximum)\s+length/iu.test(value) &&
+    /^(?:(?:min|minimum|max|maximum)|min\/max|min\s+max)\s+length/iu.test(
+      value,
+    ) &&
     !/\bbetween\b/iu.test(value) &&
     values.length > 1 &&
     values.some((number) => number > 128)
