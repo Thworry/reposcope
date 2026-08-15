@@ -41,6 +41,9 @@ const RULE_ID_SET: ReadonlySet<string> = new Set(RULE_IDS);
 const RULE_MAXIMUMS: Readonly<Record<RuleId, number>> = Object.fromEntries(
   RULE_IDS.map((id) => [id, scoreRule(id, {}).available]),
 ) as Readonly<Record<RuleId, number>>;
+const ZERO_POINT_PARTIAL_RULE_IDS: ReadonlySet<RuleId> = new Set([
+  "maintenance.generated-directories",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -354,7 +357,12 @@ function validRule(
   if (value.state === "passed") return earned === available;
   if (value.state === "failed") return earned === 0;
 
-  return earned > 0 && earned < available;
+  return (
+    (earned > 0 && earned < available) ||
+    (earned === 0 &&
+      ZERO_POINT_PARTIAL_RULE_IDS.has(value.id as RuleId) &&
+      available > 0)
+  );
 }
 
 function validCoverage(value: unknown): value is AnalysisReport["coverage"] {

@@ -624,6 +624,41 @@ describe("isAnalysisReport", () => {
     expect(isAnalysisReport(impossible)).toBe(false);
   });
 
+  it("accepts the ruleset's zero-point partial generated-directory state", () => {
+    const analyzedAt = "2026-08-11T12:00:00.000Z";
+    const scored = scoreProject({
+      repository: perfectRepository,
+      general: {
+        ...perfectGeneralMetrics,
+        committedGeneratedDirectoryCount: 1,
+      },
+      language: perfectLanguageAnalysis,
+      duplicates: perfectDuplicates,
+      cycles: perfectCycles,
+      coverage: perfectCoverage,
+      analyzedAt,
+    });
+    const findings = buildFindings(scored);
+    const report = validReport();
+    Object.assign(report, {
+      overall: scored.overall,
+      confidence: scored.confidence,
+      dimensions: scored.dimensions,
+      strengths: findings.strengths,
+      weaknesses: findings.weaknesses,
+    });
+    const generatedDirectories = report.dimensions
+      .flatMap((dimension) => dimension.rules)
+      .find((rule) => rule.id === "maintenance.generated-directories");
+
+    expect(generatedDirectories).toMatchObject({
+      state: "partial",
+      earned: 0,
+      available: 1,
+    });
+    expect(isAnalysisReport(report)).toBe(true);
+  });
+
   it("validates exact skipped totals independently from capped details", () => {
     const capped = cloneReport();
     capped.coverage.skippedFiles = 401;
