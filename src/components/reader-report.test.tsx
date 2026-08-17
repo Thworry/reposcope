@@ -504,6 +504,35 @@ describe("ReaderReportView", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("describes fractional activity bands accurately in both languages", () => {
+    const report = completeReport();
+    report.readerReport.maintenance.activity = {
+      elapsedUtcDays: 180.5,
+      band: "181-365-days",
+    };
+    const { rerender } = renderReader(report);
+
+    expect(
+      screen.getByText(
+        "180.5 elapsed UTC days (more than 180 and up to 365 days)",
+      ),
+    ).toBeVisible();
+
+    rerender(<ReaderReportView report={report} language="zh-CN" />);
+    expect(
+      screen.getByText("已过 180.5 个 UTC 日（超过 180 日且不超过 365 日）"),
+    ).toBeVisible();
+
+    report.readerReport.maintenance.activity = {
+      elapsedUtcDays: 365.5,
+      band: "over-365-days",
+    };
+    rerender(<ReaderReportView report={report} language="en" />);
+    expect(
+      screen.getByText("365.5 elapsed UTC days (over 365 days)"),
+    ).toBeVisible();
+  });
+
   it("offers only a user-initiated alternative search and fixed comparison criteria", () => {
     const report = completeReport();
     report.readerReport.alternatives.searchTerms = [

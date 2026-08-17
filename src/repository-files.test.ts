@@ -178,7 +178,7 @@ const RULE_DOCUMENTATION = {
   "maintenance.activity": [
     "Not archived and `pushed_at` is within 180 exact UTC days",
     "2",
-    "181–365 days: 1",
+    "More than 180 and up to 365 days: 1",
   ],
   "maintenance.lockfile": ["Recognized dependency lockfile exists", "2", "—"],
   "maintenance.dependency-updates": [
@@ -459,6 +459,9 @@ describe("open-source repository contract", () => {
       expect(methodology).toContain(status);
     }
     expect(methodology).toContain("180 exact UTC days");
+    expect(methodology).toContain("more than 180 and up to 365 days");
+    expect(methodology).toContain("超过 180 日且不超过 365 日");
+    expect(methodology).toContain("more than 365 days");
     expect(methodology).toContain("non-scoring");
     expect(methodology).toContain("does not prove suitability or safety");
   });
