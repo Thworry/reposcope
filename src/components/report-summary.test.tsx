@@ -7,6 +7,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AnalysisReport } from "../features/analysis/model";
+import { perfectReaderReport } from "../test/fixtures/metrics";
 import { ReportSummary } from "./report-summary";
 
 const report = {
@@ -34,6 +35,7 @@ const report = {
     kinds: [{ kind: "application", source: "manifest", path: "package.json" }],
     cautions: [],
   },
+  readerReport: structuredClone(perfectReaderReport),
   overall: {
     score: 67,
     label: "needs-attention",

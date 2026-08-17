@@ -7,14 +7,16 @@ import {
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
-import type { AnalysisReport, ProjectBrief } from "./model";
+import type { AnalysisReport, ProjectBrief, ReaderReport } from "./model";
 import { isAnalysisReport } from "./guards";
+import { unavailableReaderReport } from "../analyzers/reader-report";
 
-export function validReport(): AnalysisReport {
+export function validReport(): AnalysisReport & { readerReport: ReaderReport } {
   const analyzedAt = "2026-08-11T12:00:00.000Z";
   const scored = scoreProject({
     repository: perfectRepository,
@@ -42,6 +44,7 @@ export function validReport(): AnalysisReport {
       analyzedAt,
     },
     projectBrief: perfectProjectBrief,
+    readerReport: structuredClone(perfectReaderReport),
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -51,8 +54,21 @@ export function validReport(): AnalysisReport {
   };
 }
 
-function cloneReport(): AnalysisReport {
+function cloneReport(): AnalysisReport & { readerReport: ReaderReport } {
   return structuredClone(validReport());
+}
+
+function expectReaderMutationRejected(
+  mutate: (reader: ReaderReport) => void,
+): void {
+  const report = cloneReport();
+  mutate(report.readerReport);
+  expect(isAnalysisReport(report)).toBe(false);
+}
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Missing reader fixture value");
+  return value;
 }
 
 const twoReadmeProjectBrief: ProjectBrief = {
@@ -69,6 +85,442 @@ const twoReadmeProjectBrief: ProjectBrief = {
 };
 
 describe("isAnalysisReport", () => {
+  it("requires a canonical reader report", () => {
+    const missing = structuredClone(validReport()) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete missing.readerReport;
+    expect(isAnalysisReport(missing)).toBe(false);
+
+    const valid = validReport();
+    expect(isAnalysisReport(valid)).toBe(true);
+
+    valid.readerReport.reliability.status = "continue-evaluation";
+    const license = valid.readerReport.reliability.signals.find(
+      ({ signal }) => signal === "license",
+    );
+    expect(license).toBeDefined();
+    if (license !== undefined) license.state = "absent";
+    expect(isAnalysisReport(valid)).toBe(false);
+  });
+
+  it("rejects unknown keys at every reader report level", () => {
+    const targets = [
+      (reader: ReaderReport): object => reader,
+      (reader: ReaderReport): object => reader.reliability,
+      (reader: ReaderReport): object => required(reader.reliability.signals[0]),
+      (reader: ReaderReport): object => reader.scenarios,
+      (reader: ReaderReport): object => required(reader.scenarios.facts[0]),
+      (reader: ReaderReport): object => reader.architecture,
+      (reader: ReaderReport): object => reader.gettingStarted,
+      (reader: ReaderReport): object =>
+        required(reader.gettingStarted.commands[0]),
+      (reader: ReaderReport): object => reader.securityPrivacy,
+      (reader: ReaderReport): object => reader.maintenance,
+      (reader: ReaderReport): object => reader.maintenance.activity,
+      (reader: ReaderReport): object => reader.alternatives,
+    ];
+
+    for (const target of targets) {
+      expectReaderMutationRejected((reader) => {
+        Object.assign(target(reader), { rawSource: "hidden" });
+      });
+    }
+  });
+
+  it("requires canonical signal and question order without duplicates", () => {
+    expectReaderMutationRejected((reader) => {
+      [reader.reliability.signals[0], reader.reliability.signals[1]] = [
+        required(reader.reliability.signals[1]),
+        required(reader.reliability.signals[0]),
+      ];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.reliability.signals[1] = structuredClone(
+        required(reader.reliability.signals[0]),
+      );
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.reliability.questions.reverse();
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.reliability.questions.push(
+        "release-compatibility",
+        "vulnerability-process",
+      );
+    });
+    expectReaderMutationRejected((reader) => {
+      const sparse: typeof reader.reliability.questions = [];
+      sparse.length = 3;
+      reader.reliability.questions = sparse;
+    });
+  });
+
+  it("requires exact signal provenance and canonical section subsets", () => {
+    expectReaderMutationRejected((reader) => {
+      required(reader.reliability.signals[0]).source = "analysis";
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.reliability.signals[1]).source = "github-metadata";
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.reliability.signals[0]).path = "README.md";
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.securityPrivacy.signals.reverse();
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.securityPrivacy.signals[0]).state = "absent";
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.maintenance.signals.pop();
+    });
+  });
+
+  it("rejects boxed and coercible reader vocabulary values", () => {
+    for (const state of [
+      new String("present"),
+      { toString: () => "present" },
+    ]) {
+      expectReaderMutationRejected((reader) => {
+        const reliability = reader.reliability.signals.find(
+          ({ signal }) => signal === "dependency-updates",
+        );
+        const maintenance = reader.maintenance.signals.find(
+          ({ signal }) => signal === "dependency-updates",
+        );
+        expect(reliability).toBeDefined();
+        expect(maintenance).toBeDefined();
+        if (reliability !== undefined) Object.assign(reliability, { state });
+        if (maintenance !== undefined) Object.assign(maintenance, { state });
+      });
+    }
+    for (const disposition of [
+      new String("ready"),
+      { toString: () => "ready" },
+    ]) {
+      expectReaderMutationRejected((reader) => {
+        Object.assign(required(reader.gettingStarted.commands[2]), {
+          disposition,
+        });
+      });
+    }
+  });
+
+  it("enforces reader caps and authored prose safety", () => {
+    expectReaderMutationRejected((reader) => {
+      reader.scenarios.facts.push(
+        structuredClone(required(reader.scenarios.facts[0])),
+        structuredClone(required(reader.scenarios.facts[0])),
+      );
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.excerpts.push(
+        structuredClone(required(reader.architecture.excerpts[0])),
+        structuredClone(required(reader.architecture.excerpts[0])),
+      );
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.documents = ["a.md", "b.md", "c.md", "d.md"];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.entryPoints = [
+        "a.ts",
+        "b.ts",
+        "c.ts",
+        "d.ts",
+        "e.ts",
+      ];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.sourceAreas = ["a", "b", "c", "d", "e", "f"];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.securityPrivacy.declarations = Array.from({ length: 4 }, () =>
+        structuredClone(required(reader.securityPrivacy.declarations[0])),
+      );
+    });
+    for (const text of [
+      "a".repeat(481),
+      `ghp_${"a".repeat(36)}`,
+      "unsafe\u0000text",
+      "unsafe\u202Etext",
+    ]) {
+      expectReaderMutationRejected((reader) => {
+        required(reader.scenarios.facts[0]).text = text;
+      });
+    }
+  });
+
+  it("rejects a scenario duplicated from retained purpose evidence", () => {
+    const report = cloneReport();
+    required(report.readerReport.scenarios.facts[0]).text =
+      report.projectBrief.excerpts[0]?.text ?? "missing purpose";
+
+    expect(isAnalysisReport(report)).toBe(false);
+  });
+
+  it("enforces text and command source/path pairings", () => {
+    expectReaderMutationRejected((reader) => {
+      required(reader.scenarios.facts[0]).source = "manifest";
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.architecture.excerpts[0]).source = "manifest";
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.securityPrivacy.declarations[0]).path = null;
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.gettingStarted.commands[0]).source = "analysis";
+      required(reader.gettingStarted.commands[0]).path = null;
+    });
+    for (const path of [
+      "../README.md",
+      `docs/TOKEN=ghp_${"a".repeat(36)}.md`,
+      "docs/unsafe\u202E.md",
+    ]) {
+      expectReaderMutationRejected((reader) => {
+        required(reader.architecture.excerpts[0]).path = path;
+      });
+    }
+  });
+
+  it("accepts preferred nested README evidence labeled as documentation", () => {
+    const report = cloneReport();
+    required(report.readerReport.scenarios.facts[0]).source = "documentation";
+    required(report.readerReport.scenarios.facts[0]).path = "docs/README.md";
+    required(report.readerReport.gettingStarted.commands[0]).source =
+      "documentation";
+    required(report.readerReport.gettingStarted.commands[0]).path =
+      "docs/README.md";
+
+    expect(isAnalysisReport(report)).toBe(true);
+  });
+
+  it("enforces command vocabulary, order, disposition, and text limits", () => {
+    expectReaderMutationRejected((reader) => {
+      reader.gettingStarted.commands.reverse();
+    });
+    expectReaderMutationRejected((reader) => {
+      Object.assign(required(reader.gettingStarted.commands[0]), {
+        kind: "deploy",
+      });
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.gettingStarted.commands.push(
+        structuredClone(required(reader.gettingStarted.commands[0])),
+      );
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.gettingStarted.commands[0]).disposition = "withheld";
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.gettingStarted.commands[0]).command = null;
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.gettingStarted.commands[0]).command = "a".repeat(161);
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.gettingStarted.commands[0]).command =
+        `TOKEN=ghp_${"a".repeat(36)}`;
+    });
+
+    const withheld = cloneReport();
+    required(withheld.readerReport.gettingStarted.commands[2]).command = null;
+    required(withheld.readerReport.gettingStarted.commands[2]).disposition =
+      "withheld";
+    expect(isAnalysisReport(withheld)).toBe(true);
+  });
+
+  it("requires canonical sorted unique structural paths and ecosystems", () => {
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.documents = ["docs/z.md", "docs/a.md"];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.entryPoints = ["src/a.ts", "SRC/A.TS"];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.sourceAreas = ["src/z", "src/a"];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.architecture.ecosystems = ["python", "javascript-typescript"];
+    });
+    expectReaderMutationRejected((reader) => {
+      Object.assign(reader.architecture, { ecosystems: ["brainfuck"] });
+    });
+  });
+
+  it("recomputes activity, metadata signals, and every availability", () => {
+    expectReaderMutationRejected((reader) => {
+      reader.maintenance.activity.elapsedUtcDays = 11;
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.maintenance.activity.band = "181-365-days";
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.maintenance.openIssuesCount = Number.NaN;
+    });
+    expectReaderMutationRejected((reader) => {
+      required(reader.reliability.signals[0]).state = "present";
+      reader.reliability.status = "verify-before-use";
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.scenarios.availability = "unavailable";
+    });
+
+    const partial = cloneReport();
+    partial.coverage.treeComplete = false;
+    const partialScored = scoreProject({
+      repository: perfectRepository,
+      general: perfectGeneralMetrics,
+      language: perfectLanguageAnalysis,
+      duplicates: perfectDuplicates,
+      cycles: perfectCycles,
+      coverage: partial.coverage,
+      analyzedAt: partial.repository.analyzedAt,
+    });
+    const partialFindings = buildFindings(partialScored);
+    partial.overall = partialScored.overall;
+    partial.confidence = partialScored.confidence;
+    partial.dimensions = partialScored.dimensions;
+    partial.strengths = partialFindings.strengths;
+    partial.weaknesses = partialFindings.weaknesses;
+    partial.readerReport.reliability.availability = "partial";
+    partial.readerReport.scenarios.availability = "partial";
+    partial.readerReport.architecture.availability = "partial";
+    partial.readerReport.gettingStarted.availability = "partial";
+    partial.readerReport.securityPrivacy.availability = "partial";
+    partial.readerReport.maintenance.availability = "partial";
+    expect(isAnalysisReport(partial)).toBe(true);
+  });
+
+  it.each([
+    [180, "within-180-days", "continue-evaluation"],
+    [180 + 1 / 86_400_000, "181-365-days", "verify-before-use"],
+    [365, "181-365-days", "verify-before-use"],
+    [366, "over-365-days", "verify-before-use"],
+  ] as const)(
+    "accepts the canonical raw activity boundary at %s days",
+    (days, band, status) => {
+      const report = cloneReport();
+      report.repository.pushedAt = new Date(
+        Date.parse(report.repository.analyzedAt) - days * 86_400_000,
+      ).toISOString();
+      report.readerReport.maintenance.activity = {
+        elapsedUtcDays: days,
+        band,
+      };
+      if (days > 180) {
+        const recent = report.readerReport.reliability.signals.find(
+          ({ signal }) => signal === "recent-activity",
+        );
+        const maintenanceRecent = report.readerReport.maintenance.signals.find(
+          ({ signal }) => signal === "recent-activity",
+        );
+        expect(recent).toBeDefined();
+        expect(maintenanceRecent).toBeDefined();
+        if (recent !== undefined) recent.state = "absent";
+        if (maintenanceRecent !== undefined) {
+          maintenanceRecent.state = "absent";
+        }
+        report.readerReport.reliability.questions = [
+          "license-compatibility",
+          "reproduce-install-run",
+          "release-compatibility",
+          "runtime-data-flow",
+        ];
+      }
+      report.readerReport.reliability.status = status;
+
+      expect(isAnalysisReport(report)).toBe(true);
+    },
+  );
+
+  it("accepts the complete metadata-only reliability state", () => {
+    const report = cloneReport();
+    for (const signal of report.readerReport.reliability.signals) {
+      if (signal.signal !== "archived" && signal.signal !== "recent-activity") {
+        signal.state = "absent";
+      }
+    }
+    for (const subset of [
+      report.readerReport.securityPrivacy.signals,
+      report.readerReport.maintenance.signals,
+    ]) {
+      for (const signal of subset) {
+        const canonical = report.readerReport.reliability.signals.find(
+          ({ signal: id }) => id === signal.signal,
+        );
+        if (canonical !== undefined) signal.state = canonical.state;
+      }
+    }
+    report.readerReport.reliability.status = "insufficient-evidence";
+    report.readerReport.reliability.availability = "unavailable";
+    report.readerReport.reliability.questions = [
+      "license-compatibility",
+      "reproduce-install-run",
+      "vulnerability-process",
+      "runtime-data-flow",
+    ];
+    report.readerReport.gettingStarted.commands = [];
+    report.readerReport.gettingStarted.availability = "unavailable";
+
+    expect(isAnalysisReport(report)).toBe(true);
+  });
+
+  it("accepts only the canonical unavailable reader fallback", () => {
+    const report = cloneReport();
+    report.readerReport = unavailableReaderReport({
+      repository: structuredClone(perfectRepository),
+      coverage: structuredClone(perfectCoverage),
+      analyzedAt: report.repository.analyzedAt,
+    });
+    expect(isAnalysisReport(report)).toBe(true);
+
+    report.readerReport.scenarios.availability = "available";
+    expect(isAnalysisReport(report)).toBe(false);
+  });
+
+  it("validates alternative terms against kind, repository, order, and safety", () => {
+    expectReaderMutationRejected((reader) => {
+      reader.alternatives.searchTerms = ["typescript", "application"];
+    });
+    expectReaderMutationRejected((reader) => {
+      reader.alternatives.searchTerms = ["application", "project"];
+    });
+    for (const term of [
+      "bad term",
+      "A",
+      "AKIA1234567890123456",
+      "a".repeat(51),
+    ]) {
+      expectReaderMutationRejected((reader) => {
+        reader.alternatives.searchTerms = ["application", term];
+      });
+    }
+  });
+
+  it("is total for cyclic and throwing reader reports", () => {
+    const cyclic = cloneReport();
+    const facts: unknown[] = [];
+    facts.push(facts);
+    Object.assign(cyclic.readerReport.scenarios, { facts });
+    expect(() => isAnalysisReport(cyclic)).not.toThrow();
+    expect(isAnalysisReport(cyclic)).toBe(false);
+
+    const throwing = cloneReport();
+    Object.assign(throwing, {
+      readerReport: new Proxy(perfectReaderReport, {
+        ownKeys() {
+          throw new Error("hostile reader report");
+        },
+      }),
+    });
+    expect(() => isAnalysisReport(throwing)).not.toThrow();
+    expect(isAnalysisReport(throwing)).toBe(false);
+  });
+
   it("accepts a complete internally consistent report", () => {
     expect(isAnalysisReport(validReport())).toBe(true);
   });
@@ -415,7 +867,12 @@ describe("isAnalysisReport", () => {
         cautions: [],
       },
     ]) {
-      expect(isAnalysisReport({ ...validReport(), projectBrief })).toBe(true);
+      const report = validReport();
+      report.projectBrief = projectBrief as ProjectBrief;
+      if (projectBrief.kinds[0]?.kind === "template") {
+        report.readerReport.alternatives.searchTerms[0] = "template";
+      }
+      expect(isAnalysisReport(report)).toBe(true);
     }
 
     for (const projectBrief of [

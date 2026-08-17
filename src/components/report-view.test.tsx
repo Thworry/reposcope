@@ -2,7 +2,10 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AnalysisReport, DimensionKey } from "../features/analysis/model";
-import { perfectProjectBrief } from "../test/fixtures/metrics";
+import {
+  perfectProjectBrief,
+  perfectReaderReport,
+} from "../test/fixtures/metrics";
 import { ReportView } from "./report-view";
 
 const dimensionKeys: DimensionKey[] = [
@@ -29,6 +32,7 @@ const report = {
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
   projectBrief: perfectProjectBrief,
+  readerReport: structuredClone(perfectReaderReport),
   overall: {
     score: 80,
     label: "solid",

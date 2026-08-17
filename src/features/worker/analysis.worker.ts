@@ -3,6 +3,7 @@ import type {
   CoverageSummary,
   FetchedTextFile,
   LanguageAnalysis,
+  ReaderReport,
   RepoRef,
   ScanPhase,
   SelectedFile,
@@ -17,6 +18,10 @@ import {
 } from "../analyzers/cross-file";
 import { analyzeGeneralRepository } from "../analyzers/general";
 import { analyzeProjectBrief } from "../analyzers/project-brief";
+import {
+  analyzeReaderReport,
+  unavailableReaderReport,
+} from "../analyzers/reader-report";
 import {
   GitHubApiError,
   fetchRawTextFile,
@@ -44,6 +49,7 @@ type NormalizeTree = typeof normalizeTree;
 type SelectFiles = typeof selectFiles;
 type AnalyzeGeneral = typeof analyzeGeneralRepository;
 type ProjectBriefAnalyzer = typeof analyzeProjectBrief;
+type ReaderReportAnalyzer = typeof analyzeReaderReport;
 type Duplicate = typeof computeDuplicateRatio;
 type Cycles = typeof findCircularImports;
 type Score = typeof scoreProject;
@@ -62,6 +68,7 @@ export interface AnalysisDependencies {
   ) => Promise<RawTextResult>;
   analyzeGeneral: AnalyzeGeneral;
   projectBrief: ProjectBriefAnalyzer;
+  readerReport: ReaderReportAnalyzer;
   loadJavaScriptTypeScript: () => Promise<{
     analyzeJavaScriptTypeScript: (
       files: readonly FetchedTextFile[],
@@ -85,6 +92,7 @@ const productionDependencies: AnalysisDependencies = {
   fetchFile: fetchRawTextFile,
   analyzeGeneral: analyzeGeneralRepository,
   projectBrief: analyzeProjectBrief,
+  readerReport: analyzeReaderReport,
   loadJavaScriptTypeScript: () => import("../analyzers/js-ts"),
   loadPython: () => import("../analyzers/python"),
   duplicate: computeDuplicateRatio,
@@ -501,6 +509,26 @@ export async function executeAnalysis(
         .slice(0, 400),
     };
     const { analyzedAt } = command;
+    let readerReport: ReaderReport;
+
+    try {
+      readerReport = dependencies.readerReport({
+        repository: snapshot.repository,
+        tree,
+        files: fetched,
+        general,
+        projectBrief,
+        coverage,
+        analyzedAt,
+      });
+    } catch {
+      readerReport = unavailableReaderReport({
+        repository: snapshot.repository,
+        coverage,
+        analyzedAt,
+      });
+    }
+
     const scored = dependencies.score({
       repository: snapshot.repository,
       general,
@@ -530,6 +558,7 @@ export async function executeAnalysis(
         analyzedAt,
       },
       projectBrief,
+      readerReport,
       overall: scored.overall,
       confidence: scored.confidence,
       dimensions: scored.dimensions,

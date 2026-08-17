@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   perfectGeneralMetrics,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type {
@@ -12,6 +13,7 @@ import type {
   SelectedFile,
 } from "../analysis/model";
 import { isAnalysisReport } from "../analysis/guards";
+import { analyzeReaderReport } from "../analyzers/reader-report";
 import { GitHubApiError } from "../github/github-client";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
@@ -118,6 +120,7 @@ function dependenciesFor(
     fetchFile: vi.fn(fetchFile),
     analyzeGeneral: vi.fn().mockReturnValue(perfectGeneralMetrics),
     projectBrief: vi.fn().mockReturnValue(perfectProjectBrief),
+    readerReport: vi.fn(analyzeReaderReport),
     loadJavaScriptTypeScript: vi
       .fn()
       .mockResolvedValue({ analyzeJavaScriptTypeScript: emptyLanguage }),
@@ -171,6 +174,103 @@ function completedReport(events: readonly WorkerEvent[]) {
 }
 
 describe("executeAnalysis", () => {
+  it("calls the reader analyzer once and serializes its output", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    const readerReport = vi.fn().mockReturnValue(perfectReaderReport);
+    dependencies.readerReport = readerReport;
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 70, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    expect(readerReport).toHaveBeenCalledOnce();
+    expect(completedReport(events).readerReport).toEqual(perfectReaderReport);
+    expect(readerReport).toHaveBeenCalledWith({
+      repository: perfectRepository,
+      tree: { files: [], complete: true, skippedEntries: [] },
+      files: [],
+      general: perfectGeneralMetrics,
+      projectBrief: perfectProjectBrief,
+      coverage: completedReport(events).coverage,
+      analyzedAt,
+    });
+    expect(vi.mocked(dependencies.score).mock.calls[0]?.[0]).not.toHaveProperty(
+      "readerReport",
+    );
+  });
+
+  it("falls back only when reader analysis throws and preserves scoring", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.readerReport).mockImplementation(() => {
+      throw new Error("reader-only failure");
+    });
+    const expectedScored = {
+      rules: [],
+      dimensions: [],
+      overall: {
+        score: 17,
+        label: "limited" as const,
+        generalOnly: true,
+        preliminary: true,
+      },
+      confidence: { percent: 23, label: "low" as const },
+    };
+    dependencies.score = vi.fn().mockReturnValue(expectedScored);
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 71, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(dependencies.readerReport).toHaveBeenCalledOnce();
+    expect(dependencies.score).toHaveBeenCalledOnce();
+    expect(report.overall).toEqual(expectedScored.overall);
+    expect(report.confidence).toEqual(expectedScored.confidence);
+    expect(report.dimensions).toEqual(expectedScored.dimensions);
+    expect(report.readerReport.reliability.status).toBe(
+      "insufficient-evidence",
+    );
+    expect(
+      report.readerReport.reliability.signals.every(
+        ({ state }) => state === "unknown",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not turn scoring failures into reader fallbacks", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.score).mockImplementation(() => {
+      throw new Error("scoring failure");
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 72, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    expect(dependencies.readerReport).toHaveBeenCalledOnce();
+    expect(events.some(({ type }) => type === "complete")).toBe(false);
+    expect(events).toContainEqual({
+      type: "error",
+      requestId: 72,
+      error: { kind: "worker" },
+    });
+  });
+
   it("emits ordered progress, bounds concurrency, and lazy loads detected parsers", async () => {
     let active = 0;
     let maximum = 0;

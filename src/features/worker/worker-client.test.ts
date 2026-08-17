@@ -7,6 +7,7 @@ import {
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type { AnalysisReport, ProjectBrief } from "../analysis/model";
@@ -61,6 +62,7 @@ function validReport(): AnalysisReport {
       analyzedAt,
     },
     projectBrief: perfectProjectBrief,
+    readerReport: structuredClone(perfectReaderReport),
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -155,6 +157,32 @@ describe("runAnalysis", () => {
 
     await expect(run.promise).resolves.toEqual(report);
     expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an old completion without a reader report", async () => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = structuredClone(validReport()) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete report.readerReport;
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "complete", requestId: start.requestId, report },
+      }),
+    );
+
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
   });
 
   it.each([

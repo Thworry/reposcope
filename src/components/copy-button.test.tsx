@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AnalysisReport } from "../features/analysis/model";
 import { buildImprovementMarkdown } from "../i18n/messages";
-import { perfectProjectBrief } from "../test/fixtures/metrics";
+import {
+  perfectProjectBrief,
+  perfectReaderReport,
+} from "../test/fixtures/metrics";
 import { CopyButton } from "./copy-button";
 
 function deferred<T>() {
@@ -31,6 +34,7 @@ const report = {
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
   projectBrief: perfectProjectBrief,
+  readerReport: structuredClone(perfectReaderReport),
   overall: {
     score: 60,
     label: "needs-attention",

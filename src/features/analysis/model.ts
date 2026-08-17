@@ -617,6 +617,7 @@ export interface AnalysisReport {
     analyzedAt: string;
   };
   projectBrief: ProjectBrief;
+  readerReport: ReaderReport;
   overall: OverallResult;
   confidence: ConfidenceResult;
   dimensions: DimensionResult[];
