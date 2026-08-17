@@ -79,6 +79,7 @@ function executableName(token: string | undefined): string {
 
 interface UnwrappedCommand {
   executable: string;
+  rawExecutable: string;
   arguments: string[];
   malformed: boolean;
 }
@@ -207,8 +208,10 @@ function envCommandIndex(
   return { index, review: false };
 }
 
-function unwrapCommand(segment: string): UnwrappedCommand {
-  const { tokens, malformed } = shellWords(segment.trim());
+function unwrapTokens(
+  tokens: readonly string[],
+  malformed: boolean,
+): UnwrappedCommand {
   let index = 0;
   let review = malformed;
 
@@ -222,9 +225,15 @@ function unwrapCommand(segment: string): UnwrappedCommand {
 
   return {
     executable: executableName(tokens[index]),
+    rawExecutable: tokens[index] ?? "",
     arguments: tokens.slice(index + 1),
     malformed: review,
   };
+}
+
+function unwrapCommand(segment: string): UnwrappedCommand {
+  const { tokens, malformed } = shellWords(segment.trim());
+  return unwrapTokens(tokens, malformed);
 }
 
 interface ScannedShellCommand {
@@ -355,6 +364,243 @@ function dangerousCommand(unwrapped: UnwrappedCommand): boolean {
 
 const REMOTE_SOURCE_EXECUTABLES = new Set(["curl", "wget"]);
 const SHELL_EXECUTABLES = new Set(["bash", "dash", "fish", "ksh", "sh", "zsh"]);
+const DOCUMENTED_EXECUTABLES = new Set([
+  "bun",
+  "bundle",
+  "cargo",
+  "composer",
+  "dart",
+  "deno",
+  "docker",
+  "docker-compose",
+  "dotnet",
+  "flutter",
+  "go",
+  "gradle",
+  "java",
+  "make",
+  "mvn",
+  "node",
+  "npm",
+  "php",
+  "pip",
+  "pip3",
+  "pnpm",
+  "poetry",
+  "python",
+  "python3",
+  "ruby",
+  "swift",
+  "uv",
+  "yarn",
+]);
+const NATURAL_LANGUAGE_ARGUMENTS = new Set([
+  "are",
+  "can",
+  "helps",
+  "is",
+  "provides",
+  "requires",
+  "should",
+  "supports",
+  "sure",
+  "to",
+  "uses",
+]);
+
+const SUDO_OPTIONS_WITH_ARGUMENT = new Set([
+  "--chdir",
+  "--close-from",
+  "--command-timeout",
+  "--group",
+  "--host",
+  "--other-user",
+  "--prompt",
+  "--role",
+  "--type",
+  "--user",
+  "-C",
+  "-D",
+  "-R",
+  "-T",
+  "-g",
+  "-h",
+  "-p",
+  "-r",
+  "-t",
+  "-u",
+]);
+const SUDO_OPTIONS_WITHOUT_ARGUMENT = new Set([
+  "--askpass",
+  "--background",
+  "--bell",
+  "--login",
+  "--non-interactive",
+  "--preserve-env",
+  "--remove-timestamp",
+  "--reset-timestamp",
+  "--shell",
+  "--stdin",
+  "--validate",
+  "-A",
+  "-E",
+  "-H",
+  "-K",
+  "-S",
+  "-b",
+  "-k",
+  "-n",
+  "-s",
+  "-v",
+]);
+const SUDO_SHORT_OPTIONS_WITH_ARGUMENT = new Set([
+  "C",
+  "D",
+  "R",
+  "T",
+  "U",
+  "g",
+  "h",
+  "p",
+  "r",
+  "t",
+  "u",
+]);
+const SUDO_SHORT_OPTIONS_WITHOUT_ARGUMENT = new Set([
+  "A",
+  "B",
+  "E",
+  "H",
+  "K",
+  "P",
+  "S",
+  "b",
+  "i",
+  "k",
+  "l",
+  "n",
+  "s",
+  "v",
+]);
+
+interface SudoCommandBoundary {
+  index: number;
+  shellMode: boolean;
+}
+
+function sudoCommandBoundary(
+  arguments_: readonly string[],
+): SudoCommandBoundary | null {
+  let index = 0;
+  let shellMode = false;
+
+  while (index < arguments_.length) {
+    const option = arguments_[index] ?? "";
+    if (option === "--") return { index: index + 1, shellMode };
+    if (!option.startsWith("-") || option === "-") {
+      return { index, shellMode };
+    }
+    if (SUDO_OPTIONS_WITHOUT_ARGUMENT.has(option)) {
+      shellMode ||=
+        option === "--login" ||
+        option === "--shell" ||
+        option === "-i" ||
+        option === "-s";
+      index += 1;
+      continue;
+    }
+    if (SUDO_OPTIONS_WITH_ARGUMENT.has(option)) {
+      if (arguments_[index + 1] === undefined) return null;
+      index += 2;
+      continue;
+    }
+    if (option.startsWith("--")) {
+      const equals = option.indexOf("=");
+      if (equals === -1) return null;
+      const name = option.slice(0, equals);
+      const value = option.slice(equals + 1);
+      if (
+        name !== "--preserve-env" &&
+        (!SUDO_OPTIONS_WITH_ARGUMENT.has(name) || value.length === 0)
+      ) {
+        return null;
+      }
+      index += 1;
+      continue;
+    }
+    if (/^-[^-]/u.test(option)) {
+      let consumesNext = false;
+
+      for (let cursor = 1; cursor < option.length; cursor += 1) {
+        const flag = option[cursor] ?? "";
+        if (SUDO_SHORT_OPTIONS_WITHOUT_ARGUMENT.has(flag)) {
+          shellMode ||= flag === "i" || flag === "s";
+          continue;
+        }
+        if (!SUDO_SHORT_OPTIONS_WITH_ARGUMENT.has(flag)) return null;
+        consumesNext = cursor === option.length - 1;
+        break;
+      }
+      if (consumesNext) {
+        if (arguments_[index + 1] === undefined) return null;
+        index += 2;
+      } else {
+        index += 1;
+      }
+      continue;
+    }
+
+    return null;
+  }
+
+  return { index, shellMode };
+}
+
+interface RemoteSink {
+  command: UnwrappedCommand;
+  shellMode: boolean;
+}
+
+function unwrapRemoteSink(segment: string): RemoteSink | null {
+  let current = unwrapCommand(segment);
+  const maximumDepth = Array.from(segment).length + 1;
+  let shellMode = false;
+
+  for (let depth = 0; depth < maximumDepth; depth += 1) {
+    if (current.executable !== "sudo") return { command: current, shellMode };
+    const boundary = sudoCommandBoundary(current.arguments);
+    if (boundary === null) return null;
+    shellMode ||= boundary.shellMode;
+    current = unwrapTokens(
+      current.arguments.slice(boundary.index),
+      current.malformed,
+    );
+  }
+
+  return null;
+}
+
+function remoteSourceReachesShell(scanned: ScannedShellCommand): boolean {
+  for (const pipeline of scanned.pipelines) {
+    let remoteSource = false;
+
+    for (const segment of pipeline) {
+      const unwrapped = unwrapCommand(segment);
+      const sink = remoteSource ? unwrapRemoteSink(segment) : null;
+      if (
+        sink !== null &&
+        (sink.shellMode ||
+          (!sink.command.malformed &&
+            SHELL_EXECUTABLES.has(sink.command.executable)))
+      ) {
+        return true;
+      }
+      remoteSource ||= REMOTE_SOURCE_EXECUTABLES.has(unwrapped.executable);
+    }
+  }
+
+  return false;
+}
 
 function reviewBeforeRunning(command: string): boolean {
   const scanned = scanShellCommand(command);
@@ -381,6 +627,62 @@ export function commandDisposition(command: string): ReaderCommandDisposition {
   const normalized = normalizedVisibleCommand(command);
 
   if (normalized === null) return "withheld";
+  return reviewBeforeRunning(normalized) ? "review" : "ready";
+}
+
+/** Identifies a documented runtime/version requirement without admitting it as a command. */
+export function isDocumentedRuntimeRequirement(command: string): boolean {
+  const normalized = command.normalize("NFKC").replace(/\s+/gu, " ").trim();
+
+  if (
+    /^(?:[~^]|[<>]=?)?\d+(?:\.\d+){0,2}(?:\.x)?(?:\s*\|\|\s*(?:[~^]|[<>]=?)?\d+(?:\.\d+){0,2}(?:\.x)?)*$/iu.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  return /^(?:bun|deno|go|java|node(?:\.js)?|npm|php|pnpm|python|ruby|rust|swift|yarn)(?:\s+version)?\s+(?:[~^]|[<>]=?|v)?\s*\d+(?:\.\d+){0,2}(?:\.x)?(?:\s*\|\|\s*(?:[~^]|[<>]=?|v)?\s*\d+(?:\.\d+){0,2}(?:\.x)?)*$/iu.test(
+    normalized,
+  );
+}
+
+/** Admits only an inert command with a documented executable position. */
+export function documentedCommandDisposition(
+  command: string,
+): ReaderCommandDisposition | null {
+  const normalized = normalizedVisibleCommand(command);
+
+  if (normalized === null) return "withheld";
+  const scanned = scanShellCommand(normalized);
+  const first = scanned.pipelines[0]?.[0];
+
+  if (first === undefined) return null;
+  const unwrapped = unwrapCommand(first);
+  const basename = unwrapped.rawExecutable.split("/").at(-1) ?? "";
+  const projectExecutable = unwrapped.rawExecutable.slice(2);
+  const directlyDocumented =
+    unwrapped.rawExecutable.startsWith("./") &&
+    projectExecutable.length > 0 &&
+    isSafeProjectBriefPath(projectExecutable);
+  const naturalArgument = unwrapped.arguments[0]?.toLocaleLowerCase("en-US");
+  const recognizedSafetyShape =
+    (REMOTE_SOURCE_EXECUTABLES.has(unwrapped.executable) &&
+      remoteSourceReachesShell(scanned)) ||
+    dangerousCommand({ ...unwrapped, malformed: false });
+
+  if (
+    isDocumentedRuntimeRequirement(normalized) ||
+    (!directlyDocumented &&
+      !DOCUMENTED_EXECUTABLES.has(unwrapped.executable) &&
+      !recognizedSafetyShape) ||
+    (!directlyDocumented && basename !== unwrapped.executable) ||
+    (naturalArgument !== undefined &&
+      NATURAL_LANGUAGE_ARGUMENTS.has(naturalArgument))
+  ) {
+    return null;
+  }
+
   return reviewBeforeRunning(normalized) ? "review" : "ready";
 }
 

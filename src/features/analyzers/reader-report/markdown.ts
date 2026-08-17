@@ -10,92 +10,27 @@ import {
   isSafeProjectBriefPath,
 } from "../../analysis/project-brief-safety";
 import { toPathComparisonKey } from "../../scanner/file-registry";
-import { commandDisposition } from "./commands";
+import {
+  documentedCommandDisposition,
+  isDocumentedRuntimeRequirement,
+} from "./commands";
+import {
+  README_PROFILE_CAPS,
+  readmeCommandKind,
+  readmeLegacySection,
+  readmeProfileSection,
+  type ReadmeLegacySection,
+  type ReadmeProfileSection,
+} from "./readme-policy";
 
 const MAX_MARKDOWN_BYTES = 256 * 1024;
 const MAX_PROSE_CODE_POINTS = 480;
 const MAX_HTML_DEPTH = 128;
 const MAX_LINK_SCAN = 2_048;
 
-const SECTION_HEADINGS = Object.freeze({
-  scenarios: Object.freeze([
-    "use cases",
-    "who is this for",
-    "examples",
-    "business scenarios",
-    "用途",
-    "适用场景",
-    "使用场景",
-    "示例",
-  ] as const),
-  architecture: Object.freeze([
-    "architecture",
-    "design",
-    "how it works",
-    "internals",
-    "架构",
-    "设计",
-    "工作原理",
-    "实现原理",
-  ] as const),
-  securityPrivacy: Object.freeze([
-    "security",
-    "privacy",
-    "permissions",
-    "data handling",
-    "安全",
-    "隐私",
-    "权限",
-    "数据处理",
-  ] as const),
-  install: Object.freeze([
-    "install",
-    "installation",
-    "setup",
-    "安装",
-    "配置环境",
-  ] as const),
-  run: Object.freeze([
-    "usage",
-    "run",
-    "quick start",
-    "使用",
-    "运行",
-    "快速开始",
-  ] as const),
-  develop: Object.freeze([
-    "development",
-    "develop",
-    "开发",
-    "二次开发",
-  ] as const),
-  test: Object.freeze(["test", "testing", "测试"] as const),
-  build: Object.freeze(["build", "building", "构建"] as const),
-});
-
-type HeadingSection = keyof typeof SECTION_HEADINGS;
-type ProseSection = "scenarios" | "architecture" | "securityPrivacy";
+type ProseSection = ReadmeLegacySection;
+type ProfileTextSection = Exclude<ReadmeProfileSection, "capabilities">;
 type MarkdownEvidenceSource = "readme" | "documentation";
-
-const COMMAND_SECTION_KINDS: Readonly<
-  Record<Exclude<HeadingSection, ProseSection>, ReaderCommandKind>
-> = Object.freeze({
-  install: "install",
-  run: "run",
-  develop: "develop",
-  test: "test",
-  build: "build",
-});
-
-const HEADING_LOOKUP = new Map<string, HeadingSection>();
-
-for (const [section, headings] of Object.entries(SECTION_HEADINGS) as Array<
-  [HeadingSection, readonly string[]]
->) {
-  for (const heading of headings) {
-    HEADING_LOOKUP.set(heading, section);
-  }
-}
 
 const VOID_HTML_TAGS = new Set([
   "area",
@@ -180,14 +115,32 @@ interface HtmlScanResult {
 
 interface HeadingFrame {
   level: number;
-  section: HeadingSection | null;
+  profileSection: ReadmeProfileSection | null;
+  legacySection: ProseSection | null;
+  commandKind: ReaderCommandKind | null;
+  label: string | null;
 }
 
 interface ParagraphState {
-  section: ProseSection;
+  legacySection: ProseSection | null;
+  profileSection: ProfileTextSection | null;
+  capabilityLabel: string | null;
+  fallback: boolean;
   parts: string[];
   codePoints: number;
   invalid: boolean;
+}
+
+export interface ReaderMarkdownReadmeEvidence {
+  overview: ReaderTextFact[];
+  audiences: ReaderTextFact[];
+  problems: ReaderTextFact[];
+  useCases: ReaderTextFact[];
+  capabilityGroups: Array<{ label: string; facts: ReaderTextFact[] }>;
+  workflow: ReaderTextFact[];
+  dependencies: ReaderTextFact[];
+  limitations: ReaderTextFact[];
+  maturity: ReaderTextFact[];
 }
 
 export interface ReaderMarkdownEvidence {
@@ -195,6 +148,7 @@ export interface ReaderMarkdownEvidence {
   architecture: ReaderTextFact[];
   securityPrivacy: ReaderTextFact[];
   commands: ReaderCommandFact[];
+  readme: ReaderMarkdownReadmeEvidence;
 }
 
 export interface ReaderMarkdownExtractionOptions {
@@ -207,6 +161,17 @@ function emptyEvidence(): ReaderMarkdownEvidence {
     architecture: [],
     securityPrivacy: [],
     commands: [],
+    readme: {
+      overview: [],
+      audiences: [],
+      problems: [],
+      useCases: [],
+      capabilityGroups: [],
+      workflow: [],
+      dependencies: [],
+      limitations: [],
+      maturity: [],
+    },
   };
 }
 
@@ -254,20 +219,15 @@ function canonicalText(value: string): string {
 function headingName(value: string): string {
   return canonicalText(value)
     .replace(/\s+#+\s*$/u, "")
+    .replace(/[?？:：]+$/u, "")
     .toLocaleLowerCase("en-US");
 }
 
-function isProseSection(section: HeadingSection): section is ProseSection {
-  return (
-    section === "scenarios" ||
-    section === "architecture" ||
-    section === "securityPrivacy"
-  );
-}
-
-function activeSection(stack: readonly HeadingFrame[]): HeadingSection | null {
+function activeLegacySection(
+  stack: readonly HeadingFrame[],
+): ProseSection | null {
   for (let index = stack.length - 1; index >= 0; index -= 1) {
-    const section = stack[index]?.section;
+    const section = stack[index]?.legacySection;
 
     if (section !== null && section !== undefined) return section;
   }
@@ -275,13 +235,63 @@ function activeSection(stack: readonly HeadingFrame[]): HeadingSection | null {
   return null;
 }
 
-function parseAtxHeading(line: string): { level: number; name: string } | null {
+function activeCommandKind(
+  stack: readonly HeadingFrame[],
+): ReaderCommandKind | null {
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    const kind = stack[index]?.commandKind;
+
+    if (kind !== null && kind !== undefined) return kind;
+  }
+
+  return null;
+}
+
+function activeProfileContext(stack: readonly HeadingFrame[]): {
+  section: ReadmeProfileSection;
+  capabilityLabel: string | null;
+} | null {
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    const frame = stack[index];
+
+    if (frame?.profileSection !== "capabilities") continue;
+    const nested = stack.at(-1);
+    return {
+      section: "capabilities",
+      capabilityLabel:
+        nested !== undefined && nested.level > frame.level
+          ? nested.label
+          : frame.label,
+    };
+  }
+
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    const frame = stack[index];
+
+    if (frame?.profileSection === null || frame?.profileSection === undefined) {
+      continue;
+    }
+    return { section: frame.profileSection, capabilityLabel: null };
+  }
+
+  return null;
+}
+
+function safeHeadingLabel(value: string): string | null {
+  return visibleProfileProse(value.replace(/\s+#+\s*$/u, "").trim());
+}
+
+function parseAtxHeading(
+  line: string,
+): { level: number; name: string; label: string | null } | null {
   const match = /^ {0,3}(#{1,6})\s+(.+?)\s*$/u.exec(line);
 
   if (match === null) return null;
+  const value = match[2] ?? "";
   return {
     level: match[1]?.length ?? 1,
-    name: headingName(match[2] ?? ""),
+    name: headingName(value),
+    label: safeHeadingLabel(value),
   };
 }
 
@@ -473,6 +483,7 @@ function isReferenceDefinition(value: string): boolean {
 
 function visibleProse(value: string): string | null {
   const htmlView = markdownHtmlView(value);
+  const inlineHtml = scanHtmlSyntax(htmlView.value);
 
   if (
     htmlView.malformed ||
@@ -480,8 +491,11 @@ function visibleProse(value: string): string | null {
     isReferenceDefinition(value) ||
     value.includes("![") ||
     value.includes("`") ||
-    htmlView.value.includes("<") ||
-    htmlView.value.includes(">") ||
+    inlineHtml.tokens.length > 0 ||
+    inlineHtml.hasComment ||
+    inlineHtml.malformedTag ||
+    htmlView.value.includes("<!") ||
+    htmlView.value.includes("<?") ||
     containsUnsafeCodePoint(value)
   ) {
     return null;
@@ -559,6 +573,112 @@ function isTableLine(line: string): boolean {
   return line.includes("|");
 }
 
+function containsMarkdownLink(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "[") continue;
+    const labelEnd = closingBracket(value, index + 1, "]");
+
+    if (labelEnd === -1) return true;
+    if (value[labelEnd + 1] === "(" || value[labelEnd + 1] === "[") {
+      return true;
+    }
+    index = labelEnd;
+  }
+
+  return false;
+}
+
+function visibleProfileProse(value: string): string | null {
+  const normalized = value.normalize("NFKC");
+
+  for (const view of [value, normalized]) {
+    if (
+      containsMarkdownLink(view) ||
+      containsRawUri(view) ||
+      isReferenceDefinition(view)
+    ) {
+      return null;
+    }
+  }
+
+  const normalizedVisible = visibleProse(normalized);
+  if (normalizedVisible === null) return null;
+
+  const visible =
+    normalized === value ? normalizedVisible : visibleProse(value);
+  if (visible === null) return null;
+  for (const view of [visible, visible.normalize("NFKC")]) {
+    if (
+      containsMarkdownLink(view) ||
+      containsRawUri(view) ||
+      isReferenceDefinition(view)
+    ) {
+      return null;
+    }
+  }
+
+  return visible;
+}
+
+function tableParts(line: string): string[] | null {
+  if (!line.includes("|") || line.includes("||")) return null;
+
+  let value = line.trim();
+  if (value.startsWith("|")) value = value.slice(1);
+  if (value.endsWith("|")) value = value.slice(0, -1);
+  const parts: string[] = [];
+  let part = "";
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === undefined) return null;
+
+    if (character === "\\") {
+      const next = value[index + 1];
+      if (next === undefined) return null;
+      part += character + next;
+      index += 1;
+      continue;
+    }
+    if (character === "|") {
+      parts.push(part);
+      part = "";
+      if (parts.length > 2) return null;
+      continue;
+    }
+    part += character;
+  }
+  parts.push(part);
+
+  return parts.length === 2 ? parts : null;
+}
+
+function isTwoCellTableSeparator(line: string): boolean {
+  const parts = tableParts(line);
+  return (
+    parts !== null && parts.every((part) => /^\s*:?-{3,}:?\s*$/u.test(part))
+  );
+}
+
+function twoCellTableFact(line: string): string | null {
+  const parts = tableParts(line);
+  if (parts === null || isTwoCellTableSeparator(line)) return null;
+  const visible = parts.map(visibleProfileProse);
+  const left = visible[0];
+  const right = visible[1];
+
+  if (
+    left === null ||
+    left === undefined ||
+    right === null ||
+    right === undefined
+  ) {
+    return null;
+  }
+
+  return visibleProfileProse(`${left} — ${right}`);
+}
+
 function inlineCommands(line: string): string[] {
   const commands: string[] = [];
   const expression = /`([^`\n]+)`/gu;
@@ -600,6 +720,29 @@ function looksLikeDocumentedCommand(line: string): boolean {
 
   return ["chmod", "curl", "dd", "mkfs", "npx", "rm", "sudo", "wget"].includes(
     executable,
+  );
+}
+
+function looksLikeFallbackOrientation(line: string): boolean {
+  const text = visibleProfileProse(line);
+
+  if (
+    text === null ||
+    Array.from(text).length < 20 ||
+    isTableLine(line) ||
+    listItem(line) !== null ||
+    /^(?:v?\d+(?:\.\d+){1,3}|release\b|changelog\b)/iu.test(text) ||
+    /^(?:[$>](?:\s|$)|npm\b|pnpm\b|yarn\b|bun\b|cargo\b|go\b|docker\b)/iu.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+
+  return (
+    /\b(?:application|framework|library|platform|project|repository|service|tool|workspace)\b/iu.test(
+      text,
+    ) || /(?:应用|工具|平台|项目|服务|框架|用于|帮助|是一个)/u.test(text)
   );
 }
 
@@ -754,6 +897,23 @@ export function extractReaderMarkdownEvidence(
     architecture: new Set<string>(),
     securityPrivacy: new Set<string>(),
   };
+  const readmeSeen: Readonly<Record<ProfileTextSection, Set<string>>> = {
+    overview: new Set<string>(),
+    audiences: new Set<string>(),
+    problems: new Set<string>(),
+    useCases: new Set<string>(),
+    workflow: new Set<string>(),
+    dependencies: new Set<string>(),
+    limitations: new Set<string>(),
+    maturity: new Set<string>(),
+  };
+  const capabilityGroups = new Map<
+    string,
+    { label: string; facts: ReaderTextFact[] }
+  >();
+  const capabilityFactsSeen = new Set<string>();
+  const fallbackCandidates: ReaderTextFact[] = [];
+  const fallbackSeen = new Set<string>();
   const caps: Readonly<Record<ProseSection, number>> = {
     scenarios: 3,
     architecture: 2,
@@ -771,9 +931,11 @@ export function extractReaderMarkdownEvidence(
   let inCdata = false;
   let inProcessingInstruction = false;
   let inDeclaration = false;
+  let inTwoCellTable = false;
   let doctype: DoctypeState | null = null;
   let htmlBlock: HtmlBlockState | null = null;
   let malformedBlock = false;
+  const overviewHeadingLevels = new Set<number>();
 
   const addProse = (section: ProseSection, candidate: string): void => {
     const text = visibleProse(candidate);
@@ -791,23 +953,126 @@ export function extractReaderMarkdownEvidence(
     evidence[section].push({ source, path: file.path, text });
   };
 
+  const addReadmeFact = (
+    section: ProfileTextSection,
+    candidate: string,
+  ): void => {
+    const text = visibleProfileProse(candidate);
+
+    if (text === null) return;
+    const key = canonicalText(text);
+    if (
+      evidence.readme[section].length >= README_PROFILE_CAPS[section] ||
+      readmeSeen[section].has(key)
+    ) {
+      return;
+    }
+    readmeSeen[section].add(key);
+    evidence.readme[section].push({ source, path: file.path, text });
+  };
+
+  const addCapabilityFact = (label: string, candidate: string): void => {
+    const safeLabel = visibleProfileProse(label);
+    const text = visibleProfileProse(candidate);
+
+    if (safeLabel === null || text === null) return;
+    const labelKey = canonicalText(safeLabel);
+    const textKey = canonicalText(text);
+    let group = capabilityGroups.get(labelKey);
+
+    if (group === undefined) {
+      if (
+        capabilityGroups.size >= README_PROFILE_CAPS.capabilityGroups ||
+        capabilityFactsSeen.has(textKey)
+      ) {
+        return;
+      }
+      group = { label: safeLabel, facts: [] };
+      capabilityGroups.set(labelKey, group);
+      evidence.readme.capabilityGroups.push(group);
+    }
+    if (
+      group.facts.length >= README_PROFILE_CAPS.capabilityFacts ||
+      capabilityFactsSeen.has(textKey)
+    ) {
+      return;
+    }
+    capabilityFactsSeen.add(textKey);
+    group.facts.push({ source, path: file.path, text });
+  };
+
+  const addFallbackCandidate = (candidate: string): void => {
+    if (
+      fallbackCandidates.length >= 8 ||
+      !looksLikeFallbackOrientation(candidate)
+    ) {
+      return;
+    }
+    const text = visibleProfileProse(candidate);
+    if (text === null) return;
+    const key = canonicalText(text);
+    if (fallbackSeen.has(key)) return;
+    fallbackSeen.add(key);
+    fallbackCandidates.push({ source, path: file.path, text });
+  };
+
+  const addParagraphCandidate = (
+    target: Pick<
+      ParagraphState,
+      "legacySection" | "profileSection" | "capabilityLabel" | "fallback"
+    >,
+    candidate: string,
+  ): void => {
+    if (target.legacySection !== null) {
+      addProse(target.legacySection, candidate);
+    }
+    if (target.profileSection !== null) {
+      addReadmeFact(target.profileSection, candidate);
+    }
+    if (target.capabilityLabel !== null) {
+      addCapabilityFact(target.capabilityLabel, candidate);
+    }
+    if (target.fallback) addFallbackCandidate(candidate);
+  };
+
   const flushParagraph = (): void => {
     if (
       paragraph !== null &&
       !paragraph.invalid &&
       paragraph.parts.length > 0
     ) {
-      addProse(paragraph.section, paragraph.parts.join(" "));
+      addParagraphCandidate(paragraph, paragraph.parts.join(" "));
     }
     paragraph = null;
   };
 
-  const addParagraphLine = (section: ProseSection, line: string): void => {
-    const text = visibleProse(line);
+  const addParagraphLine = (
+    target: Pick<
+      ParagraphState,
+      "legacySection" | "profileSection" | "capabilityLabel" | "fallback"
+    >,
+    line: string,
+  ): void => {
+    const profileTarget =
+      target.profileSection !== null ||
+      target.capabilityLabel !== null ||
+      target.fallback;
+    const text = profileTarget ? visibleProfileProse(line) : visibleProse(line);
 
-    if (paragraph === null || paragraph.section !== section) {
+    if (
+      paragraph === null ||
+      paragraph.legacySection !== target.legacySection ||
+      paragraph.profileSection !== target.profileSection ||
+      paragraph.capabilityLabel !== target.capabilityLabel ||
+      paragraph.fallback !== target.fallback
+    ) {
       flushParagraph();
-      paragraph = { section, parts: [], codePoints: 0, invalid: false };
+      paragraph = {
+        ...target,
+        parts: [],
+        codePoints: 0,
+        invalid: false,
+      };
     }
     if (text === null) {
       paragraph.invalid = true;
@@ -839,7 +1104,8 @@ export function extractReaderMarkdownEvidence(
     ) {
       return;
     }
-    const disposition = commandDisposition(candidate);
+    const disposition = documentedCommandDisposition(candidate);
+    if (disposition === null) return;
     commands.set(kind, {
       source,
       path: file.path,
@@ -849,15 +1115,29 @@ export function extractReaderMarkdownEvidence(
     });
   };
 
-  const enterHeading = (level: number, name: string): void => {
+  const enterHeading = (
+    level: number,
+    name: string,
+    label: string | null,
+  ): void => {
     flushParagraph();
     while ((headings.at(-1)?.level ?? 0) >= level) headings.pop();
-    headings.push({ level, section: HEADING_LOOKUP.get(name) ?? null });
+    const profileSection = readmeProfileSection(name);
+    if (profileSection === "overview") overviewHeadingLevels.add(level);
+    headings.push({
+      level,
+      profileSection,
+      legacySection: readmeLegacySection(name),
+      commandKind: readmeCommandKind(name),
+      label,
+    });
   };
 
   for (let index = 0; index < lines.length; index += 1) {
     let line = lines[index] ?? "";
     let trimmed = line.trim();
+
+    if (!isTableLine(line) || line.includes("||")) inTwoCellTable = false;
 
     if (fence !== null) {
       if (
@@ -939,11 +1219,7 @@ export function extractReaderMarkdownEvidence(
       const openingFence = parseFence(line);
       if (openingFence !== null) {
         flushParagraph();
-        const section = activeSection(headings);
-        openingFence.kind =
-          section !== null && !isProseSection(section)
-            ? COMMAND_SECTION_KINDS[section]
-            : null;
+        openingFence.kind = activeCommandKind(headings);
         fence = openingFence;
         continue;
       }
@@ -1025,7 +1301,7 @@ export function extractReaderMarkdownEvidence(
 
     const atxHeading = parseAtxHeading(line);
     if (atxHeading !== null) {
-      enterHeading(atxHeading.level, atxHeading.name);
+      enterHeading(atxHeading.level, atxHeading.name, atxHeading.label);
       continue;
     }
 
@@ -1033,38 +1309,116 @@ export function extractReaderMarkdownEvidence(
     const underlineLevel =
       nextLine === undefined ? null : setextLevel(nextLine);
     if (trimmed.length > 0 && underlineLevel !== null) {
-      enterHeading(underlineLevel, headingName(trimmed));
+      enterHeading(
+        underlineLevel,
+        headingName(trimmed),
+        safeHeadingLabel(trimmed),
+      );
       index += 1;
       continue;
     }
 
-    const section = activeSection(headings);
     if (trimmed.length === 0) {
       flushParagraph();
       continue;
     }
-    if (section === null) {
-      flushParagraph();
-      continue;
-    }
-    if (!isProseSection(section)) {
-      flushParagraph();
-      const kind = COMMAND_SECTION_KINDS[section];
-      const inline = inlineCommands(line);
+    const legacySection = activeLegacySection(headings);
+    const profile = activeProfileContext(headings);
+    const commandKind = activeCommandKind(headings);
+    const item = listItem(line);
+    const candidate = item ?? trimmed;
+    const target = {
+      legacySection,
+      profileSection:
+        profile !== null && profile.section !== "capabilities"
+          ? profile.section
+          : null,
+      capabilityLabel:
+        profile?.section === "capabilities" ? profile.capabilityLabel : null,
+      fallback:
+        profile === null && legacySection === null && commandKind === null,
+    } satisfies Pick<
+      ParagraphState,
+      "legacySection" | "profileSection" | "capabilityLabel" | "fallback"
+    >;
+    const rawTableParts = tableParts(line);
+    const beginsTable =
+      rawTableParts !== null && isTwoCellTableSeparator(lines[index + 1] ?? "");
+    const tableSyntax =
+      rawTableParts !== null || (isTableLine(line) && !line.includes("||"));
+    const tableCommandDisposition =
+      commandKind === null ? null : documentedCommandDisposition(candidate);
+    const tableLike =
+      tableSyntax &&
+      (beginsTable ||
+        inTwoCellTable ||
+        commandKind === null ||
+        tableCommandDisposition === null);
 
-      for (const command of inline) addCommand(kind, command);
-      if (
-        inline.length === 0 &&
-        (/^(?: {4}| {0,3}[$>](?:\s|$))/u.test(line) ||
-          looksLikeDocumentedCommand(line) ||
-          containsCredentialLikeValue(trimmed))
-      ) {
-        addCommand(kind, trimmed);
+    if (tableLike) {
+      flushParagraph();
+      if (beginsTable) inTwoCellTable = true;
+      const tableFact = beginsTable ? null : twoCellTableFact(line);
+
+      if (tableFact !== null && profile !== null) {
+        addParagraphCandidate(
+          { ...target, legacySection: null, fallback: false },
+          tableFact,
+        );
       }
       continue;
     }
+    const inline = inlineCommands(line);
+    let admittedCommand = false;
+
+    for (const command of inline) {
+      const disposition = documentedCommandDisposition(command);
+      if (disposition === null && isDocumentedRuntimeRequirement(command)) {
+        addReadmeFact("dependencies", command);
+      } else if (disposition !== null) {
+        admittedCommand = true;
+        if (commandKind !== null) addCommand(commandKind, command);
+      }
+    }
+    const plainCommandContext =
+      inline.length === 0 &&
+      (commandKind !== null ||
+        /^(?: {4}| {0,3}[$>](?:\s|$))/u.test(line) ||
+        looksLikeDocumentedCommand(candidate));
+    const plainDisposition = plainCommandContext
+      ? documentedCommandDisposition(candidate)
+      : null;
+
+    if (plainDisposition !== null) {
+      admittedCommand = true;
+      if (commandKind !== null) addCommand(commandKind, candidate);
+    }
     if (
-      isTableLine(line) ||
+      !admittedCommand &&
+      isDocumentedRuntimeRequirement(candidate) &&
+      (commandKind !== null || profile?.section === "dependencies")
+    ) {
+      flushParagraph();
+      addReadmeFact("dependencies", candidate);
+      continue;
+    }
+    if (
+      candidate
+        .normalize("NFKC")
+        .trim()
+        .replace(/^[$>](?:\s+|$)/u, "")
+        .trimStart()
+        .startsWith("#")
+    ) {
+      flushParagraph();
+      continue;
+    }
+    if (admittedCommand || inline.length > 0) {
+      flushParagraph();
+      continue;
+    }
+
+    if (
       isReferenceDefinition(line) ||
       trimmed.startsWith("![") ||
       trimmed.startsWith("<") ||
@@ -1075,12 +1429,11 @@ export function extractReaderMarkdownEvidence(
       continue;
     }
 
-    const item = listItem(line);
     if (item !== null) {
       flushParagraph();
-      addProse(section, item);
+      addParagraphCandidate({ ...target, fallback: false }, item);
     } else {
-      addParagraphLine(section, line);
+      addParagraphLine(target, line);
     }
   }
 
@@ -1096,6 +1449,12 @@ export function extractReaderMarkdownEvidence(
     malformedBlock
   ) {
     return emptyEvidence();
+  }
+
+  if (overviewHeadingLevels.size === 0) {
+    evidence.readme.overview.push(
+      ...fallbackCandidates.slice(0, README_PROFILE_CAPS.overview),
+    );
   }
 
   evidence.commands = READER_COMMAND_KINDS.flatMap((kind) => {

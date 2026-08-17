@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { FetchedTextFile } from "../../analysis/model";
 import { extractReaderMarkdownEvidence } from "./markdown";
+import { README_PROFILE_CAPS, README_SECTION_HEADINGS } from "./readme-policy";
 
 function fetched(path: string, text: string): FetchedTextFile {
   const bytes = new TextEncoder().encode(text).byteLength;
@@ -23,10 +24,711 @@ function emptyEvidence() {
     architecture: [],
     securityPrivacy: [],
     commands: [],
+    readme: emptyReadmeEvidence(),
   };
 }
 
+function emptyReadmeEvidence() {
+  return {
+    overview: [],
+    audiences: [],
+    problems: [],
+    useCases: [],
+    capabilityGroups: [],
+    workflow: [],
+    dependencies: [],
+    limitations: [],
+    maturity: [],
+  };
+}
+
+function fact(text: string, path = "README.md") {
+  return { source: "readme", path, text } as const;
+}
+
+function group(label: string, facts: readonly string[]) {
+  return { label, facts: facts.map((text) => fact(text)) };
+}
+
 describe("extractReaderMarkdownEvidence", () => {
+  it("freezes the exact bilingual README vocabulary and caps", () => {
+    expect(README_PROFILE_CAPS).toEqual({
+      overview: 4,
+      audiences: 4,
+      problems: 4,
+      useCases: 4,
+      capabilityGroups: 6,
+      capabilityFacts: 6,
+      workflow: 8,
+      dependencies: 8,
+      limitations: 6,
+      maturity: 6,
+    });
+    expect(README_SECTION_HEADINGS).toEqual({
+      overview: [
+        "overview",
+        "introduction",
+        "about",
+        "简介",
+        "项目介绍",
+        "概述",
+      ],
+      audiences: ["who is this for", "audience", "适合谁", "目标用户"],
+      problems: ["problem", "why", "motivation", "解决的问题", "为什么"],
+      useCases: [
+        "use cases",
+        "business scenarios",
+        "用途",
+        "适用场景",
+        "使用场景",
+      ],
+      capabilities: ["features", "capabilities", "功能", "特性", "核心能力"],
+      workflow: [
+        "workflow",
+        "how it works",
+        "core concepts",
+        "流程",
+        "工作流",
+        "工作原理",
+        "核心概念",
+      ],
+      dependencies: [
+        "requirements",
+        "prerequisites",
+        "installation",
+        "deployment",
+        "providers",
+        "integrations",
+        "configuration",
+        "依赖",
+        "环境要求",
+        "安装",
+        "部署",
+        "模型服务",
+        "集成",
+        "配置",
+      ],
+      limitations: [
+        "limitations",
+        "known issues",
+        "security",
+        "privacy",
+        "data handling",
+        "限制",
+        "已知问题",
+        "安全",
+        "隐私",
+        "数据处理",
+      ],
+      maturity: [
+        "roadmap",
+        "status",
+        "migration",
+        "preview",
+        "beta",
+        "路线图",
+        "项目状态",
+        "迁移",
+        "预览",
+        "测试版",
+      ],
+    });
+    expect(Object.isFrozen(README_PROFILE_CAPS)).toBe(true);
+    expect(Object.isFrozen(README_SECTION_HEADINGS)).toBe(true);
+    for (const headings of Object.values(README_SECTION_HEADINGS)) {
+      expect(Object.isFrozen(headings)).toBe(true);
+    }
+  });
+
+  it("extracts a rich README profile in one source-ordered scan", () => {
+    const richReadme = fetched(
+      "README.md",
+      `# StoryForge
+
+An end-to-end workspace for long-form fiction.
+
+## Who is this for?
+- Independent novelists
+- Writing teams
+
+## Problems
+- Keeping a long narrative consistent
+
+## Features
+### Planning
+- Worldbuilding
+- Character arcs
+### Production
+- Chapter generation
+- Whole-book review
+
+## Workflow
+1. Capture an idea
+2. Build the world
+3. Plan chapters
+4. Draft and review
+
+## Requirements
+- Node.js 24
+- A model provider API key
+
+## Limitations
+- Collaborative editing is experimental
+
+## Roadmap
+- Stable migration tooling
+`,
+    );
+
+    expect(extractReaderMarkdownEvidence(richReadme).readme).toEqual({
+      overview: [fact("An end-to-end workspace for long-form fiction.")],
+      audiences: [fact("Independent novelists"), fact("Writing teams")],
+      problems: [fact("Keeping a long narrative consistent")],
+      useCases: [],
+      capabilityGroups: [
+        group("Planning", ["Worldbuilding", "Character arcs"]),
+        group("Production", ["Chapter generation", "Whole-book review"]),
+      ],
+      workflow: [
+        fact("Capture an idea"),
+        fact("Build the world"),
+        fact("Plan chapters"),
+        fact("Draft and review"),
+      ],
+      dependencies: [fact("Node.js 24"), fact("A model provider API key")],
+      limitations: [fact("Collaborative editing is experimental")],
+      maturity: [fact("Stable migration tooling")],
+    });
+  });
+
+  it("recognizes Chinese and mixed-language profile headings without translating repository prose", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.zh-CN.md",
+        `# 写作工具
+
+## 简介
+这是一个帮助写作者维护长篇故事一致性的本地工具。
+
+## 目标用户
+- 独立作者
+
+## 解决的问题
+- 长篇设定容易前后冲突
+
+## Features
+### 规划
+- 世界观管理
+
+## 工作流
+1. 记录想法
+2. 审阅章节
+
+## 环境要求
+- Node.js 24
+
+## 已知问题
+- 协作编辑仍在测试
+
+## 项目状态
+- 公开预览阶段
+`,
+      ),
+    ).readme;
+
+    expect(result).toEqual({
+      overview: [
+        fact(
+          "这是一个帮助写作者维护长篇故事一致性的本地工具。",
+          "README.zh-CN.md",
+        ),
+      ],
+      audiences: [fact("独立作者", "README.zh-CN.md")],
+      problems: [fact("长篇设定容易前后冲突", "README.zh-CN.md")],
+      useCases: [],
+      capabilityGroups: [
+        {
+          label: "规划",
+          facts: [fact("世界观管理", "README.zh-CN.md")],
+        },
+      ],
+      workflow: [
+        fact("记录想法", "README.zh-CN.md"),
+        fact("审阅章节", "README.zh-CN.md"),
+      ],
+      dependencies: [fact("Node.js 24", "README.zh-CN.md")],
+      limitations: [fact("协作编辑仍在测试", "README.zh-CN.md")],
+      maturity: [fact("公开预览阶段", "README.zh-CN.md")],
+    });
+  });
+
+  it("admits bounded two-cell table facts and skips header, separator, and wider rows", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Features
+### Output formats
+Format | Result
+--- | ---
+PDF | Print-ready export
+EPUB | Reflowable export
+Too | Many | Cells
+`,
+      ),
+    ).readme;
+
+    expect(result.capabilityGroups).toEqual([
+      group("Output formats", [
+        "PDF — Print-ready export",
+        "EPUB — Reflowable export",
+      ]),
+    ]);
+  });
+
+  it("keeps nested recognized headings inside the nearest capability group", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Features
+### Workflow
+- Visual editor
+`,
+      ),
+    ).readme;
+
+    expect(result.capabilityGroups).toEqual([
+      group("Workflow", ["Visual editor"]),
+    ]);
+    expect(result.workflow).toEqual([]);
+  });
+
+  it("preserves the first safe capability label spelling across NFKC duplicates", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Features
+### Ｐｌａｎｎｉｎｇ
+- Visual editor
+### Planning
+- Export review
+`,
+      ),
+    ).readme;
+
+    expect(result.capabilityGroups).toEqual([
+      group("Ｐｌａｎｎｉｎｇ", ["Visual editor", "Export review"]),
+    ]);
+  });
+
+  it.each([
+    ["raw URL", "Planning https://secret.invalid/group"],
+    ["fullwidth raw URL", "ｈｔｔｐｓ：／／secret.invalid／group"],
+    [
+      "fullwidth Markdown link",
+      "Ｐｌａｎｎｉｎｇ ［guide］（ｈｔｔｐｓ：／／secret.invalid／group）",
+    ],
+    ["credential", `Planning ghp_${"a".repeat(36)}`],
+    ["control", "Planning\u0000hidden"],
+    ["bidi", "Planning\u202ehidden"],
+    ["malformed UTF-16", "Planning\ud800hidden"],
+  ])(
+    "rejects an unsafe %s capability label and its facts",
+    (_label, heading) => {
+      const result = extractReaderMarkdownEvidence(
+        fetched("README.md", `## Features\n### ${heading}\n- Hidden fact`),
+      ).readme;
+
+      expect(result.capabilityGroups).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain("Hidden fact");
+    },
+  );
+
+  it("rejects escaped URLs after Markdown cleanup in profile facts and labels", () => {
+    const escapedUrl = String.raw`Documentation https\:\/\/secret.invalid\/group`;
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Overview
+- ${escapedUrl}
+
+## Features
+### ${escapedUrl}
+- Hidden under label
+### Safe group
+- ${escapedUrl}
+`,
+      ),
+    ).readme;
+
+    expect(result.overview).toEqual([]);
+    expect(result.capabilityGroups).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain("secret.invalid");
+  });
+
+  it("preserves safe Markdown escapes in repository-authored profile text", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        String.raw`## Features
+### Planning \*tools\*
+- Local \*planning\* workspace
+`,
+      ),
+    ).readme;
+
+    expect(result.capabilityGroups).toEqual([
+      group("Planning tools", ["Local *planning* workspace"]),
+    ]);
+  });
+
+  it("keeps dependency table rows as prose without reserving the install command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Installation
+Runtime | Version
+--- | ---
+npm | >=10
+
+pnpm install
+`,
+      ),
+    );
+
+    expect(result.readme.dependencies).toEqual([fact("npm — >=10")]);
+    expect(result.commands).toMatchObject([
+      { kind: "install", command: "pnpm install", disposition: "ready" },
+    ]);
+  });
+
+  it("applies exact caps and NFKC deduplication while preserving first source spelling", () => {
+    const paragraphs = (prefix: string, count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) => `${prefix} ${String(index + 1)}.`,
+      ).join("\n\n");
+    const lists = (prefix: string, count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) => `- ${prefix} ${String(index + 1)}`,
+      ).join("\n");
+    const capabilityGroups = Array.from(
+      { length: README_PROFILE_CAPS.capabilityGroups + 1 },
+      (_, groupIndex) =>
+        `### Group ${String(groupIndex + 1)}\n${lists(
+          `Capability ${String(groupIndex + 1)}.`,
+          README_PROFILE_CAPS.capabilityFacts + 1,
+        )}`,
+    ).join("\n");
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Overview
+First overview.
+
+Ｆｉｒｓｔ overview.
+
+${paragraphs("Overview", 5)}
+
+## Audience
+${lists("Audience", 5)}
+
+## Problem
+${lists("Problem", 5)}
+
+## Use cases
+${lists("Use case", 5)}
+
+## Features
+${capabilityGroups}
+
+## Workflow
+${lists("Step", 9)}
+
+## Requirements
+${lists("Requirement", 9)}
+
+## Limitations
+${lists("Limitation", 7)}
+
+## Roadmap
+${lists("Milestone", 7)}
+`,
+      ),
+    ).readme;
+
+    expect(result.overview).toHaveLength(README_PROFILE_CAPS.overview);
+    expect(result.overview[0]?.text).toBe("First overview.");
+    expect(result.audiences).toHaveLength(README_PROFILE_CAPS.audiences);
+    expect(result.problems).toHaveLength(README_PROFILE_CAPS.problems);
+    expect(result.useCases).toHaveLength(README_PROFILE_CAPS.useCases);
+    expect(result.capabilityGroups).toHaveLength(
+      README_PROFILE_CAPS.capabilityGroups,
+    );
+    expect(
+      result.capabilityGroups.every(({ facts }) => facts.length === 6),
+    ).toBe(true);
+    expect(result.workflow).toHaveLength(README_PROFILE_CAPS.workflow);
+    expect(result.dependencies).toHaveLength(README_PROFILE_CAPS.dependencies);
+    expect(result.limitations).toHaveLength(README_PROFILE_CAPS.limitations);
+    expect(result.maturity).toHaveLength(README_PROFILE_CAPS.maturity);
+  });
+
+  it("keeps category output deterministic when recognized section order is reversed", () => {
+    const sections = [
+      "## Overview\nA deterministic repository inspection application.",
+      "## Audience\n- Maintainers",
+      "## Problem\n- Public evidence is difficult to compare",
+      "## Workflow\n1. Inspect evidence",
+      "## Requirements\n- Node.js 24",
+      "## Limitations\n- Runtime behavior is not observed",
+      "## Roadmap\n- Stable evidence exports",
+    ];
+    const forward = extractReaderMarkdownEvidence(
+      fetched("README.md", sections.join("\n\n")),
+    ).readme;
+    const reverse = extractReaderMarkdownEvidence(
+      fetched("README.md", [...sections].reverse().join("\n\n")),
+    ).readme;
+
+    expect(reverse).toEqual(forward);
+  });
+
+  it.each([
+    "<!-- hidden -->",
+    "<details>hidden</details>",
+    "[label](https://secret.invalid/path)",
+    "https://secret.invalid/raw",
+    "ｈｔｔｐｓ：／／secret.invalid／raw",
+    "［label］（ｈｔｔｐｓ：／／secret.invalid／path）",
+    `token=ghp_${"a".repeat(36)}`,
+    "\u202Ehidden",
+    "bad\uD800text",
+  ])("rejects unsafe README profile evidence %s", (unsafe) => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Overview\n${unsafe}\n\n## Audience\n- ${unsafe}\n\n## Problem\n- ${unsafe}\n\n## Use cases\n- ${unsafe}\n\n## Features\n### Group\n- ${unsafe}\n\n## Workflow\n1. ${unsafe}\n\n## Requirements\n- ${unsafe}\n\n## Limitations\n- ${unsafe}\n\n## Roadmap\n- ${unsafe}`,
+      ),
+    );
+
+    expect(result.readme).toEqual(emptyReadmeEvidence());
+    expect(JSON.stringify(result.readme)).not.toContain("secret.invalid");
+    expect(JSON.stringify(result.readme)).not.toContain("ghp_");
+  });
+
+  it("uses only an early descriptive paragraph as conservative overview fallback", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `# StoryForge
+
+A local writing workspace that helps authors plan long-form fiction.
+
+## Notes
+- Independent authors
+- Generate chapters
+- Requires a model API
+- Collaborative editing is experimental
+`,
+      ),
+    ).readme;
+
+    expect(result).toEqual({
+      ...emptyReadmeEvidence(),
+      overview: [
+        fact(
+          "A local writing workspace that helps authors plan long-form fiction.",
+        ),
+      ],
+    });
+  });
+
+  it.each([
+    ["badge", "[![Build](https://img.invalid/badge.svg)](https://ci.invalid)"],
+    ["table of contents", "[Usage](#usage)"],
+    ["navigation", "Home | Documentation"],
+    ["release log", "v1.2.3 — Added faster exports"],
+    ["slogan", "Write faster."],
+    ["image", "![StoryForge](https://img.invalid/logo.svg)"],
+    ["link definition", "[guide]: https://docs.invalid/guide"],
+    ["command", "$ pnpm install"],
+  ])("does not use %s as fallback orientation", (_label, candidate) => {
+    const result = extractReaderMarkdownEvidence(
+      fetched("README.md", `# StoryForge\n\n${candidate}`),
+    ).readme;
+
+    expect(result).toEqual(emptyReadmeEvidence());
+  });
+
+  it("keeps semver and runtime requirements as prose without reserving the run command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Run
+
+^20.19.0 || ^22.12.0 || >=24.0.0
+
+Node.js >= 24
+
+pnpm run dev
+`,
+      ),
+    );
+
+    expect(result.readme.dependencies).toEqual([
+      fact("^20.19.0 || ^22.12.0 || >=24.0.0"),
+      fact("Node.js >= 24"),
+    ]);
+    expect(result.commands).toMatchObject([
+      { kind: "run", command: "pnpm run dev", disposition: "ready" },
+    ]);
+  });
+
+  it("keeps lowercase runtime requirements as dependencies before a later run command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Run
+
+node >= 24
+python 3.12
+go 1.22
+npm >= 10
+pnpm >= 9
+npm can be installed globally.
+
+pnpm run dev
+`,
+      ),
+    );
+
+    expect(result.readme.dependencies).toEqual([
+      fact("node >= 24"),
+      fact("python 3.12"),
+      fact("go 1.22"),
+      fact("npm >= 10"),
+      fact("pnpm >= 9"),
+    ]);
+    expect(result.commands).toMatchObject([
+      { kind: "run", command: "pnpm run dev", disposition: "ready" },
+    ]);
+  });
+
+  it("does not let non-command prose with dangerous text reserve a command kind", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Run
+
+Don't install this globally.
+This sentence && rm -rf ./generated
+pnpm run dev
+`,
+      ),
+    );
+
+    expect(result.commands).toMatchObject([
+      { kind: "run", command: "pnpm run dev", disposition: "ready" },
+    ]);
+  });
+
+  it("does not let curl or wget prose reserve the install command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Installation
+
+curl support is optional.
+wget downloads files for setup.
+pnpm install
+`,
+      ),
+    );
+
+    expect(result.commands).toMatchObject([
+      { kind: "install", command: "pnpm install", disposition: "ready" },
+    ]);
+  });
+
+  it("does not let a remote pipe to a non-shell sudo command reserve install", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Installation
+
+curl https://x.invalid/file | sudo tee /tmp/file
+pnpm install
+`,
+      ),
+    );
+
+    expect(result.commands).toMatchObject([
+      { kind: "install", command: "pnpm install", disposition: "ready" },
+    ]);
+  });
+
+  it("uses actual sudo preserve-env grammar before reserving install", () => {
+    const nonShell = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Installation
+
+curl https://x.invalid/file | sudo --preserve-env FOO sh
+pnpm install
+`,
+      ),
+    );
+    const shell = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Installation
+
+curl https://x.invalid/install | sudo --preserve-env sh
+`,
+      ),
+    );
+
+    expect(nonShell.commands).toMatchObject([
+      { kind: "install", command: "pnpm install", disposition: "ready" },
+    ]);
+    expect(shell.commands).toMatchObject([
+      { kind: "install", disposition: "review" },
+    ]);
+  });
+
+  it("treats sudo shell mode as a remote shell sink", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Installation
+
+curl https://x.invalid/install | sudo -s
+pnpm install
+`,
+      ),
+    );
+
+    expect(result.commands).toMatchObject([
+      {
+        kind: "install",
+        command: "curl https://x.invalid/install | sudo -s",
+        disposition: "review",
+      },
+    ]);
+  });
+
+  it("keeps a dangerous documented command as review evidence rather than prose fallback", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched("README.md", "## Run\n\nnpm test || chmod 777 file"),
+    );
+
+    expect(result.commands).toMatchObject([
+      { kind: "run", disposition: "review" },
+    ]);
+    expect(result.readme.dependencies).toEqual([]);
+    expect(result.readme.overview).toEqual([]);
+  });
   it("extracts bounded prose and inert commands from preferred sections", () => {
     const readme = fetched(
       "README.md",
@@ -100,6 +802,16 @@ Repository text stays in the browser and is never executed.
           disposition: "ready",
         },
       ],
+      readme: {
+        ...emptyReadmeEvidence(),
+        useCases: [
+          fact("Triage newcomer issues before publishing them."),
+          fact("Review contributor instructions during release preparation."),
+        ],
+        limitations: [
+          fact("Repository text stays in the browser and is never executed."),
+        ],
+      },
     });
   });
 
@@ -157,6 +869,14 @@ Repository text stays in the browser and is never executed.
           disposition: "ready",
         },
       ],
+      readme: {
+        ...emptyReadmeEvidence(),
+        useCases: [fact("在采用项目前检查公开证据。", "README.zh-CN.md")],
+        workflow: [
+          fact("浏览器只读取固定提交中的有限文本。", "README.zh-CN.md"),
+        ],
+        limitations: [fact("仓库文本不会作为代码执行。", "README.zh-CN.md")],
+      },
     });
   });
 
@@ -921,6 +1641,8 @@ Go to the project page for details.
       { kind: "install", command: "pnpm install" },
       { kind: "run", command: "pnpm start" },
     ]);
+    expect(JSON.stringify(result.readme)).not.toContain("setup note");
+    expect(JSON.stringify(result.readme)).not.toContain("npm fake");
   });
 
   it("labels non-README Markdown evidence as documentation", () => {
@@ -1051,6 +1773,43 @@ Go to the project page for details.
     expect(file).toEqual(before);
     expect(result.scenarios.map(({ text }) => text)).toEqual([
       "Visible scenario.",
+    ]);
+  });
+
+  it("handles a near-256 KiB rich README with bounded profile groups", () => {
+    const prefix =
+      "# Reader guide\n\nA repository analysis application for maintainers.\n\n";
+    const block = `## Features
+### Evidence map
+- Inspect public evidence
+
+## Workflow
+1. Inspect a commit
+
+## Requirements
+- Node.js 24
+
+## Limitations
+- Runtime behavior is not observed
+
+`;
+    const blockBytes = new TextEncoder().encode(block).byteLength;
+    const prefixBytes = new TextEncoder().encode(prefix).byteLength;
+    const repetitions = Math.floor((255 * 1024 - prefixBytes) / blockBytes);
+    const file = fetched("README.md", prefix + block.repeat(repetitions));
+    const started = performance.now();
+    const result = extractReaderMarkdownEvidence(file);
+
+    expect(file.bytes).toBeGreaterThan(250 * 1024);
+    expect(file.bytes).toBeLessThanOrEqual(255 * 1024);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(result.readme.capabilityGroups).toEqual([
+      group("Evidence map", ["Inspect public evidence"]),
+    ]);
+    expect(result.readme.workflow).toEqual([fact("Inspect a commit")]);
+    expect(result.readme.dependencies).toEqual([fact("Node.js 24")]);
+    expect(result.readme.limitations).toEqual([
+      fact("Runtime behavior is not observed"),
     ]);
   });
 

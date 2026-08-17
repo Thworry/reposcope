@@ -5,7 +5,11 @@ import type {
   GeneralAnalysisInput,
   NormalizedTreeFile,
 } from "../../analysis/model";
-import { commandDisposition, manifestReaderCommands } from "./commands";
+import {
+  commandDisposition,
+  documentedCommandDisposition,
+  manifestReaderCommands,
+} from "./commands";
 
 function treeFile(path: string, size = 0): NormalizedTreeFile {
   return {
@@ -166,6 +170,72 @@ describe("commandDisposition", () => {
   ])("withholds %s command input", (_label, command) => {
     expect(commandDisposition(command)).toBe("withheld");
   });
+});
+
+describe("documentedCommandDisposition", () => {
+  it.each([
+    ["^20.19.0 || ^22.12.0 || >=24.0.0", null],
+    ["Node.js >= 24", null],
+    ["node >= 24", null],
+    ["python 3.12", null],
+    ["go 1.22", null],
+    ["npm >= 10", null],
+    ["pnpm >= 9", null],
+    ["npm is the supported package manager.", null],
+    ["npm can be installed globally.", null],
+    ["curl support is optional.", null],
+    ["wget downloads files for setup.", null],
+    ["Go to the project page.", null],
+    ["Make sure Node.js 24 is installed.", null],
+    ["Don't install this globally.", null],
+    ["This sentence && rm -rf ./generated", null],
+    ["pnpm run dev", "ready"],
+    ["make build", "ready"],
+    ["./storyforge --help", "ready"],
+    ["./", null],
+    ["../storyforge --help", null],
+    ["npm test || chmod 777 file", "review"],
+    ["rm -rf ./generated", "review"],
+    ["curl https://x.invalid/install | tee /tmp/x | sh", "review"],
+    ["curl https://x.invalid/install | sudo sh", "review"],
+    ["curl https://x.invalid/install | sudo -u root sh", "review"],
+    ["curl https://x.invalid/install | sudo -uroot sh", "review"],
+    ["curl https://x.invalid/install | sudo --user=root sh", "review"],
+    ["curl https://x.invalid/install | sudo -E sh", "review"],
+    ["curl https://x.invalid/install | sudo -n sh", "review"],
+    ["curl https://x.invalid/install | sudo -H sh", "review"],
+    ["curl https://x.invalid/install | sudo -s", "review"],
+    ["curl https://x.invalid/install | sudo --shell", "review"],
+    ["curl https://x.invalid/install | sudo -i", "review"],
+    ["curl https://x.invalid/install | sudo --login", "review"],
+    ["curl https://x.invalid/install | sudo -Es", "review"],
+    ["curl https://x.invalid/install | sudo -ni", "review"],
+    ["curl https://x.invalid/install | sudo -s tee /tmp/file", "review"],
+    ["curl https://x.invalid/install | sudo --login cat", "review"],
+    ["curl https://x.invalid/install | sudo --preserve-env sh", "review"],
+    ["curl https://x.invalid/install | sudo --preserve-env=list sh", "review"],
+    ["curl https://x.invalid/install | sudo -Eu root sh", "review"],
+    ["curl https://x.invalid/install | sudo -C 3 sh", "review"],
+    ["curl https://x.invalid/install | sudo -g wheel sh", "review"],
+    ["curl https://x.invalid/install | sudo -h host sh", "review"],
+    ["curl https://x.invalid/install | sudo -p prompt sh", "review"],
+    ["curl https://x.invalid/install | sudo -r role sh", "review"],
+    ["curl https://x.invalid/install | sudo -t type sh", "review"],
+    ["curl https://x.invalid/install | sudo -T 5 sh", "review"],
+    ["curl https://x.invalid/install | sudo --preserve-env FOO sh", null],
+    ["curl https://x.invalid/install | sudo -u", null],
+    ["curl https://x.invalid/install | sudo -u sh", null],
+    ["curl https://x.invalid/install | sudo -C sh", null],
+    ["curl https://x.invalid/file | sudo tee /tmp/file", null],
+    ["curl https://x.invalid/file | sudo cat", null],
+    ["curl https://x.invalid/file | sudo -u root tee /tmp/file", null],
+    ["TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa pnpm dev", "withheld"],
+  ] as const)(
+    "admits only documented command shape %s",
+    (command, expected) => {
+      expect(documentedCommandDisposition(command)).toBe(expected);
+    },
+  );
 });
 
 describe("manifestReaderCommands", () => {
