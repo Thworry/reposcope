@@ -838,8 +838,10 @@ otherwise absent tree/file-derived fact becomes `unknown` when coverage is not
 complete. GitHub metadata facts (`archived`, push date, API license) remain
 known.
 
-Calculate exact elapsed UTC days with the same `Date.parse` and 86,400,000 ms
-floor used by the scoring rules. Use `activityState` from Task 1. Build signals
+Calculate exact elapsed UTC days with the same raw
+`(Date.parse(analyzedAt) - Date.parse(pushedAt)) / 86_400_000` division used by
+the scoring rules, and require the result to be finite and nonnegative. Use
+`activityState` from Task 1. Build signals
 in `READER_SIGNAL_IDS` order and derive status/questions only through the shared
 policy. Use this exact mapping:
 
@@ -1060,10 +1062,10 @@ For command facts, enforce `withheld` iff `command === null`; `ready` and
 Pass the validated outer repository metadata, project brief, and coverage into
 the nested reader guard.
 Recompute `maintenance.activity.elapsedUtcDays` from `pushedAt`/`analyzedAt`
-with the same UTC-floor helper and require the stored activity band to equal
-`activityBand(elapsedUtcDays)`. Require the exact security/privacy and
-maintenance signal subsets from Task 3, canonical command-kind order, canonical
-ecosystem order, and path-sorted unique architecture arrays.
+with the same validated raw UTC-day division and require the stored activity
+band to equal `activityBand(elapsedUtcDays)`. Require the exact security/privacy
+and maintenance signal subsets from Task 3, canonical command-kind order,
+canonical ecosystem order, and path-sorted unique architecture arrays.
 
 Recompute `coverageComplete` from the exact coverage counts and require every
 stored chapter availability to match `deriveReaderAvailability` for its

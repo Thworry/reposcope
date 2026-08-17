@@ -5,8 +5,12 @@ import type {
   ImportCycleMetrics,
   LanguageAnalysis,
   ProjectBrief,
+  ReaderReport,
+  ReaderSignalFact,
+  ReaderSignalId,
   RepositoryMetadata,
 } from "../../features/analysis/model";
+import { READER_SIGNAL_IDS } from "../../features/analysis/model";
 
 export const perfectRepository: RepositoryMetadata = {
   owner: "example",
@@ -44,6 +48,137 @@ export const perfectProjectBrief: ProjectBrief = {
     { kind: "library", source: "manifest", path: "package.json" },
   ],
   cautions: [],
+};
+
+function perfectSignal(signal: ReaderSignalId): ReaderSignalFact {
+  const metadataSignal = signal === "archived" || signal === "recent-activity";
+
+  return {
+    signal,
+    state: signal === "archived" ? "absent" : "present",
+    source: metadataSignal ? "github-metadata" : "analysis",
+    path: null,
+  };
+}
+
+export const perfectReaderReport: ReaderReport = {
+  reliability: {
+    availability: "available",
+    status: "continue-evaluation",
+    signals: READER_SIGNAL_IDS.map(perfectSignal),
+    questions: [
+      "license-compatibility",
+      "reproduce-install-run",
+      "runtime-data-flow",
+    ],
+  },
+  scenarios: {
+    availability: "available",
+    facts: [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Inspect an unfamiliar public repository before adoption.",
+      },
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Review repository evidence without executing project code.",
+      },
+    ],
+  },
+  architecture: {
+    availability: "available",
+    excerpts: [
+      {
+        source: "documentation",
+        path: "docs/architecture.md",
+        text: "Analysis runs locally in a browser worker from bounded evidence.",
+      },
+    ],
+    documents: ["docs/architecture.md"],
+    entryPoints: ["src/main.tsx"],
+    sourceAreas: ["src/components", "src/features"],
+    ecosystems: ["javascript-typescript"],
+  },
+  gettingStarted: {
+    availability: "available",
+    commands: [
+      {
+        kind: "install",
+        command: "pnpm install",
+        disposition: "ready",
+        source: "readme",
+        path: "README.md",
+      },
+      {
+        kind: "run",
+        command: "pnpm start",
+        disposition: "ready",
+        source: "readme",
+        path: "README.md",
+      },
+      {
+        kind: "develop",
+        command: "pnpm dev",
+        disposition: "ready",
+        source: "manifest",
+        path: "package.json",
+      },
+      {
+        kind: "test",
+        command: "pnpm test",
+        disposition: "ready",
+        source: "manifest",
+        path: "package.json",
+      },
+      {
+        kind: "build",
+        command: "pnpm build",
+        disposition: "ready",
+        source: "manifest",
+        path: "package.json",
+      },
+    ],
+  },
+  securityPrivacy: {
+    availability: "available",
+    signals: READER_SIGNAL_IDS.filter((signal) =>
+      ["license", "security-policy", "configuration"].includes(signal),
+    ).map(perfectSignal),
+    declarations: [
+      {
+        source: "documentation",
+        path: "SECURITY.md",
+        text: "Report vulnerabilities through the documented private channel.",
+      },
+    ],
+  },
+  maintenance: {
+    availability: "available",
+    signals: READER_SIGNAL_IDS.filter((signal) =>
+      [
+        "archived",
+        "recent-activity",
+        "tests",
+        "ci",
+        "coverage",
+        "security-policy",
+        "version-history",
+        "contributing",
+        "issue-templates",
+        "dependency-updates",
+      ].includes(signal),
+    ).map(perfectSignal),
+    activity: {
+      elapsedUtcDays: 10,
+      band: "within-180-days",
+    },
+    openIssuesCount: 0,
+  },
+  alternatives: {
+    searchTerms: ["application", "repository-analysis", "typescript"],
+  },
 };
 
 export const perfectGeneralMetrics: GeneralMetrics = {
