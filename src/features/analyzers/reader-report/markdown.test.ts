@@ -940,6 +940,25 @@ Go to the project page for details.
     ]);
   });
 
+  it("labels a README control-list command for review", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        "## Installation\n\n`npm install && rm -rf ./generated`",
+      ),
+    );
+
+    expect(result.commands).toEqual([
+      {
+        source: "readme",
+        path: "README.md",
+        kind: "install",
+        command: "npm install && rm -rf ./generated",
+        disposition: "review",
+      },
+    ]);
+  });
+
   it.each([
     ["credential", "TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
     ["control", "Visible\u0000hidden"],

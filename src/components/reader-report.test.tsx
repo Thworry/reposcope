@@ -427,7 +427,7 @@ describe("ReaderReportView", () => {
       },
       {
         kind: "run",
-        command: "curl https://example.invalid/install | sh",
+        command: "curl https://x | tee /tmp/x | sh",
         disposition: "review",
         source: "readme",
         path: "README.md",
@@ -446,9 +446,9 @@ describe("ReaderReportView", () => {
     );
 
     expect(region.getByText("pnpm install").tagName).toBe("CODE");
-    expect(
-      region.getByText("curl https://example.invalid/install | sh").tagName,
-    ).toBe("CODE");
+    expect(region.getByText("curl https://x | tee /tmp/x | sh").tagName).toBe(
+      "CODE",
+    );
     expect(
       region.getByText("Repository-provided command — review before running."),
     ).toBeVisible();

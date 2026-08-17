@@ -80,62 +80,239 @@ function executableName(token: string | undefined): string {
 interface UnwrappedCommand {
   executable: string;
   arguments: string[];
+  malformed: boolean;
 }
 
 function isAssignment(token: string | undefined): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*=\S+$/u.test(token ?? "");
+  return /^[A-Za-z_][A-Za-z0-9_]*=.*$/su.test(token ?? "");
+}
+
+function shellWords(segment: string): {
+  tokens: string[];
+  malformed: boolean;
+} {
+  const tokens: string[] = [];
+  let token = "";
+  let tokenStarted = false;
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  const pushToken = (): void => {
+    if (!tokenStarted) return;
+    tokens.push(token);
+    token = "";
+    tokenStarted = false;
+  };
+
+  for (const character of segment) {
+    if (escaped) {
+      token += character;
+      tokenStarted = true;
+      escaped = false;
+      continue;
+    }
+    if (quote === "'") {
+      if (character === "'") quote = null;
+      else token += character;
+      tokenStarted = true;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      tokenStarted = true;
+      continue;
+    }
+    if (quote === '"') {
+      if (character === '"') quote = null;
+      else token += character;
+      tokenStarted = true;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      tokenStarted = true;
+      continue;
+    }
+    if (/\s/u.test(character)) {
+      pushToken();
+      continue;
+    }
+    token += character;
+    tokenStarted = true;
+  }
+
+  pushToken();
+  return { tokens, malformed: quote !== null || escaped };
+}
+
+function envCommandIndex(
+  tokens: readonly string[],
+  start: number,
+): { index: number; review: boolean } {
+  let index = start;
+
+  while (index < tokens.length) {
+    const option = tokens[index] ?? "";
+    if (option === "--") return { index: index + 1, review: false };
+    if (option === "-") {
+      index += 1;
+      continue;
+    }
+    if (!option.startsWith("-")) break;
+
+    if (option === "-S" || option.startsWith("-S")) {
+      return { index, review: true };
+    }
+    if (option === "--split-string" || option.startsWith("--split-string=")) {
+      return { index, review: true };
+    }
+    if (
+      option === "--ignore-environment" ||
+      option === "--debug" ||
+      option.startsWith("--unset=") ||
+      option.startsWith("--chdir=")
+    ) {
+      index += 1;
+      continue;
+    }
+    if (option === "--unset" || option === "--chdir") {
+      if (tokens[index + 1] === undefined) return { index, review: true };
+      index += 2;
+      continue;
+    }
+    if (option.startsWith("--")) return { index, review: true };
+
+    let consumesNext = false;
+    let recognized = true;
+    for (let cursor = 1; cursor < option.length; cursor += 1) {
+      const flag = option[cursor];
+      if (flag === "i" || flag === "v") continue;
+      if (flag === "S") return { index, review: true };
+      if (flag === "u" || flag === "C" || flag === "P") {
+        consumesNext = cursor === option.length - 1;
+        break;
+      }
+      recognized = false;
+      break;
+    }
+    if (!recognized) return { index, review: true };
+    if (consumesNext) {
+      if (tokens[index + 1] === undefined) return { index, review: true };
+      index += 2;
+    } else {
+      index += 1;
+    }
+  }
+
+  return { index, review: false };
 }
 
 function unwrapCommand(segment: string): UnwrappedCommand {
-  const tokens = segment.trim().split(/\s+/u);
+  const { tokens, malformed } = shellWords(segment.trim());
   let index = 0;
+  let review = malformed;
 
   while (isAssignment(tokens[index])) index += 1;
-  if (executableName(tokens[index]) === "env") {
-    index += 1;
-    while (tokens[index]?.startsWith("-") === true) {
-      const option = tokens[index] ?? "";
-
-      if (option === "--") {
-        index += 1;
-        break;
-      }
-      if (
-        option === "-u" ||
-        option === "--unset" ||
-        option === "-C" ||
-        option === "--chdir"
-      ) {
-        index += 2;
-        continue;
-      }
-      index += 1;
-    }
+  while (executableName(tokens[index]) === "env") {
+    const env = envCommandIndex(tokens, index + 1);
+    index = env.index;
+    review ||= env.review;
     while (isAssignment(tokens[index])) index += 1;
   }
 
   return {
     executable: executableName(tokens[index]),
     arguments: tokens.slice(index + 1),
+    malformed: review,
   };
 }
 
-function pipesRemoteContentToShell(
-  command: string,
-  executable: string,
-): boolean {
-  if (executable !== "curl" && executable !== "wget") return false;
+interface ScannedShellCommand {
+  pipelines: string[][];
+  malformed: boolean;
+}
 
-  const pipe = command.indexOf("|");
-  if (pipe === -1) return false;
+function scanShellCommand(command: string): ScannedShellCommand {
+  const pipelines: string[][] = [];
+  let pipeline: string[] = [];
+  let segment = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let malformed = false;
 
-  const piped = unwrapCommand(command.slice(pipe + 1));
+  const pushSegment = (): void => {
+    const candidate = segment.trim();
+    if (candidate.length === 0) malformed = true;
+    else pipeline.push(candidate);
+    segment = "";
+  };
+  const pushPipeline = (): void => {
+    pushSegment();
+    if (pipeline.length > 0) pipelines.push(pipeline);
+    pipeline = [];
+  };
 
-  if (piped.executable === "sudo") return true;
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index] ?? "";
+    const next = command[index + 1];
+    const previous = command[index - 1];
 
-  return new Set(["bash", "dash", "fish", "ksh", "sh", "zsh"]).has(
-    piped.executable,
-  );
+    if (escaped) {
+      segment += character;
+      escaped = false;
+      continue;
+    }
+    if (quote === "'") {
+      segment += character;
+      if (character === "'") quote = null;
+      continue;
+    }
+    if (character === "\\") {
+      segment += character;
+      escaped = true;
+      continue;
+    }
+    if (quote === '"') {
+      segment += character;
+      if (character === '"') quote = null;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      segment += character;
+      quote = character;
+      continue;
+    }
+
+    if (
+      (character === "&" && next === "&") ||
+      (character === "|" && next === "|")
+    ) {
+      pushPipeline();
+      index += 1;
+      continue;
+    }
+    if (character === "|") {
+      pushSegment();
+      if (next === "&") index += 1;
+      continue;
+    }
+    if (
+      character === ";" ||
+      (character === "&" &&
+        previous !== ">" &&
+        previous !== "<" &&
+        next !== ">")
+    ) {
+      pushPipeline();
+      continue;
+    }
+
+    segment += character;
+  }
+
+  if (quote !== null || escaped) malformed = true;
+  pushPipeline();
+  return { pipelines, malformed };
 }
 
 function destructiveRemove(arguments_: readonly string[]): boolean {
@@ -155,12 +332,11 @@ function destructiveRemove(arguments_: readonly string[]): boolean {
   return recursive && force;
 }
 
-function reviewBeforeRunning(command: string): boolean {
-  const unwrapped = unwrapCommand(command.split("|", 1)[0] ?? "");
+function dangerousCommand(unwrapped: UnwrappedCommand): boolean {
   const { executable, arguments: arguments_ } = unwrapped;
 
+  if (unwrapped.malformed) return true;
   if (executable === "sudo") return true;
-  if (pipesRemoteContentToShell(command, executable)) return true;
   if (executable === "rm" && destructiveRemove(arguments_)) return true;
   if (executable === "mkfs" || executable.startsWith("mkfs.")) return true;
   if (
@@ -172,6 +348,29 @@ function reviewBeforeRunning(command: string): boolean {
   if (executable === "chmod") {
     const mode = arguments_.find((item) => !item.startsWith("-"));
     if (mode === "777" || mode === "0777") return true;
+  }
+
+  return false;
+}
+
+const REMOTE_SOURCE_EXECUTABLES = new Set(["curl", "wget"]);
+const SHELL_EXECUTABLES = new Set(["bash", "dash", "fish", "ksh", "sh", "zsh"]);
+
+function reviewBeforeRunning(command: string): boolean {
+  const scanned = scanShellCommand(command);
+  if (scanned.malformed) return true;
+
+  for (const pipeline of scanned.pipelines) {
+    let remoteSource = false;
+
+    for (const segment of pipeline) {
+      const unwrapped = unwrapCommand(segment);
+      if (dangerousCommand(unwrapped)) return true;
+      if (remoteSource && SHELL_EXECUTABLES.has(unwrapped.executable)) {
+        return true;
+      }
+      remoteSource ||= REMOTE_SOURCE_EXECUTABLES.has(unwrapped.executable);
+    }
   }
 
   return false;

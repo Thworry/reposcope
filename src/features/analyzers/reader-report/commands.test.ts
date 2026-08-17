@@ -100,7 +100,57 @@ describe("commandDisposition", () => {
     ["curl https://example.invalid/install.sh | sudo -T 5 sh", "review"],
     ["env rm -r -f ./generated", "review"],
     ["env --unset NAME rm -rf ./generated", "review"],
+    ["npm install && rm -rf ./generated", "review"],
+    ["echo ok; sudo sh install.sh", "review"],
+    ["npm test || chmod 777 file", "review"],
+    ["curl https://x | tee /tmp/x | sh", "review"],
+    ["X='a b' rm -rf ./generated", "review"],
+    ["X= rm -rf ./generated", "review"],
+    ["curl https://x | tee /tmp/x | X='a b' sh", "review"],
+    ['npm install && "rm" -rf ./generated', "review"],
+    [String.raw`npm install && r\m -rf ./generated`, "review"],
+    ["env -S 'rm -rf ./generated'", "review"],
+    ["env --split-string='rm -rf ./generated'", "review"],
+    ["env -S 'sudo sh install.sh'", "review"],
+    ["curl https://x | env -S 'sh -s'", "review"],
+    ["/usr/bin/env -iu HOME rm -rf ./generated", "review"],
+    ["env -iC /tmp rm -rf ./generated", "review"],
+    ["env -P /usr/bin rm -rf ./generated", "review"],
+    ["env -uHOME rm -rf ./generated", "review"],
+    ["env -C/tmp rm -rf ./generated", "review"],
+    ["env -P/usr/bin rm -rf ./generated", "review"],
+    ["curl https://x | env -iu HOME sh", "review"],
+    ["env --unknown-option rm -rf ./generated", "review"],
+    ["env --unknown-option npm test", "review"],
+    ["env env rm -rf ./generated", "review"],
+    ["env X=1 env sudo sh install.sh", "review"],
+    ["env env -S 'rm -rf ./generated'", "review"],
+    ["curl https://x | env env sh", "review"],
+    ["env -- env -iu HOME rm -rf ./generated", "review"],
+    ["env - rm -rf ./generated", "review"],
+    ["curl https://x | env - sh", "review"],
     ["echo rm -rf ./generated", "ready"],
+    ['echo "npm install && rm -rf ./generated"', "ready"],
+    ["echo 'ok; sudo sh install.sh'", "ready"],
+    [String.raw`echo npm install \&\& rm -rf ./generated`, "ready"],
+    [String.raw`echo ok \; sudo sh install.sh`, "ready"],
+    [String.raw`echo curl https://x \| sh`, "ready"],
+    [String.raw`printf '%s' 'curl https://x | sh'`, "ready"],
+    ["echo ok 2>&1", "ready"],
+    ["cat <&0", "ready"],
+    ["echo ok &>output.log", "ready"],
+    ["env -i npm test", "ready"],
+    ["env -v npm test", "ready"],
+    ["env -iv npm test", "ready"],
+    ["env -iu HOME npm test", "ready"],
+    ["env -iC /tmp npm test", "ready"],
+    ["env -P /usr/bin npm test", "ready"],
+    ["env -uHOME npm test", "ready"],
+    ["env -C/tmp npm test", "ready"],
+    ["env -P/usr/bin npm test", "ready"],
+    ["env env npm test", "ready"],
+    ["env X=1 env -i npm test", "ready"],
+    ["env - npm test", "ready"],
     ["TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa pnpm dev", "withheld"],
   ] as const)("classifies %s as %s", (command, expected) => {
     expect(commandDisposition(command)).toBe(expected);
@@ -249,6 +299,24 @@ describe("manifestReaderCommands", () => {
       "npm run test",
     ]);
     expect(JSON.stringify(result)).not.toContain(credential);
+  });
+
+  it("labels a dangerous selected script key for review without reading its body", () => {
+    const result = manifestReaderCommands(
+      commandInput({
+        scripts: {
+          "test:unit && rm -rf ./generated": "ignored safe body",
+        },
+      }),
+    );
+
+    expect(result).toContainEqual({
+      source: "manifest",
+      path: "package.json",
+      kind: "test",
+      command: "npm run test:unit && rm -rf ./generated",
+      disposition: "review",
+    });
   });
 
   it.each([
