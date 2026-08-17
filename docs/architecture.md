@@ -26,7 +26,7 @@ Repository URL
 
 The main thread owns form state, language, progress, cancellation, report validation, and rendering. The worker owns acquisition, selection, raw-file scheduling, parser loading, metrics, and scoring. Commands and events use serializable typed objects with a request ID; late progress or results from an older run cannot replace a newer run.
 
-Repository scoring completes before the non-scoring reader report is derived. The worker assembles the human-facing evidence from the same immutable repository snapshot, then the complete report is strictly validated before it reaches the cache or UI. The main report renders the decision summary and six reader chapters first. Scores, confidence, rule evidence, refresh, and copy actions live in a closed technical appendix; opening the disclosure changes presentation only and does not refetch or recompute repository evidence.
+Repository coverage and static analysis complete before the non-scoring reader report is derived. The worker assembles the human-facing evidence from the same immutable repository snapshot, and the reader report remains outside the unchanged scoring inputs. After reader derivation, scoring then runs from those unchanged inputs. The worker combines both results, then the complete report is strictly validated before it reaches the cache or UI. The main report renders the decision summary and six reader chapters first. Scores, confidence, rule evidence, refresh, and copy actions live in a closed technical appendix; opening the disclosure changes presentation only and does not refetch or recompute repository evidence.
 
 ## Fixed endpoints
 
@@ -78,7 +78,7 @@ The reader-report path is deliberately split into bounded extraction, determinis
 - `src/features/analyzers/reader-report/markdown.ts` extracts bounded human-facing Markdown evidence without rendering repository HTML.
 - `src/features/analyzers/reader-report/commands.ts` keeps repository commands inert, classifies review-sensitive shapes, and never executes or guesses commands.
 - `src/features/analyzers/reader-report.ts` assembles the canonical six-section, non-scoring reader evidence model.
-- `src/features/worker/analysis.worker.ts` completes scoring first, then derives the reader report from the already acquired immutable evidence.
+- `src/features/worker/analysis.worker.ts` completes coverage and static analysis, derives reader evidence, and only then calls the unchanged scorer; reader evidence never enters the score input.
 - `src/features/analysis/guards.ts` strictly validates the full report, frozen vocabularies, caps, source provenance, safety boundaries, and recomputed reader states.
 - `src/features/cache/report-cache.ts` serializes, reparses, and validates a snapshot before storing the bounded report in `sessionStorage`.
 - `src/components/reader-report.tsx` renders repository prose as React text with immutable source captions and inert command blocks.

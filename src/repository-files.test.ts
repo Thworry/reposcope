@@ -554,7 +554,13 @@ describe("open-source repository contract", () => {
       expect(architecture).toContain(modulePath);
     }
     expect(architecture).toContain(
-      "scoring completes before the non-scoring reader report is derived",
+      "coverage and static analysis complete before the non-scoring reader report is derived",
+    );
+    expect(architecture).toContain(
+      "reader report remains outside the unchanged scoring inputs",
+    );
+    expect(architecture).toContain(
+      "scoring then runs from those unchanged inputs",
     );
     expect(architecture).toContain(
       "strictly validated before it reaches the cache or UI",

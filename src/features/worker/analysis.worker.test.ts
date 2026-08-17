@@ -189,6 +189,9 @@ describe("executeAnalysis", () => {
     );
 
     expect(readerReport).toHaveBeenCalledOnce();
+    expect(readerReport.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+      vi.mocked(dependencies.score).mock.invocationCallOrder[0] ?? 0,
+    );
     expect(completedReport(events).readerReport).toEqual(perfectReaderReport);
     expect(readerReport).toHaveBeenCalledWith({
       repository: perfectRepository,
