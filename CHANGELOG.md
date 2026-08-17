@@ -6,8 +6,8 @@ All notable changes to RepoScope are documented in this file.
 
 ### Added
 
-- Added a deterministic, evidence-linked project brief so users can quickly understand the stated purpose and likely kind of any inspected public repository.
-- The brief uses public repository evidence, does not use an AI service, and is not personalized advice; ruleset `1.0.0`, scoring, privacy, and request boundaries are unchanged.
+- Added a deterministic, evidence-linked decision-first reader report covering purpose, reliability, architecture, setup, security and privacy, maintenance, and alternatives, with a closed technical appendix for detailed evidence and methodology.
+- Preserved immutable source links, inert repository commands, bilingual output, and honest missing-evidence states throughout the new report.
 
 ## 0.1.1 - 2026-08-13
 

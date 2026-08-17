@@ -4,6 +4,24 @@ This document is the public, reproducible contract for ruleset `1.0.0`. RepoScop
 
 All rules are deterministic. Threshold comparisons use unrounded counts and exact inclusive boundaries; only displayed values are rounded. Remote prose and code do not generate inferred narrative. Findings use versioned templates populated with paths, line ranges, counts, and metrics.
 
+## Reader evidence model
+
+The decision-first reader report is a deterministic, non-scoring view of the same immutable public evidence used by the technical report. It does not change dimension scores, rule applicability, thresholds, weights, confidence, or findings. Its evidence status is exactly one of:
+
+- **Sufficient evidence to continue evaluation** when installation, run, recognized license, recent activity, and automated verification evidence are present and the repository is not archived;
+- **Key gaps require verification before use** when decisive evidence is established but at least one required signal is absent; or
+- **Public evidence is insufficient to judge** when decisive evidence is unknown or the scan has only metadata-level evidence.
+
+These labels describe evidence readiness, not project quality. The reader report does not prove suitability or safety, validate runtime behavior, audit dependencies, establish privacy compliance, or replace a reader's requirements and threat model.
+
+Canonical reader signals cover archived state, installation, run path, recognized license evidence, recent activity, automated tests, continuous integration, coverage, security policy, version history, contribution guidance, issue or pull-request templates, dependency updates, and configuration examples. Missing evidence remains `Not present` or `Not established`; it is never invented from a repository name or guessed ecosystem command.
+
+Activity uses the same raw elapsed UTC-day calculation as maintenance scoring. A non-archived repository is recent through 180 exact UTC days; 181–365 days is the middle activity band; more than 365 days is stale. An archived repository is never classified as recently active. Incomplete tree or fetch coverage makes reader sections partial rather than complete.
+
+Human-facing excerpts are bounded, deduplicated repository prose from recognized README or documentation sections. Repository language is preserved. HTML blocks, link destinations, raw URLs, credentials, control text, unsafe paths, and malformed constructs fail closed. Commands are inert text capped by kind and length; dangerous or remote-pipe shapes are labeled for review, and commands that fail the safe-text boundary are withheld. Source captions point to the inspected commit, while computed structural evidence is labeled **Deterministic analysis**.
+
+The six reader chapters cover purpose and scenarios, reliability, architecture, getting started, security and privacy, and maintenance and alternatives. A GitHub alternative search uses bounded generic evidence terms only; it is not a recommendation or ranking. Detailed score evidence stays in the closed technical appendix.
+
 ## Score model
 
 | Dimension                    | Weight |

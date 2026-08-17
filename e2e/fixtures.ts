@@ -8,6 +8,7 @@ import {
   HOSTILE_SOURCE_FILES,
   MINIMAL_SOURCE_FILES,
   PYTHON_SOURCE_FILES,
+  READER_COMPLETE_SOURCE_FILES,
   SOURCE_FILES,
   type SourceFileMap,
 } from "./fixtures/source-files";
@@ -23,6 +24,8 @@ export type FixtureKind =
   | "minimal"
   | "partial"
   | "hostile"
+  | "reader-complete"
+  | "archived-stale"
   | "not-found"
   | "rate-limit";
 
@@ -90,7 +93,7 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
   }
   if (kind === "minimal") {
     return {
-      repository: { ...baseRepository, description: null },
+      repository: { ...baseRepository, description: null, license: null },
       tree: treeFor(MINIMAL_SOURCE_FILES),
       sources: MINIMAL_SOURCE_FILES,
     };
@@ -112,6 +115,21 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
       },
       tree: treeFor(HOSTILE_SOURCE_FILES),
       sources: HOSTILE_SOURCE_FILES,
+    };
+  }
+  if (kind === "reader-complete" || kind === "archived-stale") {
+    return {
+      repository:
+        kind === "archived-stale"
+          ? {
+              ...baseRepository,
+              archived: true,
+              updated_at: "2024-07-01T00:00:00Z",
+              pushed_at: "2024-07-01T00:00:00Z",
+            }
+          : baseRepository,
+      tree: treeFor(READER_COMPLETE_SOURCE_FILES),
+      sources: READER_COMPLETE_SOURCE_FILES,
     };
   }
   return {

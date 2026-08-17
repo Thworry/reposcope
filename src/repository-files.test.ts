@@ -313,7 +313,7 @@ describe("open-source repository contract", () => {
       ["does not execute", "不会执行"],
       ["authenticate its behavior", "认证项目行为"],
       ["certify its correctness", "证明项目正确"],
-      ["project brief", "项目速览"],
+      ["reader report", "读者报告"],
       [
         "Purpose evidence comes from the public GitHub description and preferred README.",
         "用途证据来自公开 GitHub 仓库说明和首选 README。",
@@ -331,7 +331,37 @@ describe("open-source repository contract", () => {
     }
   });
 
-  it("publishes the exact v0.1.1 version history", () => {
+  it("publishes the bilingual decision-first reader-report contract", () => {
+    const english = read("README.md");
+    const chinese = read("README.zh-CN.md");
+
+    for (const statement of [
+      "Completed reports lead with project purpose and practical scenarios",
+      "evidence of reliability",
+      "core principles and code architecture",
+      "install, run, test, and extend",
+      "security and privacy risks and unknowns",
+      "activity, maintenance, and alternatives",
+      "Technical evidence and methodology",
+      "closed by default",
+    ]) {
+      expect(english).toContain(statement);
+    }
+    for (const statement of [
+      "完成的报告会先说明项目用途与实际场景",
+      "可靠性证据",
+      "核心原理与代码架构",
+      "安装、运行、测试和二次开发",
+      "安全与隐私风险及未知项",
+      "活跃度、维护状况与替代方案",
+      "技术证据与方法",
+      "默认关闭",
+    ]) {
+      expect(chinese).toContain(statement);
+    }
+  });
+
+  it("publishes the current version history", () => {
     const changelog = read("CHANGELOG.md");
     const packageManifest = JSON.parse(read("package.json")) as {
       version?: unknown;
@@ -341,11 +371,10 @@ describe("open-source repository contract", () => {
     expect(changelog).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
     expect(changelog).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
     expect(changelog).toContain(
-      "Added a deterministic, evidence-linked project brief so users can quickly understand the stated purpose and likely kind of any inspected public repository.",
+      "Added a deterministic, evidence-linked decision-first reader report",
     );
-    expect(changelog).toContain("does not use an AI service");
-    expect(changelog).toContain("not personalized advice");
-    expect(changelog).toContain(`ruleset \`${RULESET_VERSION}\``);
+    expect(changelog).toContain("closed technical appendix");
+    expect(changelog).toContain("immutable source links");
     expect(packageManifest.version).toBe("0.1.1");
   });
 
@@ -417,6 +446,21 @@ describe("open-source repository contract", () => {
     expect(methodology).toContain(
       "Two or more such directories: `failed` with 0 points.",
     );
+  });
+
+  it("documents the non-scoring reader judgement and exact activity boundary", () => {
+    const methodology = read("docs/methodology.md");
+
+    for (const status of [
+      "Sufficient evidence to continue evaluation",
+      "Key gaps require verification before use",
+      "Public evidence is insufficient to judge",
+    ]) {
+      expect(methodology).toContain(status);
+    }
+    expect(methodology).toContain("180 exact UTC days");
+    expect(methodology).toContain("non-scoring");
+    expect(methodology).toContain("does not prove suitability or safety");
   });
 
   it("documents the fixed architecture, limits, cache, CSP, and threats", () => {
@@ -492,6 +536,41 @@ describe("open-source repository contract", () => {
     ] as const) {
       expect(architecture).toContain(dependencyArrow);
     }
+  });
+
+  it("documents the reader analyzer, strict boundary, cache, and UI appendix", () => {
+    const architecture = read("docs/architecture.md");
+
+    for (const modulePath of [
+      "src/features/analyzers/reader-report.ts",
+      "src/features/analyzers/reader-report/markdown.ts",
+      "src/features/analyzers/reader-report/commands.ts",
+      "src/features/worker/analysis.worker.ts",
+      "src/features/analysis/guards.ts",
+      "src/features/cache/report-cache.ts",
+      "src/components/reader-report.tsx",
+      "src/components/technical-appendix.tsx",
+    ]) {
+      expect(architecture).toContain(modulePath);
+    }
+    expect(architecture).toContain(
+      "scoring completes before the non-scoring reader report is derived",
+    );
+    expect(architecture).toContain(
+      "strictly validated before it reaches the cache or UI",
+    );
+    expect(architecture).toContain("closed technical appendix");
+  });
+
+  it("records the decision-first UI without claiming a scoring change", () => {
+    const changelog = read("CHANGELOG.md");
+    const decisionEntry = changelog
+      .split("\n")
+      .find((line) => line.includes("decision-first reader report"));
+
+    expect(decisionEntry).toBeDefined();
+    expect(decisionEntry ?? "").toContain("closed technical appendix");
+    expect(decisionEntry ?? "").not.toMatch(/ruleset|scor|threshold|weight/iu);
   });
 
   it("routes vulnerability reports privately", () => {

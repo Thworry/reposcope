@@ -13,16 +13,31 @@ RepoScope is an evidence inspector, not a verdict. It does not run a repository,
 1. Open the [RepoScope site](https://thworry.github.io/reposcope/).
 2. Paste one public URL in the form `https://github.com/owner/repository`.
 3. Choose **Analyze repository**. RepoScope handles one repository at a time.
-4. Start with the project brief, then review the score, confidence, six dimensions, strengths, improvements, coverage, and file-linked evidence.
+4. Start with the decision-first reader report. Open **Technical evidence and methodology** only when you need the score, confidence, six dimensions, strengths, improvements, coverage, and rule-level evidence; it is closed by default.
 5. Use **English / 简体中文** to change the interface language. Switching language does not refetch data or recompute scores.
 
 A successful report has a share URL containing only the repository slug. A fresh scan makes exactly three unauthenticated, read-only GitHub REST requests, then bounded reads from immutable raw-file URLs pinned to the inspected commit.
 
 General inspection works for repositories in any language. Deep static metrics are available for JavaScript, TypeScript, and Python. When supported source does not meet the applicability threshold, readability and complexity are unavailable and the overall result is labeled **general-only** and **preliminary**.
 
-For any inspected public repository, the deterministic project brief keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. The brief does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
+For any inspected public repository, the deterministic reader report keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. The report does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
 
 See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
+
+## Decision-first reader report
+
+Completed reports lead with project purpose and practical scenarios so a person can quickly decide whether the repository is the kind of project they intended to inspect. Six numbered, evidence-linked chapters then cover:
+
+1. purpose and practical scenarios;
+2. evidence of reliability;
+3. core principles and code architecture;
+4. how to install, run, test, and extend the project;
+5. security and privacy risks and unknowns; and
+6. activity, maintenance, and alternatives.
+
+The evidence status is one of **Sufficient evidence to continue evaluation**, **Key gaps require verification before use**, or **Public evidence is insufficient to judge**. These statuses are deterministic, non-scoring summaries of the inspected public evidence. They do not prove that a project is suitable, correct, secure, private, or safe.
+
+Repository-authored commands are displayed as inert text and are never run. Commands marked for review should be inspected before copying. Source captions link only to the immutable inspected commit. Use the GitHub alternative search as a starting point, then apply the same evidence checks to every candidate. The scoring report and detailed methodology remain available in the **Technical evidence and methodology** appendix, which is closed by default and can be opened without refetching or recomputing the repository.
 
 ## Example report walkthrough
 
