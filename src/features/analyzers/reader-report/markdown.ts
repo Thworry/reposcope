@@ -197,6 +197,10 @@ export interface ReaderMarkdownEvidence {
   commands: ReaderCommandFact[];
 }
 
+export interface ReaderMarkdownExtractionOptions {
+  readonly scenarioExclusions?: ReadonlySet<string>;
+}
+
 function emptyEvidence(): ReaderMarkdownEvidence {
   return {
     scenarios: [],
@@ -732,6 +736,7 @@ function htmlDepthDelta(tokens: readonly HtmlToken[], tag: string): number {
 /** Extracts bounded reader prose and commands without parsing or executing Markdown. */
 export function extractReaderMarkdownEvidence(
   file: FetchedTextFile | undefined,
+  options: ReaderMarkdownExtractionOptions = {},
 ): ReaderMarkdownEvidence {
   if (
     file === undefined ||
@@ -755,6 +760,9 @@ export function extractReaderMarkdownEvidence(
     securityPrivacy: 3,
   };
   const commands = new Map<ReaderCommandKind, ReaderCommandFact>();
+  const scenarioExclusions = new Set(
+    [...(options.scenarioExclusions ?? [])].map(canonicalText),
+  );
   const headings: HeadingFrame[] = [];
   const lines = file.text.split(/\r?\n/u);
   let paragraph: ParagraphState | null = null;
@@ -770,9 +778,15 @@ export function extractReaderMarkdownEvidence(
   const addProse = (section: ProseSection, candidate: string): void => {
     const text = visibleProse(candidate);
 
-    if (text === null || evidence[section].length >= caps[section]) return;
+    if (text === null) return;
     const key = canonicalText(text);
-    if (seen[section].has(key)) return;
+    if (
+      (section === "scenarios" && scenarioExclusions.has(key)) ||
+      evidence[section].length >= caps[section] ||
+      seen[section].has(key)
+    ) {
+      return;
+    }
     seen[section].add(key);
     evidence[section].push({ source, path: file.path, text });
   };

@@ -330,6 +330,29 @@ Fourth declaration.
     ]);
   });
 
+  it("applies optional scenario exclusions before the three-fact cap", () => {
+    const readme = fetched(
+      "README.md",
+      `## Use cases
+
+- Purpose one.
+- Ｐｕｒｐｏｓｅ two.
+- Unique one.
+- Unique two.
+- Unique three.
+`,
+    );
+
+    expect(
+      extractReaderMarkdownEvidence(readme).scenarios.map(({ text }) => text),
+    ).toEqual(["Purpose one.", "Ｐｕｒｐｏｓｅ two.", "Unique one."]);
+    expect(
+      extractReaderMarkdownEvidence(readme, {
+        scenarioExclusions: new Set(["Purpose one.", "Purpose two."]),
+      }).scenarios.map(({ text }) => text),
+    ).toEqual(["Unique one.", "Unique two.", "Unique three."]);
+  });
+
   it("omits prose over 480 code points rather than truncating it", () => {
     const result = extractReaderMarkdownEvidence(
       fetched("README.md", `## Use cases\n\n- ${"界".repeat(481)}`),
