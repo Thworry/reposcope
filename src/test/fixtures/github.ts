@@ -12,6 +12,9 @@ export const VALID_REPOSITORY_RESPONSE = {
   open_issues_count: 3,
   topics: ["quality", "typescript"],
   license: { spdx_id: "MIT" },
+  stargazers_count: 1_284,
+  subscribers_count: 37,
+  forks_count: 146,
 } as const;
 
 export const VALID_COMMIT_RESPONSE = {

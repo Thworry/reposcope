@@ -26,6 +26,9 @@ export const perfectRepository: RepositoryMetadata = {
   pushedAt: "2026-08-01T12:00:00Z",
   size: 100,
   openIssuesCount: 0,
+  starsCount: 1_284,
+  watchersCount: 37,
+  forksCount: 146,
   topics: [],
   licenseSpdxId: "MIT",
 };

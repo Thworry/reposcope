@@ -36,6 +36,9 @@ export interface RepositoryMetadata extends RepoRef {
   pushedAt: string;
   size: number;
   openIssuesCount: number;
+  starsCount: number;
+  watchersCount: number;
+  forksCount: number;
   topics: string[];
   licenseSpdxId: string | null;
 }

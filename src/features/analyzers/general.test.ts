@@ -33,6 +33,9 @@ const repository: RepositoryMetadata = {
   pushedAt: "2026-08-01T00:00:00Z",
   size: 10,
   openIssuesCount: 0,
+  starsCount: 1_284,
+  watchersCount: 37,
+  forksCount: 146,
   topics: [],
   licenseSpdxId: "MIT",
 };
