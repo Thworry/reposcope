@@ -219,6 +219,38 @@ describe("runAnalysis", () => {
     });
   });
 
+  it("rejects a completion containing a compatibility-equivalent credential", async () => {
+    const fullwidthGitHubToken = `ｇｈｐ＿${"ａ".repeat(36)}`;
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    const firstExcerpt = report.projectBrief.excerpts[0];
+    expect(firstExcerpt).toBeDefined();
+    if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
+    firstExcerpt.text = `Purpose ${fullwidthGitHubToken}`;
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "complete",
+          requestId: start.requestId,
+          report,
+        },
+      }),
+    );
+
+    await expect(run.promise).rejects.toBeInstanceOf(RepositoryAnalysisError);
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+  });
+
   it.each([
     "  token: hunter2 # nested YAML",
     "- password: huntersecret # list item",

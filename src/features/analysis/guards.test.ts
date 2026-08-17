@@ -915,6 +915,18 @@ describe("isAnalysisReport", () => {
     expect(isAnalysisReport(descriptionReport)).toBe(false);
   });
 
+  it("rejects compatibility-equivalent credentials in outer purpose fields", () => {
+    const fullwidthGitHubToken = `ｇｈｐ＿${"ａ".repeat(36)}`;
+    const descriptionReport = cloneReport();
+    descriptionReport.repository.description = `Purpose ${fullwidthGitHubToken}`;
+    expect(isAnalysisReport(descriptionReport)).toBe(false);
+
+    const excerptReport = cloneReport();
+    const firstExcerpt = required(excerptReport.projectBrief.excerpts[0]);
+    firstExcerpt.text = `Purpose ${fullwidthGitHubToken}`;
+    expect(isAnalysisReport(excerptReport)).toBe(false);
+  });
+
   it.each([
     "Documentation explains password rotation policies.",
     "OAuth token: rotate it every 90 days.",

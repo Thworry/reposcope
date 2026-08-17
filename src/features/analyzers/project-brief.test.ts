@@ -1051,6 +1051,45 @@ describe("project brief purpose extraction", () => {
   });
 
   it.each([
+    ["GitHub token", `ｇｈｐ＿${"ａ".repeat(36)}`],
+    ["AWS access key", `ＡＫＩＡ${"１".repeat(16)}`],
+    ["Stripe key", `ｓｋ＿ｌｉｖｅ＿${"ａ".repeat(16)}`],
+    ["PEM marker", "－－－－－ＢＥＧＩＮ ＰＲＩＶＡＴＥ ＫＥＹ－－－－－"],
+    [
+      "encoded structured token",
+      `Configuration: ${JSON.stringify(`{"note":"ｇｈｐ＿${"ａ".repeat(36)}"}`)}`,
+    ],
+  ])(
+    "detects a compatibility-equivalent %s at the shared boundary",
+    (_label, credential) => {
+      expect(containsCredentialLikeValue(credential)).toBe(true);
+      expect(
+        briefFor({ description: `Purpose ${credential}` }).excerpts,
+      ).toEqual([]);
+    },
+  );
+
+  it("keeps ordinary compatibility-form documentation and malformed text benign", () => {
+    const fullwidthDocumentation =
+      "Ｔｏｋｅｎ： ＪＷＴ， ｐｅｒ ＲＦＣ ７５１９．";
+
+    expect(containsCredentialLikeValue(fullwidthDocumentation)).toBe(false);
+    expect(briefFor({ description: fullwidthDocumentation }).excerpts).toEqual([
+      {
+        source: "github-description",
+        text: "Token: JWT, per RFC 7519.",
+        path: null,
+      },
+    ]);
+    expect(containsCredentialLikeValue("ordinary\ud800documentation")).toBe(
+      false,
+    );
+    expect(
+      containsCredentialLikeValue("ordinary\u202edirectional documentation"),
+    ).toBe(false);
+  });
+
+  it.each([
     "token: hunter2",
     " token: hunter2",
     "  token: hunter2 # nested YAML",

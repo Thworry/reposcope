@@ -740,7 +740,7 @@ function inspectStructuredJsonText(value: string): {
   credential: boolean;
   decodedString: string | null;
 } {
-  const normalized = decodeJsonUnicodeEscapes(value);
+  const normalized = decodeJsonUnicodeEscapes(value).normalize("NFKC");
   let parsed: unknown;
   try {
     parsed = JSON.parse(value.trim());
@@ -1245,13 +1245,18 @@ function hasAssignedCredential(value: string): boolean {
 
 /** Returns true for bounded, high-confidence credential material. */
 export function containsCredentialLikeValue(value: string): boolean {
-  const normalizedValue = decodeJsonUnicodeEscapes(value);
-  const structured = stripEncodedStructuredJsonStrings(value);
+  const normalizedValue = value.normalize("NFKC");
+  const decodedValue =
+    decodeJsonUnicodeEscapes(normalizedValue).normalize("NFKC");
+  const structured = stripEncodedStructuredJsonStrings(normalizedValue);
   return (
-    PEM_PRIVATE_KEY_PATTERN.test(value) ||
-    GITHUB_TOKEN_PATTERN.test(value) ||
-    COMMON_TOKEN_PATTERN.test(value) ||
-    inspectJsonCandidates(normalizedValue).credential ||
+    PEM_PRIVATE_KEY_PATTERN.test(normalizedValue) ||
+    GITHUB_TOKEN_PATTERN.test(normalizedValue) ||
+    COMMON_TOKEN_PATTERN.test(normalizedValue) ||
+    PEM_PRIVATE_KEY_PATTERN.test(decodedValue) ||
+    GITHUB_TOKEN_PATTERN.test(decodedValue) ||
+    COMMON_TOKEN_PATTERN.test(decodedValue) ||
+    inspectJsonCandidates(decodedValue).credential ||
     structured.credential ||
     hasAssignedCredential(
       decodeJsonUnicodeEscapes(structured.value).normalize("NFKC"),

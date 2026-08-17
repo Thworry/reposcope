@@ -413,6 +413,35 @@ describe("executeAnalysis", () => {
     },
   );
 
+  it("redacts a compatibility-equivalent credential from repository metadata", async () => {
+    const fullwidthGitHubToken = `ｇｈｐ＿${"ａ".repeat(36)}`;
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+      repository: {
+        ...perfectRepository,
+        description: `Purpose ${fullwidthGitHubToken}`,
+      },
+      commitSha: "a".repeat(40),
+      treeSha: sha,
+      entries: [],
+      treeComplete: true,
+      rateLimit: { remaining: 57, resetAt: null },
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 860, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(report.repository.description).toBeNull();
+    expect(JSON.stringify(report)).not.toContain(fullwidthGitHubToken);
+  });
+
   it.each([
     "Password: configure it in settings.",
     "  Token: never log it.",

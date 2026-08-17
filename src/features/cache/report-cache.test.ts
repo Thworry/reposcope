@@ -226,6 +226,26 @@ describe("report cache", () => {
     expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
   });
 
+  it("rejects and removes compatibility-equivalent credentials at both cache boundaries", () => {
+    const fullwidthGitHubToken = `ｇｈｐ＿${"ａ".repeat(36)}`;
+    const report = validReport();
+    report.repository.owner = ref.owner;
+    report.repository.repo = ref.repo;
+    report.repository.fullName = `${ref.owner}/${ref.repo}`;
+    report.repository.url = `https://github.com/${ref.owner}/${ref.repo}`;
+    report.repository.description = `Purpose ${fullwidthGitHubToken}`;
+
+    setCachedReport(ref, report, now);
+    expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
+
+    sessionStorage.setItem(
+      cacheKey(ref),
+      JSON.stringify({ savedAt: now, report }),
+    );
+    expect(getCachedReport(ref, now)).toBeNull();
+    expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
+  });
+
   it("never persists unsafe content in any reader string category", () => {
     const credential = `ghp_${"a".repeat(36)}`;
     const mutations: Array<(report: AnalysisReport) => void> = [
