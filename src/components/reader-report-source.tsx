@@ -39,7 +39,7 @@ export function ReaderReportSource({
   commitSha,
   language,
 }: ReaderReportSourceProps): ReactElement {
-  const className = "reader-report__source project-brief__source";
+  const className = "reader-report__source";
 
   if (evidence.path !== null) {
     const messageKey =

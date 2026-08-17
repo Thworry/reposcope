@@ -245,10 +245,7 @@ function DeterministicAnalysisSource({
   language: Language;
 }): ReactElement {
   return (
-    <span
-      className="reader-report__source project-brief__source"
-      data-evidence-source="analysis"
-    >
+    <span className="reader-report__source" data-evidence-source="analysis">
       {messages[language].readerSourceDeterministicAnalysis}
     </span>
   );
