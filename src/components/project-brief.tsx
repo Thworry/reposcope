@@ -7,6 +7,7 @@ import type {
   ProjectKind,
 } from "../features/analysis/model";
 import { formatMessage, messages, type AppMessageKey } from "../i18n/messages";
+import { ReaderReportSource } from "./reader-report-source";
 
 interface ProjectBriefProps {
   brief: ProjectBrief;
@@ -31,132 +32,6 @@ const CAUTION_MESSAGE_KEYS = {
   "license-evidence-absent": "projectCautionLicenseEvidenceAbsent",
   "entry-point-evidence-absent": "projectCautionEntryPointEvidenceAbsent",
 } as const satisfies Record<ProjectBriefCaution, AppMessageKey>;
-
-function evidenceHref(
-  owner: string,
-  repo: string,
-  sha: string,
-  path: string,
-): string {
-  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/blob/${sha}/${encodedPath}`;
-}
-
-interface PinnedSourceProps {
-  owner: string;
-  repo: string;
-  commitSha: string;
-  path: string;
-  language: Language;
-  messageKey:
-    | "projectBriefSourceReadme"
-    | "projectBriefSourceManifest"
-    | "projectBriefSourceTree";
-}
-
-function PinnedSource({
-  owner,
-  repo,
-  commitSha,
-  path,
-  language,
-  messageKey,
-}: PinnedSourceProps): ReactElement {
-  return (
-    <a
-      className="project-brief__source"
-      href={evidenceHref(owner, repo, commitSha, path)}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      {formatMessage(language, messageKey, { path })}
-    </a>
-  );
-}
-
-function PlainSource({
-  language,
-  messageKey,
-}: {
-  language: Language;
-  messageKey:
-    | "projectBriefSourceDescription"
-    | "projectBriefSourceMetadata"
-    | "projectBriefSourceAnalysis";
-}): ReactElement {
-  return (
-    <span className="project-brief__source">
-      {messages[language][messageKey]}
-    </span>
-  );
-}
-
-function ProjectBriefSource({
-  source,
-  path,
-  owner,
-  repo,
-  commitSha,
-  language,
-}: {
-  source:
-    | "github-description"
-    | "readme"
-    | "github-metadata"
-    | "manifest"
-    | "tree"
-    | "analysis";
-  path: string | null;
-  owner: string;
-  repo: string;
-  commitSha: string;
-  language: Language;
-}): ReactElement {
-  if (source === "readme" && path !== null) {
-    return (
-      <PinnedSource
-        owner={owner}
-        repo={repo}
-        commitSha={commitSha}
-        path={path}
-        language={language}
-        messageKey="projectBriefSourceReadme"
-      />
-    );
-  }
-  if (source === "manifest" && path !== null) {
-    return (
-      <PinnedSource
-        owner={owner}
-        repo={repo}
-        commitSha={commitSha}
-        path={path}
-        language={language}
-        messageKey="projectBriefSourceManifest"
-      />
-    );
-  }
-  if (source === "tree" && path !== null) {
-    return (
-      <PinnedSource
-        owner={owner}
-        repo={repo}
-        commitSha={commitSha}
-        path={path}
-        language={language}
-        messageKey="projectBriefSourceTree"
-      />
-    );
-  }
-
-  const messageKey =
-    source === "github-description"
-      ? "projectBriefSourceDescription"
-      : source === "github-metadata"
-        ? "projectBriefSourceMetadata"
-        : "projectBriefSourceAnalysis";
-  return <PlainSource language={language} messageKey={messageKey} />;
-}
 
 export function ProjectBriefView({
   brief,
@@ -200,9 +75,8 @@ export function ProjectBriefView({
                       <p>{excerpt.text}</p>
                     </blockquote>
                     <figcaption>
-                      <ProjectBriefSource
-                        source={excerpt.source}
-                        path={excerpt.path}
+                      <ReaderReportSource
+                        evidence={excerpt}
                         owner={owner}
                         repo={repo}
                         commitSha={commitSha}
@@ -243,9 +117,8 @@ export function ProjectBriefView({
                     key={`${fact.kind}:${fact.path ?? fact.source}:${String(index)}`}
                   >
                     <strong>{copy[KIND_MESSAGE_KEYS[fact.kind]]}</strong>
-                    <ProjectBriefSource
-                      source={fact.source}
-                      path={fact.path}
+                    <ReaderReportSource
+                      evidence={fact}
                       owner={owner}
                       repo={repo}
                       commitSha={commitSha}
@@ -268,9 +141,8 @@ export function ProjectBriefView({
                 {brief.cautions.map((fact, index) => (
                   <li key={`${fact.caution}:${String(index)}`}>
                     <span>{copy[CAUTION_MESSAGE_KEYS[fact.caution]]}</span>
-                    <ProjectBriefSource
-                      source={fact.source}
-                      path={fact.path}
+                    <ReaderReportSource
+                      evidence={fact}
                       owner={owner}
                       repo={repo}
                       commitSha={commitSha}
