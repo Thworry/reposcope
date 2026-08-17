@@ -278,6 +278,49 @@ export interface ReaderCommandFact extends ReaderEvidenceSource {
   disposition: ReaderCommandDisposition;
 }
 
+export const READER_COMMENTARY_IDS = Object.freeze([
+  "readme-substantial-overview",
+  "readme-audience-or-use-cases-documented",
+  "readme-capabilities-documented",
+  "readme-workflow-documented",
+  "readme-onboarding-documented",
+  "readme-limitations-documented",
+  "readme-maturity-documented",
+  "readme-broad-structure-corroborated",
+  "readme-security-data-flow-unestablished",
+  "readme-limitations-unestablished",
+  "readme-maturity-unestablished",
+  "readme-broad-structure-needs-verification",
+  "readme-external-dependencies-declared",
+] as const);
+
+export type ReaderCommentaryId = (typeof READER_COMMENTARY_IDS)[number];
+
+export interface ReaderCapabilityGroup {
+  label: string;
+  facts: ReaderTextFact[];
+}
+
+export interface ReaderReadmeProfile {
+  availability: ReaderAvailability;
+  overview: ReaderTextFact[];
+  audiences: ReaderTextFact[];
+  problems: ReaderTextFact[];
+  useCases: ReaderTextFact[];
+  capabilityGroups: ReaderCapabilityGroup[];
+  workflow: ReaderTextFact[];
+  dependencies: ReaderTextFact[];
+  limitations: ReaderTextFact[];
+  maturity: ReaderTextFact[];
+  commentary: ReaderCommentaryId[];
+}
+
+export interface ReaderCommunityFacts {
+  starsCount: number;
+  watchersCount: number;
+  forksCount: number;
+}
+
 export const READER_ECOSYSTEMS = Object.freeze([
   "javascript-typescript",
   "python",

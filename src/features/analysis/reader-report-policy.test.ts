@@ -5,6 +5,7 @@ import {
   READER_ACTIVITY_BANDS,
   READER_AVAILABILITY,
   READER_COMMAND_KINDS,
+  READER_COMMENTARY_IDS,
   READER_ECOSYSTEMS,
   READER_QUESTION_IDS,
   READER_SIGNAL_IDS,
@@ -15,9 +16,13 @@ import {
   type ReaderSignalState,
 } from "./model";
 import {
+  PRACTICAL_IDS,
+  VERIFY_IDS,
+  WORTH_NOTING_IDS,
   activityBand,
   activityState,
   deriveReaderAvailability,
+  deriveReadmeAvailability,
   deriveReaderQuestions,
   deriveReliabilityStatus,
 } from "./reader-report-policy";
@@ -332,4 +337,47 @@ describe("reader report reliability policy", () => {
       "vulnerability-process",
     ]);
   });
+});
+
+describe("README interpretation policy", () => {
+  it("freezes the exact commentary vocabulary and canonical groups", () => {
+    expect(READER_COMMENTARY_IDS).toEqual([
+      "readme-substantial-overview",
+      "readme-audience-or-use-cases-documented",
+      "readme-capabilities-documented",
+      "readme-workflow-documented",
+      "readme-onboarding-documented",
+      "readme-limitations-documented",
+      "readme-maturity-documented",
+      "readme-broad-structure-corroborated",
+      "readme-security-data-flow-unestablished",
+      "readme-limitations-unestablished",
+      "readme-maturity-unestablished",
+      "readme-broad-structure-needs-verification",
+      "readme-external-dependencies-declared",
+    ]);
+    expect(WORTH_NOTING_IDS).toEqual(READER_COMMENTARY_IDS.slice(0, 8));
+    expect(VERIFY_IDS).toEqual(READER_COMMENTARY_IDS.slice(8, 12));
+    expect(PRACTICAL_IDS).toEqual(READER_COMMENTARY_IDS.slice(12));
+    expect(Object.isFrozen(READER_COMMENTARY_IDS)).toBe(true);
+    expect(Object.isFrozen(WORTH_NOTING_IDS)).toBe(true);
+    expect(Object.isFrozen(VERIFY_IDS)).toBe(true);
+    expect(Object.isFrozen(PRACTICAL_IDS)).toBe(true);
+  });
+
+  it.each([
+    ["missing", 0, "unavailable"],
+    ["missing", 5, "unavailable"],
+    ["incomplete", 0, "partial"],
+    ["incomplete", 5, "partial"],
+    ["fetched", 0, "unavailable"],
+    ["fetched", 5, "available"],
+  ] as const)(
+    "derives %s with %i safe facts as %s",
+    (preferredReadmeState, safeFactCount, expected) => {
+      expect(
+        deriveReadmeAvailability({ preferredReadmeState, safeFactCount }),
+      ).toBe(expected);
+    },
+  );
 });

@@ -1,4 +1,5 @@
 import {
+  type ReaderCommentaryId,
   type ReaderActivityBand,
   type ReaderAvailability,
   type ReaderQuestionId,
@@ -7,6 +8,30 @@ import {
   type ReaderSignalState,
   type ReliabilityStatus,
 } from "./model";
+
+export const WORTH_NOTING_IDS = Object.freeze([
+  "readme-substantial-overview",
+  "readme-audience-or-use-cases-documented",
+  "readme-capabilities-documented",
+  "readme-workflow-documented",
+  "readme-onboarding-documented",
+  "readme-limitations-documented",
+  "readme-maturity-documented",
+  "readme-broad-structure-corroborated",
+] as const satisfies readonly ReaderCommentaryId[]);
+
+export const VERIFY_IDS = Object.freeze([
+  "readme-security-data-flow-unestablished",
+  "readme-limitations-unestablished",
+  "readme-maturity-unestablished",
+  "readme-broad-structure-needs-verification",
+] as const satisfies readonly ReaderCommentaryId[]);
+
+export const PRACTICAL_IDS = Object.freeze([
+  "readme-external-dependencies-declared",
+] as const satisfies readonly ReaderCommentaryId[]);
+
+export type PreferredReadmeState = "missing" | "incomplete" | "fetched";
 
 const DECISIVE_SIGNAL_IDS = [
   "archived",
@@ -134,4 +159,14 @@ export function deriveReaderAvailability(
 ): ReaderAvailability {
   if (!coverageComplete) return "partial";
   return itemCount > 0 ? "available" : "unavailable";
+}
+
+/** Derives README availability from only the preferred README acquisition state. */
+export function deriveReadmeAvailability(input: {
+  preferredReadmeState: PreferredReadmeState;
+  safeFactCount: number;
+}): ReaderAvailability {
+  if (input.preferredReadmeState === "missing") return "unavailable";
+  if (input.preferredReadmeState === "incomplete") return "partial";
+  return input.safeFactCount > 0 ? "available" : "unavailable";
 }
