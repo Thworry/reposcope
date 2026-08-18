@@ -345,6 +345,10 @@ function scopedDocument(
   );
 }
 
+function isLegacyScoringReadme(path: string): boolean {
+  return scopedDocument(path, ["", ".github"], ["readme"]);
+}
+
 function isContribution(path: string): boolean {
   return scopedDocument(path, ["", ".github", "docs"], ["contributing"]);
 }
@@ -484,6 +488,25 @@ export function preferredReadme(
   return [...files]
     .filter((file) => isCanonicalReadmePath(file.path))
     .sort((left, right) => compareReadmePaths(left.path, right.path))[0];
+}
+
+function preferredScoringReadme(
+  files: readonly FetchedTextFile[],
+): FetchedTextFile | undefined {
+  return [...files]
+    .filter((file) => isLegacyScoringReadme(file.path))
+    .sort((left, right) => {
+      const leftRoot = directory(left.path) === "" ? 0 : 1;
+      const rightRoot = directory(right.path) === "" ? 0 : 1;
+
+      return (
+        leftRoot - rightRoot ||
+        toPathComparisonKey(left.path).localeCompare(
+          toPathComparisonKey(right.path),
+          "en-US",
+        )
+      );
+    })[0];
 }
 
 interface DocumentedCommandFacts {
@@ -712,7 +735,7 @@ export function analyzeGeneralRepository(
   );
   const paths = positiveTreeFiles.map((file) => file.path);
   const pathKeys = paths.map(toPathComparisonKey);
-  const readme = preferredReadme(positiveFetchedFiles);
+  const readme = preferredScoringReadme(positiveFetchedFiles);
   const markdown = findMarkdownEvidence(readme?.text ?? "");
   const structured = emptyStructuredEvidence();
   const parseFailures: GeneralMetrics["parseFailures"] = [];
@@ -769,7 +792,7 @@ export function analyzeGeneralRepository(
   const hasTreeTestConfiguration = paths.some(isTestConfig);
 
   return {
-    hasReadme: paths.some(isCanonicalReadmePath),
+    hasReadme: paths.some(isLegacyScoringReadme),
     installHeading: markdown.installHeading,
     installCommand: markdown.installCommand,
     usageHeading: markdown.usageHeading,

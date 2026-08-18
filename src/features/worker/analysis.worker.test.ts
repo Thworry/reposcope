@@ -13,6 +13,8 @@ import type {
   SelectedFile,
 } from "../analysis/model";
 import { isAnalysisReport } from "../analysis/guards";
+import { analyzeGeneralRepository } from "../analyzers/general";
+import { analyzeProjectBrief } from "../analyzers/project-brief";
 import { analyzeReaderReport } from "../analyzers/reader-report";
 import { GitHubApiError } from "../github/github-client";
 import { buildFindings } from "../rules/findings";
@@ -174,6 +176,86 @@ function completedReport(events: readonly WorkerEvent[]) {
 }
 
 describe("executeAnalysis", () => {
+  it("emits a guard-valid report with one canonical README path", async () => {
+    const exactText =
+      "# Exact\n\n## Overview\n\nCanonical project purpose.\n\n## Usage\n\n```sh\npnpm run dev\n```";
+    const variantText =
+      "# Variant\n\n## Overview\n\nVariant project purpose.\n\n## Install\n\n```sh\npnpm install\n```";
+    const entries = [
+      {
+        path: "README_a.md",
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha: "b".repeat(40),
+        size: new TextEncoder().encode(variantText).byteLength,
+      },
+      {
+        path: "README.md",
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha,
+        size: new TextEncoder().encode(exactText).byteLength,
+      },
+    ];
+    const tree = normalizeTree(entries, false);
+    const plan = selectFiles(tree, {});
+    const dependencies = dependenciesFor(plan.selected, ({ path }) => {
+      const text = path === "README.md" ? exactText : variantText;
+
+      return Promise.resolve({
+        path,
+        text,
+        bytes: new TextEncoder().encode(text).byteLength,
+      });
+    });
+    dependencies.normalize = normalizeTree;
+    dependencies.select = selectFiles;
+    dependencies.analyzeGeneral = analyzeGeneralRepository;
+    dependencies.projectBrief = analyzeProjectBrief;
+    dependencies.score = scoreProject;
+    dependencies.findings = buildFindings;
+    vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+      repository: perfectRepository,
+      commitSha: sha,
+      treeSha: sha,
+      entries,
+      treeComplete: true,
+      rateLimit: { remaining: 57, resetAt: null },
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 69, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(isAnalysisReport(report)).toBe(true);
+    expect(
+      report.projectBrief.excerpts.filter(({ source }) => source === "readme"),
+    ).toEqual([
+      {
+        source: "readme",
+        text: "Canonical project purpose.",
+        path: "README.md",
+      },
+    ]);
+    expect(report.readerReport.gettingStarted.commands).toContainEqual({
+      kind: "run",
+      source: "readme",
+      command: "pnpm run dev",
+      disposition: "ready",
+      path: "README.md",
+    });
+    expect(
+      JSON.stringify({
+        projectBrief: report.projectBrief,
+        readerReport: report.readerReport,
+      }),
+    ).not.toContain("README_a.md");
+  });
+
   it("calls the reader analyzer once and serializes its output", async () => {
     const dependencies = dependenciesFor([], () =>
       Promise.reject(new Error("must not fetch")),
