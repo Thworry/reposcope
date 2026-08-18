@@ -52,9 +52,9 @@ describe("bilingual message contract", () => {
       continue: "Sufficient evidence to continue evaluation",
       verify: "Key gaps require verification before use",
       insufficient: "Public evidence is insufficient to judge",
-      purpose: "Purpose and practical scenarios",
+      purpose: "Project-fit cautions",
       reliability: "Evidence of reliability",
-      architecture: "Core principles and code architecture",
+      architecture: "How it broadly works",
       gettingStarted: "Install, run, and develop",
       security: "Security and privacy risks",
       maintenance: "Activity, maintenance, and alternatives",
@@ -96,9 +96,9 @@ describe("bilingual message contract", () => {
       continue: "有较充分证据，可以继续评估",
       verify: "存在关键缺口，使用前需要核实",
       insufficient: "公开证据不足，暂时无法判断",
-      purpose: "项目用途与具体业务场景",
+      purpose: "项目适用性注意事项",
       reliability: "是否靠谱",
-      architecture: "核心原理与代码架构",
+      architecture: "整体如何运作",
       gettingStarted: "安装、运行和二次开发",
       security: "安全与隐私风险",
       maintenance: "活跃度、维护状况和替代方案",
@@ -161,5 +161,51 @@ describe("bilingual message contract", () => {
       "Ecosystem fit",
       "Operational constraints",
     ]);
+  });
+
+  it("freezes the README interpretation structure and commentary in both languages", () => {
+    expect([
+      messages.en.readerOrientationHeading,
+      messages.en.readerCommunityHeading,
+      messages.en.readerReadmeNarrativeHeading,
+      messages.en.readerCapabilitiesHeading,
+      messages.en.readerWorkflowHeading,
+      messages.en.readerClaimObservationHeading,
+      messages.en.readerCommentaryHeading,
+    ]).toEqual([
+      "Project orientation",
+      "Community and maintenance facts",
+      "What the README says",
+      "Core capabilities",
+      "Documented workflow",
+      "README claims and repository observations",
+      "RepoScope commentary",
+    ]);
+    expect([
+      messages["zh-CN"].readerOrientationHeading,
+      messages["zh-CN"].readerCommunityHeading,
+      messages["zh-CN"].readerReadmeNarrativeHeading,
+      messages["zh-CN"].readerCapabilitiesHeading,
+      messages["zh-CN"].readerWorkflowHeading,
+      messages["zh-CN"].readerClaimObservationHeading,
+      messages["zh-CN"].readerCommentaryHeading,
+    ]).toEqual([
+      "项目定位",
+      "社区与维护事实",
+      "README 如何介绍项目",
+      "核心能力",
+      "README 中的工作流程",
+      "README 声明与仓库观察",
+      "RepoScope 解读",
+    ]);
+
+    expect(messages.en.readerArchitectureHeading).toBe("How it broadly works");
+    expect(messages["zh-CN"].readerArchitectureHeading).toBe("整体如何运作");
+    expect(messages.en.readerCommunityPopularity).toBe(
+      "Popularity reflects attention, not proof of quality or safety.",
+    );
+    expect(messages["zh-CN"].readerCommunityPopularity).toBe(
+      "流行度反映关注程度，不能证明项目质量或安全性。",
+    );
   });
 });

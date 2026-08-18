@@ -6,11 +6,9 @@ import {
   type Language,
   type ProjectBriefCaution,
   type ProjectBriefExcerpt,
-  type ProjectKind,
   type ReaderActivityBand,
   type ReaderAvailability,
   type ReaderCommandKind,
-  type ReaderEcosystem,
   type ReaderEvidenceSource,
   type ReaderQuestionId,
   type ReaderSignalFact,
@@ -20,6 +18,7 @@ import {
   type ReliabilityStatus,
 } from "../features/analysis/model";
 import { formatMessage, messages, type AppMessageKey } from "../i18n/messages";
+import { ReadmeInterpretationView } from "./readme-interpretation";
 import { ReaderReportSource } from "./reader-report-source";
 
 interface ReaderReportViewProps {
@@ -82,34 +81,11 @@ const COMMAND_KEYS = {
   build: "readerCommandBuild",
 } as const satisfies Record<ReaderCommandKind, AppMessageKey>;
 
-const ECOSYSTEM_KEYS = {
-  "javascript-typescript": "readerEcosystemJavaScript",
-  python: "readerEcosystemPython",
-  go: "readerEcosystemGo",
-  rust: "readerEcosystemRust",
-  "java-jvm": "readerEcosystemJava",
-  dotnet: "readerEcosystemDotNet",
-  ruby: "readerEcosystemRuby",
-  php: "readerEcosystemPhp",
-  swift: "readerEcosystemSwift",
-  dart: "readerEcosystemDart",
-  other: "readerEcosystemOther",
-} as const satisfies Record<ReaderEcosystem, AppMessageKey>;
-
 const ACTIVITY_BAND_KEYS = {
   "within-180-days": "readerActivityWithin180",
   "181-365-days": "readerActivity181To365",
   "over-365-days": "readerActivityOver365",
 } as const satisfies Record<ReaderActivityBand, AppMessageKey>;
-
-const KIND_KEYS = {
-  application: "projectKindApplication",
-  "command-line-tool": "projectKindCommandLineTool",
-  library: "projectKindLibrary",
-  plugin: "projectKindPlugin",
-  template: "projectKindTemplate",
-  documentation: "projectKindDocumentation",
-} as const satisfies Record<ProjectKind, AppMessageKey>;
 
 const CAUTION_KEYS = {
   archived: "projectCautionArchived",
@@ -186,7 +162,7 @@ function Chapter({
   section: string;
   headingId: string;
   heading: string;
-  availability: ReaderAvailability;
+  availability?: ReaderAvailability;
   language: Language;
   children: ReactNode;
 }): ReactElement {
@@ -200,7 +176,9 @@ function Chapter({
     >
       <p className="section-index">{String(number).padStart(2, "0")} / 06</p>
       <h3 id={headingId}>{heading}</h3>
-      <AvailabilityNotice availability={availability} language={language} />
+      {availability === undefined ? null : (
+        <AvailabilityNotice availability={availability} language={language} />
+      )}
       {children}
     </section>
   );
@@ -313,32 +291,6 @@ function StatusBlock({
   );
 }
 
-function PathList({
-  paths,
-  source,
-  linkKind = "blob",
-  context,
-}: {
-  paths: readonly string[];
-  source: ReaderEvidenceSource["source"];
-  linkKind?: "blob" | "tree";
-  context: SourceContext;
-}): ReactElement {
-  return (
-    <ul className="reader-report__path-list">
-      {paths.map((path) => (
-        <li key={path}>
-          <ReaderReportSource
-            evidence={{ source, path }}
-            linkKind={linkKind}
-            {...context}
-          />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function Commands({
   report,
   context,
@@ -429,8 +381,6 @@ export function ReaderReportView({
     commitSha: report.repository.commitSha,
     language,
   };
-  const purposeFacts = report.projectBrief.excerpts.slice(0, 2);
-  const scenarios = reader.scenarios.facts.slice(0, 3);
   const decisiveSignals = reader.reliability.signals.filter((fact) =>
     DECISION_SIGNAL_IDS.has(fact.signal),
   );
@@ -443,6 +393,8 @@ export function ReaderReportView({
 
   return (
     <div className="reader-report">
+      <ReadmeInterpretationView report={report} language={language} />
+
       <section
         className="reader-report__decision"
         role="region"
@@ -451,40 +403,6 @@ export function ReaderReportView({
       >
         <p className="section-index">{copy.readerDecisionIndex}</p>
         <h3 id={`${id}-decision`}>{copy.readerDecisionHeading}</h3>
-
-        <div className="reader-report__decision-item">
-          <h4>{copy.readerStatedPurpose}</h4>
-          {purposeFacts.length === 0 ? (
-            <p>{copy.projectBriefInsufficient}</p>
-          ) : (
-            <div className="reader-report__fact-list">
-              {purposeFacts.map((fact, index) => (
-                <TextFact
-                  key={`${fact.source}:${fact.path ?? "metadata"}:${String(index)}`}
-                  fact={fact}
-                  context={context}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="reader-report__decision-item">
-          <h4>{copy.readerScenariosHeading}</h4>
-          {scenarios.length === 0 ? (
-            <p>{copy.readerScenariosMissing}</p>
-          ) : (
-            <div className="reader-report__fact-list">
-              {scenarios.map((fact, index) => (
-                <TextFact
-                  key={`${fact.path ?? fact.source}:${String(index)}`}
-                  fact={fact}
-                  context={context}
-                />
-              ))}
-            </div>
-          )}
-        </div>
 
         <div className="reader-report__decision-item">
           <h4>{copy.readerEvidenceStatus}</h4>
@@ -521,65 +439,16 @@ export function ReaderReportView({
 
       <Chapter
         number={1}
-        section="purpose-scenarios"
+        section="project-fit-cautions"
         headingId={`${id}-purpose`}
         heading={copy.readerPurposeHeading}
-        availability={reader.scenarios.availability}
         language={language}
       >
         <div className="reader-report__chapter-group">
-          <h4>{copy.readerStatedPurpose}</h4>
-          {report.projectBrief.excerpts.length === 0 ? (
-            <p>{copy.projectBriefInsufficient}</p>
+          <h4>{copy.readerCautionsHeading}</h4>
+          {report.projectBrief.cautions.length === 0 ? (
+            <p>{copy.projectBriefNoCautions}</p>
           ) : (
-            <div className="reader-report__fact-list">
-              {report.projectBrief.excerpts.map((fact, index) => (
-                <TextFact
-                  key={`${fact.source}:${fact.path ?? "metadata"}:${String(index)}`}
-                  fact={fact}
-                  context={context}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerScenariosHeading}</h4>
-          {scenarios.length === 0 ? (
-            <p>{copy.readerScenariosMissing}</p>
-          ) : (
-            <div className="reader-report__fact-list">
-              {scenarios.map((fact, index) => (
-                <TextFact
-                  key={`${fact.path ?? fact.source}:${String(index)}`}
-                  fact={fact}
-                  context={context}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerKindsHeading}</h4>
-          {report.projectBrief.kinds.length === 0 ? (
-            <p>{copy.projectBriefKindUnknown}</p>
-          ) : (
-            <ul className="reader-report__evidence-list">
-              {report.projectBrief.kinds.map((fact, index) => (
-                <li key={`${fact.kind}:${String(index)}`}>
-                  <strong>{copy[KIND_KEYS[fact.kind]]}</strong>
-                  <ReaderEvidenceCaption evidence={fact} context={context} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {report.projectBrief.cautions.length > 0 ? (
-          <div className="reader-report__chapter-group">
-            <h4>{copy.readerCautionsHeading}</h4>
             <ul className="reader-report__evidence-list">
               {report.projectBrief.cautions.map((fact) => (
                 <li key={fact.caution}>
@@ -588,8 +457,8 @@ export function ReaderReportView({
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
+          )}
+        </div>
       </Chapter>
 
       <Chapter
@@ -636,58 +505,6 @@ export function ReaderReportView({
                 />
               ))}
             </div>
-          )}
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerArchitectureDocuments}</h4>
-          {reader.architecture.documents.length === 0 ? (
-            <p>{copy.readerUnavailable}</p>
-          ) : (
-            <PathList
-              paths={reader.architecture.documents}
-              source="documentation"
-              context={context}
-            />
-          )}
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerArchitectureEntryPoints}</h4>
-          <DeterministicAnalysisSource language={language} />
-          {reader.architecture.entryPoints.length === 0 ? (
-            <p>{copy.readerUnavailable}</p>
-          ) : (
-            <PathList
-              paths={reader.architecture.entryPoints}
-              source="tree"
-              context={context}
-            />
-          )}
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerArchitectureSourceAreas}</h4>
-          <DeterministicAnalysisSource language={language} />
-          {reader.architecture.sourceAreas.length === 0 ? (
-            <p>{copy.readerUnavailable}</p>
-          ) : (
-            <PathList
-              paths={reader.architecture.sourceAreas}
-              source="tree"
-              linkKind="tree"
-              context={context}
-            />
-          )}
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerArchitectureEcosystems}</h4>
-          <DeterministicAnalysisSource language={language} />
-          {reader.architecture.ecosystems.length === 0 ? (
-            <p>{copy.readerUnavailable}</p>
-          ) : (
-            <ul>
-              {reader.architecture.ecosystems.map((ecosystem) => (
-                <li key={ecosystem}>{copy[ECOSYSTEM_KEYS[ecosystem]]}</li>
-              ))}
-            </ul>
           )}
         </div>
       </Chapter>
