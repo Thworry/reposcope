@@ -681,6 +681,219 @@ pnpm run dev
     ]);
   });
 
+  it("routes dependency installation out of a quick-start run slot before the actual startup command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `# Story Desk
+
+## Quick start
+
+Install the project dependencies, then start the local workspace.
+
+\`\`\`sh
+pnpm install
+pnpm run dev
+\`\`\`
+`,
+      ),
+    );
+
+    expect(
+      result.commands.map(({ kind, command, disposition }) => ({
+        kind,
+        command,
+        disposition,
+      })),
+    ).toEqual([
+      { kind: "install", command: "pnpm install", disposition: "ready" },
+      { kind: "run", command: "pnpm run dev", disposition: "ready" },
+    ]);
+  });
+
+  it("keeps reviewed install evidence out of development and preserves a later develop command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `# Story Desk
+
+## 二次开发
+
+\`npm install && chmod 777 ./cache\`
+
+\`pnpm run dev\`
+
+## Run
+
+\`npm start\`
+`,
+      ),
+    );
+
+    expect(
+      result.commands.map(({ kind, command, disposition }) => ({
+        kind,
+        command,
+        disposition,
+      })),
+    ).toEqual([
+      {
+        kind: "install",
+        command: "npm install && chmod 777 ./cache",
+        disposition: "review",
+      },
+      { kind: "run", command: "npm start", disposition: "ready" },
+      { kind: "develop", command: "pnpm run dev", disposition: "ready" },
+    ]);
+  });
+
+  it.each([
+    ["npm --prefix ./web install", "npm start", "run"],
+    ["pnpm --filter @scope/app install", "pnpm run dev", "run"],
+    ["yarn --cwd ./web install", "yarn start", "run"],
+    ["bun --cwd ./web install", "bun run dev", "develop"],
+  ] as const)(
+    "routes option-prefixed install command %s without consuming %s",
+    (installCommand, startupCommand, startupKind) => {
+      const heading = startupKind === "develop" ? "Development" : "Quick start";
+      const result = extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `# Local Workbench
+
+## ${heading}
+
+\`\`\`sh
+${installCommand}
+${startupCommand}
+\`\`\`
+`,
+        ),
+      );
+
+      expect(
+        result.commands.map(({ kind, command }) => ({ kind, command })),
+      ).toEqual([
+        { kind: "install", command: installCommand },
+        { kind: startupKind, command: startupCommand },
+      ]);
+    },
+  );
+
+  it.each([
+    ["pnpm -C ./web install", "pnpm run dev"],
+    ["pnpm -F@scope/app install", "pnpm start"],
+    ["npm -w web install", "npm start"],
+    ["bun -C ./web install", "bun run dev"],
+  ] as const)(
+    "routes short-option install command %s before the real quick-start command",
+    (installCommand, runCommand) => {
+      const result = extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `## Quick start
+
+\`${installCommand}\`
+
+\`${runCommand}\`
+`,
+        ),
+      );
+
+      expect(
+        result.commands.map(({ kind, command }) => ({ kind, command })),
+      ).toEqual([
+        { kind: "install", command: installCommand },
+        { kind: "run", command: runCommand },
+      ]);
+    },
+  );
+
+  it.each([
+    ["npm install && node server.js", "run"],
+    ["node server.js && npm install", "run"],
+    ["npm test && npm install", "test"],
+    ["pnpm install && npm run build", "build"],
+  ] as const)(
+    "keeps mixed install command %s in its documented %s slot",
+    (command, headingKind) => {
+      const heading =
+        headingKind === "test"
+          ? "Test"
+          : headingKind === "build"
+            ? "Build"
+            : "Quick start";
+      const result = extractReaderMarkdownEvidence(
+        fetched("README.md", `## ${heading}\n\n\`${command}\``),
+      );
+
+      expect(result.commands).toMatchObject([{ kind: headingKind, command }]);
+    },
+  );
+
+  it.each([
+    ["Quick start", "npm install && npm start", "run"],
+    ["Development", "pnpm install; pnpm run dev", "develop"],
+    ["Quick start", "yarn && yarn start", "run"],
+  ] as const)(
+    "preserves %s startup semantics in the mixed control list %s",
+    (heading, command, expectedKind) => {
+      const result = extractReaderMarkdownEvidence(
+        fetched("README.md", `## ${heading}\n\n\`${command}\``),
+      );
+
+      expect(result.commands).toMatchObject([
+        { kind: expectedKind, command, disposition: "ready" },
+      ]);
+    },
+  );
+
+  it("keeps quoted and escaped separators inside reviewed install evidence without hiding a later start", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Quick start
+
+\`npm install "&&" npm start\`
+
+\`npm install \\&\\& npm start\`
+
+\`npm start\`
+`,
+      ),
+    );
+
+    expect(
+      result.commands.map(({ kind, command }) => ({ kind, command })),
+    ).toEqual([
+      { kind: "install", command: 'npm install "&&" npm start' },
+      { kind: "run", command: "npm start" },
+    ]);
+  });
+
+  it("keeps dangerous option-prefixed install tails reviewed while preserving a later run command", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Quick start
+
+\`npm --prefix ./web install && chmod 777 ./cache\`
+
+\`npm start\`
+`,
+      ),
+    );
+
+    expect(result.commands).toMatchObject([
+      {
+        kind: "install",
+        command: "npm --prefix ./web install && chmod 777 ./cache",
+        disposition: "review",
+      },
+      { kind: "run", command: "npm start", disposition: "ready" },
+    ]);
+  });
+
   it("keeps lowercase runtime requirements as dependencies before a later run command", () => {
     const result = extractReaderMarkdownEvidence(
       fetched(

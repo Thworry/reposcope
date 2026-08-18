@@ -8,6 +8,7 @@ import type {
 import {
   commandDisposition,
   documentedCommandDisposition,
+  documentedCommandKind,
   manifestReaderCommands,
 } from "./commands";
 
@@ -234,6 +235,138 @@ describe("documentedCommandDisposition", () => {
     "admits only documented command shape %s",
     (command, expected) => {
       expect(documentedCommandDisposition(command)).toBe(expected);
+    },
+  );
+});
+
+describe("documentedCommandKind", () => {
+  it.each([
+    ["npm install", "run", "install"],
+    ["pnpm i", "develop", "install"],
+    ["yarn add react", "run", "install"],
+    ["bun install", "develop", "install"],
+    ["sudo npm ci", "run", "install"],
+    [
+      "TOKEN=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa pnpm install",
+      "run",
+      "install",
+    ],
+    ["npm start", "run", "run"],
+    ["pnpm run dev", "develop", "develop"],
+    ["npm run install", "run", "run"],
+    ["pnpm test", "test", "test"],
+  ] as const)(
+    "routes %s from %s to %s without changing unrelated kinds",
+    (command, contextualKind, expected) => {
+      expect(documentedCommandKind(command, contextualKind)).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["npm --prefix ./web install", "install"],
+    ["npm --prefix=./web install", "install"],
+    ["npm --silent -- install", "install"],
+    ["pnpm --filter @scope/app install", "install"],
+    ["pnpm --filter=@scope/app -- install", "install"],
+    ["pnpm --recursive install", "install"],
+    ["yarn --cwd ./web install", "install"],
+    ["yarn --cwd=./web -- install", "install"],
+    ["bun --cwd ./web install", "install"],
+    ["bun --cwd=./web --silent install", "install"],
+    ["yarn", "install"],
+    ["npm", "run"],
+    ["pnpm", "run"],
+    ["bun", "run"],
+    ["npm --prefix install", "run"],
+    ["pnpm --filter install", "run"],
+    ["yarn --cwd", "run"],
+    ["bun --unknown ./web install", "run"],
+    ["npm --silent=value install", "run"],
+  ] as const)(
+    "parses bounded package-manager global options in %s",
+    (command, expected) => {
+      expect(documentedCommandKind(command, "run")).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["pnpm -C ./web install", "install"],
+    ["pnpm -C./web install", "install"],
+    ["pnpm -C=./web install", "install"],
+    ["pnpm -F @scope/app install", "install"],
+    ["pnpm -F@scope/app install", "install"],
+    ["pnpm -F=@scope/app install", "install"],
+    ["pnpm -r install", "install"],
+    ["pnpm -w install", "install"],
+    ["npm -g install", "install"],
+    ["npm -w web install", "install"],
+    ["npm -w=web install", "install"],
+    ["bun -C ./web install", "install"],
+    ["bun -c bunfig.toml install", "install"],
+    ["pnpm -C install", "run"],
+    ["pnpm -C= install", "run"],
+    ["pnpm -F install", "run"],
+    ["pnpm -F= install", "run"],
+    ["pnpm -rw install", "run"],
+    ["npm -w install", "run"],
+    ["npm -w= install", "run"],
+    ["npm -gw web install", "run"],
+    ["yarn -C ./web install", "run"],
+    ["bun -C install", "run"],
+    ["bun -z ./web install", "run"],
+  ] as const)(
+    "recognizes only documented, unambiguous short globals in %s",
+    (command, expected) => {
+      expect(documentedCommandKind(command, "run")).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["npm install && node server.js", "run"],
+    ["node server.js && npm install", "run"],
+    ["npm test && npm install", "test"],
+    ["pnpm install && npm run build", "build"],
+    ["npm run lint && yarn", "develop"],
+    ["npm install && pnpm doctor", "run"],
+    ["npm install && pnpm install", "install"],
+    ["yarn; bun install", "install"],
+    ["chmod 777 ./cache && npm install", "install"],
+    ["npm install && chmod 777 ./cache", "install"],
+    ["npm install && chmod 0777 ./cache", "install"],
+    ["npm install && rm -rf ./generated", "install"],
+    ["npm install && mkfs.ext4 /dev/example", "install"],
+    ["npm install && dd if=image.img of=/dev/example", "install"],
+    ["npm install && chmod 755 ./cache", "run"],
+    ["npm install && echo ready", "run"],
+    ["npm install && sudo node server.js", "run"],
+    ["npm install && env -S 'node server.js'", "run"],
+    ["npm install && sudo --unknown node server.js", "run"],
+    ["env -S 'npm install'", "run"],
+  ] as const)(
+    "requires every control-list segment to be understood in %s",
+    (command, expected) => {
+      expect(documentedCommandKind(command, expected)).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["npm install && npm start", "run"],
+    ["pnpm install; pnpm run dev", "develop"],
+    ["yarn && yarn start", "run"],
+    ["bun install || bun run dev", "develop"],
+    ['npm --prefix "./web && api" install', "install"],
+    ['npm install "&&" npm start', "install"],
+    [String.raw`npm install \&\& npm start`, "install"],
+    ["npm --prefix ./web install && chmod 777 ./cache", "install"],
+  ] as const)(
+    "uses quote-aware control-list semantics for %s",
+    (command, expected) => {
+      expect(
+        documentedCommandKind(
+          command,
+          expected === "develop" ? "develop" : "run",
+        ),
+      ).toBe(expected);
     },
   );
 });

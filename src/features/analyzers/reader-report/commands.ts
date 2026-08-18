@@ -17,6 +17,188 @@ const ROOT_PACKAGE_PATH = "package.json";
 
 type PackageManager = "pnpm" | "yarn" | "bun" | "npm";
 
+const DEPENDENCY_INSTALL_VERBS = Object.freeze({
+  npm: new Set(["add", "ci", "i", "install"]),
+  pnpm: new Set(["add", "i", "install"]),
+  yarn: new Set(["add", "install"]),
+  bun: new Set(["add", "i", "install"]),
+} as const satisfies Readonly<Record<PackageManager, ReadonlySet<string>>>);
+
+interface PackageManagerGlobalOptions {
+  readonly withValue: ReadonlySet<string>;
+  readonly withoutValue: ReadonlySet<string>;
+  readonly shortWithValue: ReadonlySet<string>;
+  readonly shortWithoutValue: ReadonlySet<string>;
+}
+
+const PACKAGE_MANAGER_GLOBAL_OPTIONS = Object.freeze({
+  npm: {
+    withValue: new Set([
+      "--cache",
+      "--prefix",
+      "--registry",
+      "--userconfig",
+      "--workspace",
+    ]),
+    withoutValue: new Set([
+      "--global",
+      "--ignore-scripts",
+      "--include-workspace-root",
+      "--offline",
+      "--silent",
+      "--workspaces",
+    ]),
+    shortWithValue: new Set(["-w"]),
+    shortWithoutValue: new Set(["-g"]),
+  },
+  pnpm: {
+    withValue: new Set([
+      "--config-dir",
+      "--dir",
+      "--filter",
+      "--store-dir",
+      "--workspace-dir",
+    ]),
+    withoutValue: new Set([
+      "--offline",
+      "--prefer-offline",
+      "--recursive",
+      "--silent",
+      "--workspace-root",
+    ]),
+    shortWithValue: new Set(["-C", "-F"]),
+    shortWithoutValue: new Set(["-r", "-w"]),
+  },
+  yarn: {
+    withValue: new Set(["--cache-folder", "--cwd", "--modules-folder"]),
+    withoutValue: new Set([
+      "--ignore-scripts",
+      "--json",
+      "--offline",
+      "--silent",
+      "--verbose",
+    ]),
+    shortWithValue: new Set(),
+    shortWithoutValue: new Set(),
+  },
+  bun: {
+    withValue: new Set(["--config", "--cwd"]),
+    withoutValue: new Set(["--silent", "--verbose"]),
+    shortWithValue: new Set(["-C", "-c"]),
+    shortWithoutValue: new Set(),
+  },
+} as const satisfies Readonly<
+  Record<PackageManager, PackageManagerGlobalOptions>
+>);
+
+type PackageManagerCommandKind = "install" | "startup";
+
+function isDocumentedAttachedShortValue(
+  manager: PackageManager,
+  option: string,
+): boolean {
+  if (manager === "npm") return /^-w=.+$/su.test(option);
+  if (manager !== "pnpm") return false;
+  if (!option.startsWith("-C") && !option.startsWith("-F")) return false;
+  const suffix = option.slice(2);
+  const value = suffix.startsWith("=") ? suffix.slice(1) : suffix;
+
+  return value.length > 0;
+}
+
+function isStartupScript(value: string | undefined): boolean {
+  const normalized = value?.toLocaleLowerCase("en-US");
+
+  return (
+    normalized === "dev" ||
+    normalized === "serve" ||
+    normalized === "start" ||
+    normalized?.startsWith("dev:") === true ||
+    normalized?.startsWith("serve:") === true ||
+    normalized?.startsWith("start:") === true
+  );
+}
+
+function packageManagerCommandKind(
+  manager: PackageManager,
+  arguments_: readonly string[],
+): PackageManagerCommandKind | null {
+  const options = PACKAGE_MANAGER_GLOBAL_OPTIONS[manager];
+  let index = 0;
+
+  while (index < arguments_.length) {
+    const option = arguments_[index] ?? "";
+
+    if (option === "--") {
+      if (arguments_[index + 1] === undefined) return null;
+      index += 1;
+      break;
+    }
+    if (!option.startsWith("-")) break;
+
+    if (option.startsWith("--")) {
+      const equals = option.indexOf("=");
+      const name = equals === -1 ? option : option.slice(0, equals);
+      const inlineValue = equals === -1 ? null : option.slice(equals + 1);
+
+      if (options.withValue.has(name)) {
+        if (inlineValue !== null) {
+          if (inlineValue.length === 0) return null;
+          index += 1;
+          continue;
+        }
+        const value = arguments_[index + 1];
+        if (value === undefined || value.startsWith("-")) return null;
+        index += 2;
+        continue;
+      }
+      if (options.withoutValue.has(name) && inlineValue === null) {
+        index += 1;
+        continue;
+      }
+
+      return null;
+    }
+
+    if (options.shortWithValue.has(option)) {
+      const value = arguments_[index + 1];
+      if (value === undefined || value.startsWith("-")) return null;
+      index += 2;
+      continue;
+    }
+    if (options.shortWithoutValue.has(option)) {
+      index += 1;
+      continue;
+    }
+
+    if (isDocumentedAttachedShortValue(manager, option)) {
+      index += 1;
+      continue;
+    }
+
+    return null;
+  }
+
+  const verb = arguments_[index]?.toLocaleLowerCase("en-US");
+
+  if (verb === undefined) return manager === "yarn" ? "install" : null;
+  if (DEPENDENCY_INSTALL_VERBS[manager].has(verb)) return "install";
+  if (verb === "start") return "startup";
+  if (
+    (verb === "run" || (manager === "npm" && verb === "run-script")) &&
+    isStartupScript(arguments_[index + 1])
+  ) {
+    return "startup";
+  }
+  if (manager !== "npm" && isStartupScript(verb)) return "startup";
+
+  return null;
+}
+
+function isPackageManager(value: string): value is PackageManager {
+  return Object.hasOwn(DEPENDENCY_INSTALL_VERBS, value);
+}
+
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -49,7 +231,7 @@ function containsUnsafeCodePoint(value: string): boolean {
   return false;
 }
 
-function normalizedVisibleCommand(command: string): string | null {
+function normalizedCommandSyntax(command: string): string | null {
   if (containsUnsafeCodePoint(command)) return null;
 
   const normalized = command.normalize("NFKC").trim();
@@ -58,13 +240,20 @@ function normalizedVisibleCommand(command: string): string | null {
   if (
     withoutPrompt.length === 0 ||
     Array.from(withoutPrompt).length > MAX_COMMAND_CODE_POINTS ||
-    containsUnsafeCodePoint(withoutPrompt) ||
-    containsCredentialLikeValue(withoutPrompt)
+    containsUnsafeCodePoint(withoutPrompt)
   ) {
     return null;
   }
 
   return withoutPrompt;
+}
+
+function normalizedVisibleCommand(command: string): string | null {
+  const normalized = normalizedCommandSyntax(command);
+
+  return normalized === null || containsCredentialLikeValue(normalized)
+    ? null
+    : normalized;
 }
 
 function executableName(token: string | undefined): string {
@@ -684,6 +873,40 @@ export function documentedCommandDisposition(
   }
 
   return reviewBeforeRunning(normalized) ? "review" : "ready";
+}
+
+/** Routes an already-admitted dependency installation command to its semantic slot. */
+export function documentedCommandKind(
+  command: string,
+  contextualKind: ReaderCommandKind,
+): ReaderCommandKind {
+  const normalized = normalizedCommandSyntax(command);
+
+  if (normalized === null) return contextualKind;
+  const scanned = scanShellCommand(normalized);
+  if (scanned.malformed) return contextualKind;
+  let includesInstall = false;
+
+  for (const pipeline of scanned.pipelines) {
+    for (const segment of pipeline) {
+      const unwrapped = unwrapRemoteSink(segment)?.command;
+
+      if (unwrapped === undefined || unwrapped.malformed) return contextualKind;
+      if (isPackageManager(unwrapped.executable)) {
+        const kind = packageManagerCommandKind(
+          unwrapped.executable,
+          unwrapped.arguments,
+        );
+
+        if (kind !== "install") return contextualKind;
+        includesInstall = true;
+        continue;
+      }
+      if (!dangerousCommand(unwrapped)) return contextualKind;
+    }
+  }
+
+  return includesInstall ? "install" : contextualKind;
 }
 
 function commandFact(

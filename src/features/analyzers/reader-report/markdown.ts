@@ -10,6 +10,7 @@ import {
   isSafeProjectBriefPath,
 } from "../../analysis/project-brief-safety";
 import {
+  documentedCommandKind,
   documentedCommandDisposition,
   isDocumentedRuntimeRequirement,
 } from "./commands";
@@ -1176,9 +1177,10 @@ export function extractReaderMarkdownEvidence(
       .trim()
       .replace(/^[$>](?:\s+|$)/u, "")
       .trim();
+    const resolvedKind = documentedCommandKind(candidate, kind);
 
     if (
-      commands.has(kind) ||
+      commands.has(resolvedKind) ||
       normalized.startsWith("#") ||
       /^(?:`{3,}|~{3,})/u.test(normalized)
     ) {
@@ -1186,10 +1188,10 @@ export function extractReaderMarkdownEvidence(
     }
     const disposition = documentedCommandDisposition(candidate);
     if (disposition === null) return;
-    commands.set(kind, {
+    commands.set(resolvedKind, {
       source,
       path: file.path,
-      kind,
+      kind: resolvedKind,
       command: disposition === "withheld" ? null : normalized,
       disposition,
     });
