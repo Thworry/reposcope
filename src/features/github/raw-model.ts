@@ -12,6 +12,9 @@ export interface RawRepositoryResponse {
   open_issues_count: number;
   topics: string[];
   license: { spdx_id: string | null } | null;
+  stargazers_count: number;
+  subscribers_count: number;
+  forks_count: number;
 }
 
 export interface RawCommitResponse {

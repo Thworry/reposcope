@@ -121,28 +121,44 @@ export function setCachedReport(
   report: AnalysisReport,
   nowMs: number,
 ): void {
-  let key: string;
+  let key: string | undefined;
 
   try {
     key = cacheKey(ref);
-    if (
-      !Number.isSafeInteger(nowMs) ||
-      nowMs < 0 ||
-      !isAnalysisReport(report) ||
-      !reportMatchesRef(report, ref)
-    ) {
+    if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
       safeRemove(key);
       return;
     }
     const serialized = JSON.stringify({ savedAt: nowMs, report });
 
-    if (byteLength(serialized) > MAX_CACHE_BYTES) {
+    if (
+      typeof serialized !== "string" ||
+      byteLength(serialized) > MAX_CACHE_BYTES
+    ) {
       safeRemove(key);
       return;
     }
+    const snapshot: unknown = JSON.parse(serialized);
+
+    if (
+      typeof snapshot !== "object" ||
+      snapshot === null ||
+      Array.isArray(snapshot) ||
+      Object.keys(snapshot).length !== 2 ||
+      !("savedAt" in snapshot) ||
+      !("report" in snapshot) ||
+      snapshot.savedAt !== nowMs ||
+      !isAnalysisReport(snapshot.report) ||
+      !reportMatchesRef(snapshot.report, ref)
+    ) {
+      safeRemove(key);
+      return;
+    }
+
     sessionStorage.setItem(key, serialized);
   } catch {
-    // Quota and privacy-mode failures cannot prevent analysis.
+    if (key !== undefined) safeRemove(key);
+    // Serialization, quota, and privacy-mode failures cannot prevent analysis.
   }
 }
 

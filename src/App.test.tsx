@@ -14,6 +14,7 @@ import {
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "./test/fixtures/metrics";
 import { buildFindings } from "./features/rules/findings";
@@ -62,6 +63,7 @@ function validReport(ref: RepoRef): AnalysisReport {
       analyzedAt,
     },
     projectBrief: perfectProjectBrief,
+    readerReport: structuredClone(perfectReaderReport),
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -103,8 +105,13 @@ describe("App", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "Inspect a public project before you depend on it.",
+        name: "Understand a public project before you depend on it.",
       }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Understand what a public project does, how to use it, and what to verify.",
+      ),
     ).toBeVisible();
     expect(screen.getByText(/read-only\. no login or token/i)).toBeVisible();
     expect(
@@ -120,7 +127,12 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "简体中文" }));
 
     expect(
-      screen.getByText("在依赖一个公开项目之前，先看清它。"),
+      screen.getByText("在依赖一个公开项目之前，先真正看懂它。"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "看懂一个公开项目做什么、怎么使用，以及哪些事项必须核实。",
+      ),
     ).toBeVisible();
     expect(
       screen.getByRole("heading", { name: "方法说明 1.0.0" }),

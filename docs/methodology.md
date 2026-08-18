@@ -4,6 +4,32 @@ This document is the public, reproducible contract for ruleset `1.0.0`. RepoScop
 
 All rules are deterministic. Threshold comparisons use unrounded counts and exact inclusive boundaries; only displayed values are rounded. Remote prose and code do not generate inferred narrative. Findings use versioned templates populated with paths, line ranges, counts, and metrics.
 
+## Reader evidence model
+
+The README-first evidence dossier is a deterministic, non-scoring view of the same immutable public evidence used by the technical report. README interpretation is deterministic and does not use AI. It does not change dimension scores, rule applicability, thresholds, weights, confidence, or findings. Its evidence status is exactly one of:
+
+- **Sufficient evidence to continue evaluation** when installation, run, recognized license, recent activity, and automated verification evidence are present and the repository is not archived;
+- **Key gaps require verification before use** when decisive evidence is established but at least one required signal is absent; or
+- **Public evidence is insufficient to judge** when decisive evidence is unknown or the scan has only metadata-level evidence.
+
+These labels describe evidence readiness, not project quality. The reader report does not prove suitability or safety, validate runtime behavior, audit dependencies, establish privacy compliance, or replace a reader's requirements and threat model.
+
+The dossier presents seven regions in this order: project orientation; community and maintenance facts; what the README says; core capabilities; documented workflow; README claims and repository observations; and RepoScope commentary. GitHub `stargazers_count`, `subscribers_count`, and `forks_count` provide Stars, Watch, and Forks respectively; `subscribers_count` is the GitHub source for **Watch**. Popularity is attention evidence, not quality or safety evidence. These counts remain outside scoring.
+
+Canonical reader signals cover archived state, installation, run path, recognized license evidence, recent activity, automated tests, continuous integration, coverage, security policy, version history, contribution guidance, issue or pull-request templates, dependency updates, and configuration examples. Missing evidence remains `Not present` or `Not established`; it is never invented from a repository name or guessed ecosystem command.
+
+Activity uses the same raw elapsed UTC-day calculation as maintenance scoring. A non-archived repository is recent through 180 exact UTC days; more than 180 and up to 365 days is the middle activity band; more than 365 days is stale. The Chinese interface describes the middle band equivalently as **超过 180 日且不超过 365 日**. An archived repository is never classified as recently active. Incomplete tree or fetch coverage makes reader sections partial rather than complete.
+
+Human-facing excerpts are bounded, deduplicated repository prose from recognized README or documentation sections. Repository language is preserved. HTML blocks, link destinations, raw URLs, credentials, control text, unsafe paths, and malformed constructs fail closed. Commands are inert text capped by kind and length; dangerous or remote-pipe shapes are labeled for review, and commands that fail the safe-text boundary are withheld. Source captions point to the inspected commit, while computed structural evidence is labeled **Deterministic analysis**.
+
+README profile caps are exact: overview 4; audiences 4; problems 4; use cases 4; capability groups 6 with 6 facts each; workflow 8; dependencies 8; limitations 6; maturity 6. Purpose excerpts and all earlier narrative groups participate in canonical NFKC deduplication before later groups and caps, preserving the first safe spelling and source order. Capability candidate storage is separately hard bounded; overflow fails closed for capability groups while other profile sections remain available.
+
+The preferred README is selected deterministically from the inspected tree. When the preferred README is missing, README interpretation is unavailable. When the preferred README was identified but not fetched, the interpretation is partial; a deterministic fallback may be retained as bounded evidence but never represents the preferred file as complete. Every serialized README-derived fact uses one exact selected evidence path.
+
+Commentary is derived only from serialized evidence and uses three exhaustive labels: **Worth noting**, **Verify before relying on it**, and **What this means in practice**. The first group is capped at three canonical items; verification and practical items retain their canonical order and bounded limits. Commentary distinguishes documented claims from unestablished evidence and does not turn omission into corroboration.
+
+After the dossier, the project decision summary and six reader chapters cover project-fit cautions, reliability, architecture, getting started, security and privacy, and maintenance and alternatives. A GitHub alternative search uses bounded generic evidence terms only; it is not a recommendation or ranking. Detailed score evidence stays in the closed technical appendix.
+
 ## Score model
 
 | Dimension                    | Weight |
@@ -100,16 +126,16 @@ The ratio rule is `not-applicable` when the tree has no supported-language sourc
 
 ### Maintenance health
 
-| Rule ID                             | Observable signal                                                 | Full |                       Partial |
-| ----------------------------------- | ----------------------------------------------------------------- | ---: | ----------------------------: |
-| `maintenance.activity`              | Not archived and `pushed_at` is within 180 exact UTC days         |    2 |               181–365 days: 1 |
-| `maintenance.lockfile`              | Recognized dependency lockfile exists                             |    2 |                             — |
-| `maintenance.dependency-updates`    | Dependabot or Renovate configuration exists                       |    1 |                             — |
-| `maintenance.templates`             | Issue or pull-request templates exist                             |    1 |                             — |
-| `maintenance.security`              | Security policy exists                                            |    1 |                             — |
-| `maintenance.code-of-conduct`       | Code of conduct exists                                            |    1 |                             — |
-| `maintenance.version-history`       | Version-history file has a version heading                        |    1 |                             — |
-| `maintenance.generated-directories` | No committed dependency/build/cache directory appears in the tree |    1 | Exactly one such directory: 0 |
+| Rule ID                             | Observable signal                                                 | Full |                             Partial |
+| ----------------------------------- | ----------------------------------------------------------------- | ---: | ----------------------------------: |
+| `maintenance.activity`              | Not archived and `pushed_at` is within 180 exact UTC days         |    2 | More than 180 and up to 365 days: 1 |
+| `maintenance.lockfile`              | Recognized dependency lockfile exists                             |    2 |                                   — |
+| `maintenance.dependency-updates`    | Dependabot or Renovate configuration exists                       |    1 |                                   — |
+| `maintenance.templates`             | Issue or pull-request templates exist                             |    1 |                                   — |
+| `maintenance.security`              | Security policy exists                                            |    1 |                                   — |
+| `maintenance.code-of-conduct`       | Code of conduct exists                                            |    1 |                                   — |
+| `maintenance.version-history`       | Version-history file has a version heading                        |    1 |                                   — |
+| `maintenance.generated-directories` | No committed dependency/build/cache directory appears in the tree |    1 |       Exactly one such directory: 0 |
 
 Activity uses exact elapsed 24-hour days in UTC and the report's explicit analysis timestamp.
 

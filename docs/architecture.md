@@ -18,13 +18,20 @@ Repository URL
   → deterministic bounded file selection
   → immutable raw text reads (maximum concurrency six)
   → lazy JS/TS and/or Python parser modules in a Web Worker
-  → versioned metrics, rules, confidence, and findings
-  → strict report validation
-  → bilingual React text rendering
-  → optional validated 15-minute session cache
+  → general evidence and project brief
+  → deep analyzers and finalized coverage
+  → bounded README-first reader report
+  → isolated score input, versioned metrics, rules, confidence, and findings
+  → descriptor preflight, detached clone, and strict report validation
+  → optional snapshot-validated 15-minute session cache
+  → bilingual React README-first rendering with a closed technical appendix
 ```
 
 The main thread owns form state, language, progress, cancellation, report validation, and rendering. The worker owns acquisition, selection, raw-file scheduling, parser loading, metrics, and scoring. Commands and events use serializable typed objects with a request ID; late progress or results from an older run cannot replace a newer run.
+
+Inside the worker, general evidence and the project brief are derived first. Then the deep analyzers finish and coverage is finalized. Next the bounded README-first reader report is derived from the same immutable snapshot. In other words, coverage and static analysis complete before the non-scoring reader report is derived; the reader report remains outside the unchanged scoring inputs, and scoring then runs from those unchanged inputs. More specifically, the isolated scoring input is scored without community popularity counts or reader evidence. The worker combines those products, and the complete report is strictly cloned and validated as a detached snapshot; that snapshot is strictly validated before it reaches the cache or UI. At the presentation boundary, the README evidence dossier renders before the decision summary and six reader chapters. Scores, confidence, rule evidence, refresh, and copy actions live in a closed technical appendix; opening the disclosure changes presentation only and does not refetch or recompute repository evidence.
+
+The canonical report pipeline is contiguous: GitHub metadata and immutable tree evidence → preferred README selection and a single bounded safe scan → README interpretation and broad repository corroboration → unchanged scoring over a separate input → combined strict report guard → snapshot-validated session cache → React README-first UI and closed technical appendix. The analysis service validates the combined report, attempts the validated cache snapshot, and only then returns the report to React; denied or unavailable storage degrades safely without changing the evidence or UI order.
 
 ## Fixed endpoints
 
@@ -70,6 +77,18 @@ Only UTF-8 text is accepted. Streaming reads stop when the individual-file limit
 The recursive GitHub tree includes only validated ordinary blobs with normal file modes. Symlinks, submodules, malformed paths, duplicate paths, invalid sizes, binary/generated content, and excluded dependency/build/cache directories are never sent to a parser. Lockfile presence can be recorded from the tree without downloading its body.
 
 ## Analysis modules
+
+The reader-report path is deliberately split into bounded extraction, deterministic assembly, strict transport validation, and presentation:
+
+- `src/features/analyzers/reader-report/markdown.ts` extracts bounded human-facing Markdown evidence without rendering repository HTML.
+- `src/features/analyzers/reader-report/commands.ts` keeps repository commands inert, classifies review-sensitive shapes, and never executes or guesses commands.
+- `src/features/analyzers/reader-report.ts` assembles the canonical six-section, non-scoring reader evidence model.
+- `src/features/worker/analysis.worker.ts` completes coverage and static analysis, derives reader evidence, and only then calls the unchanged scorer; reader evidence never enters the score input.
+- `src/features/analysis/guards.ts` strictly validates the full report, frozen vocabularies, caps, source provenance, safety boundaries, and recomputed reader states.
+- `src/features/cache/report-cache.ts` serializes, reparses, and validates a snapshot before storing the bounded report in `sessionStorage`.
+- `src/components/reader-report.tsx` renders repository prose as React text with immutable source captions and inert command blocks.
+- `src/components/readme-interpretation.tsx` renders the seven-region README evidence dossier, semantic community facts, ordered workflow, claim-versus-observation comparison, and canonical commentary.
+- `src/components/technical-appendix.tsx` owns the default-closed scoring and methodology disclosure.
 
 - `features/repository` parses canonical repository and share URLs.
 - `features/github` validates hostile REST shapes, constructs the three endpoints, merges rate metadata, and streams bounded raw text.

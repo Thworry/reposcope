@@ -14,10 +14,73 @@ import {
   validPyprojectToml,
 } from "../../test/fixtures/text-files";
 import {
+  perfectCoverage,
+  perfectCycles,
+  perfectDuplicates,
+  perfectGeneralMetrics,
+  perfectLanguageAnalysis,
+  perfectRepository,
+} from "../../test/fixtures/metrics";
+import { scoreProject } from "../rules/rules";
+import {
   analyzeGeneralRepository,
+  preferredReadme,
   readPackageJsonEvidence,
   readPyprojectTomlEvidence,
 } from "./general";
+
+describe("preferredReadme", () => {
+  it("uses the canonical ReaderReport policy independent of input order", () => {
+    const exact = fetchedTextFile("README.md", "Exact README.");
+    const variant = fetchedTextFile("README_a.md", "Variant README.");
+
+    expect(preferredReadme([variant, exact])?.path).toBe("README.md");
+    expect(preferredReadme([exact, variant])?.path).toBe("README.md");
+    expect(
+      preferredReadme([
+        fetchedTextFile("README.exe", "Executable lookalike."),
+        fetchedTextFile("README-guide.md", "Guide README."),
+      ])?.path,
+    ).toBe("README-guide.md");
+  });
+
+  it.each([
+    ["exact", ["README.md"], "README.md"],
+    ["readmecopy", ["READMECOPY.md"], undefined],
+    ["readmeevil", ["READMEevil.md"], undefined],
+    ["readme2", ["README2.md"], undefined],
+    ["localized", ["README.zh-CN.md"], "README.zh-CN.md"],
+    ["github subdirectory", [".github/README.md"], ".github/README.md"],
+    ["other subdirectory", ["docs/README.md"], undefined],
+    ["case folding", ["ReadMe.MD"], "ReadMe.MD"],
+    ["NFKC folding", ["ＲＥＡＤＭＥ.md"], "ＲＥＡＤＭＥ.md"],
+    ["unsupported extension", ["README.exe"], undefined],
+    [
+      "exact-name priority",
+      ["README.md", "READMECOPY.md", "README_a.md", "README2.md"],
+      "README.md",
+    ],
+    [
+      "reverse exact-name priority",
+      ["README2.md", "README_a.md", "READMECOPY.md", "README.md"],
+      "README.md",
+    ],
+    [
+      "root before github scope",
+      [".github/README_a.md", "READMECOPY.md"],
+      ".github/README_a.md",
+    ],
+    ["stable spelling order", ["ReadMe.MD", "README.md"], "README.md"],
+    ["stable reversed spelling order", ["README.md", "ReadMe.MD"], "README.md"],
+  ] as const)(
+    "matches the shared reader preference for %s",
+    (_label, paths, expected) => {
+      expect(
+        preferredReadme(paths.map((path) => fetchedTextFile(path, path)))?.path,
+      ).toBe(expected);
+    },
+  );
+});
 
 const repository: RepositoryMetadata = {
   owner: "owner",
@@ -33,6 +96,9 @@ const repository: RepositoryMetadata = {
   pushedAt: "2026-08-01T00:00:00Z",
   size: 10,
   openIssuesCount: 0,
+  starsCount: 1_284,
+  watchersCount: 37,
+  forksCount: 146,
   topics: [],
   licenseSpdxId: "MIT",
 };
@@ -53,6 +119,88 @@ function tree(...paths: string[]): NormalizedTree {
     skippedEntries: [],
   };
 }
+
+describe("frozen scorer README predicate", () => {
+  it.each([
+    ["README.md", true],
+    ["READMECOPY.md", true],
+    ["READMEevil.md", true],
+    ["README2.md", true],
+    ["README.zh-CN.md", true],
+    [".github/README.md", true],
+    ["docs/README.md", false],
+    ["ReadMe.MD", true],
+    ["ＲＥＡＤＭＥ.md", false],
+    ["README.exe", false],
+  ] as const)("matches 7481795 for %s", (path, expected) => {
+    expect(
+      analyzeGeneralRepository({ repository, tree: tree(path), files: [] })
+        .hasReadme,
+    ).toBe(expected);
+  });
+
+  it("keeps exact and legacy-prefix inputs score-equivalent without changing a perfect 100", () => {
+    const exact = analyzeGeneralRepository({
+      repository,
+      tree: tree("README.md"),
+      files: [fetchedTextFile("README.md", englishReadme)],
+    });
+    const legacyPrefix = analyzeGeneralRepository({
+      repository,
+      tree: tree("READMECOPY.md"),
+      files: [fetchedTextFile("READMECOPY.md", englishReadme)],
+    });
+    const scoringInput = {
+      repository: perfectRepository,
+      language: perfectLanguageAnalysis,
+      duplicates: perfectDuplicates,
+      cycles: perfectCycles,
+      coverage: perfectCoverage,
+      analyzedAt: "2026-08-11T12:00:00Z",
+    } as const;
+
+    expect(legacyPrefix).toEqual(exact);
+    expect(scoreProject({ ...scoringInput, general: legacyPrefix })).toEqual(
+      scoreProject({ ...scoringInput, general: exact }),
+    );
+    expect(
+      scoreProject({ ...scoringInput, general: perfectGeneralMetrics }).overall,
+    ).toEqual({
+      score: 100,
+      label: "strong",
+      generalOnly: false,
+      preliminary: false,
+    });
+  });
+
+  it("keeps the frozen locale preference private to scorer evidence", () => {
+    const exact = fetchedTextFile(
+      "README.md",
+      "# Exact\n\nNo installation guidance is documented here.",
+    );
+    const legacyPreferred = fetchedTextFile(
+      "README_a.md",
+      "# Variant\n\n## Install\n\n```sh\npnpm install\n```",
+    );
+
+    for (const files of [
+      [exact, legacyPreferred],
+      [legacyPreferred, exact],
+    ]) {
+      expect(
+        analyzeGeneralRepository({
+          repository,
+          tree: tree("README.md", "README_a.md"),
+          files,
+        }),
+      ).toMatchObject({
+        hasReadme: true,
+        installHeading: true,
+        installCommand: true,
+      });
+    }
+  });
+});
 
 describe("structured manifest evidence", () => {
   it("reads validated package.json entry, scripts, coverage, and version facts", () => {

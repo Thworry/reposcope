@@ -7,6 +7,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AnalysisReport } from "../features/analysis/model";
+import { perfectReaderReport } from "../test/fixtures/metrics";
 import { ReportSummary } from "./report-summary";
 
 const report = {
@@ -34,6 +35,7 @@ const report = {
     kinds: [{ kind: "application", source: "manifest", path: "package.json" }],
     cautions: [],
   },
+  readerReport: structuredClone(perfectReaderReport),
   overall: {
     score: 67,
     label: "needs-attention",
@@ -64,27 +66,26 @@ const report = {
 } satisfies AnalysisReport;
 
 describe("ReportSummary", () => {
-  it("renders the project brief once, omits duplicate raw metadata, and makes numeric scope primary", () => {
+  it("renders only immutable repository identity metadata", () => {
     render(<ReportSummary report={report} language="en" />);
 
     expect(
       screen.getByRole("heading", { level: 2, name: "owner/repo" }),
     ).toBeVisible();
     expect(screen.queryByText('<img src=x onerror="alert(1)">')).toBeNull();
-    expect(
-      screen.getAllByRole("region", { name: "Project brief" }),
-    ).toHaveLength(1);
-    expect(screen.getByText("A bounded project purpose.")).toBeVisible();
     expect(document.querySelector("img")).toBeNull();
-    expect(screen.getByText("67 / 100")).toBeVisible();
-    expect(screen.getByText(/Needs attention/i)).toBeVisible();
-    expect(screen.getByText(/General-only/i)).toBeVisible();
-    expect(screen.getByText(/Preliminary/i)).toBeVisible();
-    expect(screen.getByText(/58%.*Low confidence/i)).toBeVisible();
-    expect(
-      screen.getByText(/12 selected.*10 fetched.*8 parsed/i),
-    ).toBeVisible();
     expect(screen.getByText(report.repository.commitSha)).toBeVisible();
+    expect(screen.getByText("main")).toBeVisible();
+    expect(screen.getByText(/Aug 11, 2026/i)).toBeVisible();
+
+    expect(screen.queryByRole("region", { name: "Project brief" })).toBeNull();
+    expect(screen.queryByText("A bounded project purpose.")).toBeNull();
+    expect(screen.queryByText("67 / 100")).toBeNull();
+    expect(screen.queryByText(/Needs attention/i)).toBeNull();
+    expect(screen.queryByText(/General-only/i)).toBeNull();
+    expect(screen.queryByText(/Preliminary/i)).toBeNull();
+    expect(screen.queryByText(/58%.*Low confidence/i)).toBeNull();
+    expect(screen.queryByText(/12 selected.*10 fetched.*8 parsed/i)).toBeNull();
   });
 
   it("keeps the repository link at the minimum touch target size", () => {

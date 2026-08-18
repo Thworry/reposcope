@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   perfectGeneralMetrics,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type {
@@ -12,6 +13,9 @@ import type {
   SelectedFile,
 } from "../analysis/model";
 import { isAnalysisReport } from "../analysis/guards";
+import { analyzeGeneralRepository } from "../analyzers/general";
+import { analyzeProjectBrief } from "../analyzers/project-brief";
+import { analyzeReaderReport } from "../analyzers/reader-report";
 import { GitHubApiError } from "../github/github-client";
 import { buildFindings } from "../rules/findings";
 import { scoreProject } from "../rules/rules";
@@ -118,6 +122,7 @@ function dependenciesFor(
     fetchFile: vi.fn(fetchFile),
     analyzeGeneral: vi.fn().mockReturnValue(perfectGeneralMetrics),
     projectBrief: vi.fn().mockReturnValue(perfectProjectBrief),
+    readerReport: vi.fn(analyzeReaderReport),
     loadJavaScriptTypeScript: vi
       .fn()
       .mockResolvedValue({ analyzeJavaScriptTypeScript: emptyLanguage }),
@@ -171,6 +176,217 @@ function completedReport(events: readonly WorkerEvent[]) {
 }
 
 describe("executeAnalysis", () => {
+  it("emits a guard-valid report with one canonical README path", async () => {
+    const exactText =
+      "# Exact\n\n## Overview\n\nCanonical project purpose.\n\n## Usage\n\n```sh\npnpm run dev\n```";
+    const variantText =
+      "# Variant\n\n## Overview\n\nVariant project purpose.\n\n## Install\n\n```sh\npnpm install\n```";
+    const entries = [
+      {
+        path: "README_a.md",
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha: "b".repeat(40),
+        size: new TextEncoder().encode(variantText).byteLength,
+      },
+      {
+        path: "README.md",
+        mode: "100644" as const,
+        type: "blob" as const,
+        sha,
+        size: new TextEncoder().encode(exactText).byteLength,
+      },
+    ];
+    const tree = normalizeTree(entries, false);
+    const plan = selectFiles(tree, {});
+    const dependencies = dependenciesFor(plan.selected, ({ path }) => {
+      const text = path === "README.md" ? exactText : variantText;
+
+      return Promise.resolve({
+        path,
+        text,
+        bytes: new TextEncoder().encode(text).byteLength,
+      });
+    });
+    dependencies.normalize = normalizeTree;
+    dependencies.select = selectFiles;
+    dependencies.analyzeGeneral = analyzeGeneralRepository;
+    dependencies.projectBrief = analyzeProjectBrief;
+    dependencies.score = scoreProject;
+    dependencies.findings = buildFindings;
+    vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+      repository: perfectRepository,
+      commitSha: sha,
+      treeSha: sha,
+      entries,
+      treeComplete: true,
+      rateLimit: { remaining: 57, resetAt: null },
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 69, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(isAnalysisReport(report)).toBe(true);
+    expect(
+      report.projectBrief.excerpts.filter(({ source }) => source === "readme"),
+    ).toEqual([
+      {
+        source: "readme",
+        text: "Canonical project purpose.",
+        path: "README.md",
+      },
+    ]);
+    expect(report.readerReport.gettingStarted.commands).toContainEqual({
+      kind: "run",
+      source: "readme",
+      command: "pnpm run dev",
+      disposition: "ready",
+      path: "README.md",
+    });
+    expect(
+      JSON.stringify({
+        projectBrief: report.projectBrief,
+        readerReport: report.readerReport,
+      }),
+    ).not.toContain("README_a.md");
+  });
+
+  it("calls the reader analyzer once and serializes its output", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    const readerReport = vi.fn().mockReturnValue(perfectReaderReport);
+    dependencies.readerReport = readerReport;
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 70, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    expect(readerReport).toHaveBeenCalledOnce();
+    expect(readerReport.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+      vi.mocked(dependencies.score).mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(completedReport(events).readerReport).toEqual(perfectReaderReport);
+    expect(completedReport(events).readerReport.community).toEqual(
+      perfectReaderReport.community,
+    );
+    expect(readerReport).toHaveBeenCalledWith({
+      repository: perfectRepository,
+      tree: { files: [], complete: true, skippedEntries: [] },
+      files: [],
+      general: perfectGeneralMetrics,
+      projectBrief: perfectProjectBrief,
+      coverage: completedReport(events).coverage,
+      analyzedAt,
+    });
+    expect(vi.mocked(dependencies.score).mock.calls[0]?.[0]).not.toHaveProperty(
+      "readerReport",
+    );
+    expect(vi.mocked(dependencies.score).mock.calls[0]?.[0]).not.toHaveProperty(
+      "community",
+    );
+    const scoreRepository = vi.mocked(dependencies.score).mock.calls[0]?.[0]
+      .repository;
+    expect(scoreRepository).not.toHaveProperty("starsCount");
+    expect(scoreRepository).not.toHaveProperty("watchersCount");
+    expect(scoreRepository).not.toHaveProperty("forksCount");
+    expect(scoreRepository).toEqual(
+      Object.fromEntries(
+        Object.entries(perfectRepository).filter(
+          ([key]) =>
+            key !== "starsCount" &&
+            key !== "watchersCount" &&
+            key !== "forksCount",
+        ),
+      ),
+    );
+  });
+
+  it("falls back only when reader analysis throws and preserves scoring", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.readerReport).mockImplementation(() => {
+      throw new Error("reader-only failure");
+    });
+    const expectedScored = {
+      rules: [],
+      dimensions: [],
+      overall: {
+        score: 17,
+        label: "limited" as const,
+        generalOnly: true,
+        preliminary: true,
+      },
+      confidence: { percent: 23, label: "low" as const },
+    };
+    dependencies.score = vi.fn().mockReturnValue(expectedScored);
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 71, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(dependencies.readerReport).toHaveBeenCalledOnce();
+    expect(dependencies.score).toHaveBeenCalledOnce();
+    expect(report.overall).toEqual(expectedScored.overall);
+    expect(report.confidence).toEqual(expectedScored.confidence);
+    expect(report.dimensions).toEqual(expectedScored.dimensions);
+    expect(report.readerReport.reliability.status).toBe(
+      "insufficient-evidence",
+    );
+    expect(
+      report.readerReport.reliability.signals.every(
+        ({ state }) => state === "unknown",
+      ),
+    ).toBe(true);
+    expect(report.readerReport.community).toEqual({
+      starsCount: perfectRepository.starsCount,
+      watchersCount: perfectRepository.watchersCount,
+      forksCount: perfectRepository.forksCount,
+    });
+    expect(report.readerReport.readme).toMatchObject({
+      availability: "unavailable",
+      overview: [],
+      commentary: [],
+    });
+  });
+
+  it("does not turn scoring failures into reader fallbacks", async () => {
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.score).mockImplementation(() => {
+      throw new Error("scoring failure");
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 72, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    expect(dependencies.readerReport).toHaveBeenCalledOnce();
+    expect(events.some(({ type }) => type === "complete")).toBe(false);
+    expect(events).toContainEqual({
+      type: "error",
+      requestId: 72,
+      error: { kind: "worker" },
+    });
+  });
+
   it("emits ordered progress, bounds concurrency, and lazy loads detected parsers", async () => {
     let active = 0;
     let maximum = 0;
@@ -309,6 +525,35 @@ describe("executeAnalysis", () => {
       expect(JSON.stringify(report)).not.toContain(credential);
     },
   );
+
+  it("redacts a compatibility-equivalent credential from repository metadata", async () => {
+    const fullwidthGitHubToken = `ｇｈｐ＿${"ａ".repeat(36)}`;
+    const dependencies = dependenciesFor([], () =>
+      Promise.reject(new Error("must not fetch")),
+    );
+    vi.mocked(dependencies.fetchSnapshot).mockResolvedValue({
+      repository: {
+        ...perfectRepository,
+        description: `Purpose ${fullwidthGitHubToken}`,
+      },
+      commitSha: "a".repeat(40),
+      treeSha: sha,
+      entries: [],
+      treeComplete: true,
+      rateLimit: { remaining: 57, resetAt: null },
+    });
+    const { events, emit } = eventCollector();
+
+    await executeAnalysis(
+      { type: "start", requestId: 860, ref, analyzedAt },
+      dependencies,
+      emit,
+    );
+
+    const report = completedReport(events);
+    expect(report.repository.description).toBeNull();
+    expect(JSON.stringify(report)).not.toContain(fullwidthGitHubToken);
+  });
 
   it.each([
     "Password: configure it in settings.",

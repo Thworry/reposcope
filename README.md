@@ -13,16 +13,38 @@ RepoScope is an evidence inspector, not a verdict. It does not run a repository,
 1. Open the [RepoScope site](https://thworry.github.io/reposcope/).
 2. Paste one public URL in the form `https://github.com/owner/repository`.
 3. Choose **Analyze repository**. RepoScope handles one repository at a time.
-4. Start with the project brief, then review the score, confidence, six dimensions, strengths, improvements, coverage, and file-linked evidence.
+4. Start with the README-first evidence dossier and decision summary. Open **Technical evidence and methodology** only when you need the score, confidence, six dimensions, strengths, improvements, coverage, and rule-level evidence; it is closed by default.
 5. Use **English / 简体中文** to change the interface language. Switching language does not refetch data or recompute scores.
 
 A successful report has a share URL containing only the repository slug. A fresh scan makes exactly three unauthenticated, read-only GitHub REST requests, then bounded reads from immutable raw-file URLs pinned to the inspected commit.
 
 General inspection works for repositories in any language. Deep static metrics are available for JavaScript, TypeScript, and Python. When supported source does not meet the applicability threshold, readability and complexity are unavailable and the overall result is labeled **general-only** and **preliminary**.
 
-For any inspected public repository, the deterministic project brief keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. The brief does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
+For any inspected public repository, the deterministic reader report keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. The report does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
 
 See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
+
+## README-first evidence dossier
+
+Completed reports begin with a seven-region README-first evidence dossier for people evaluating an unfamiliar project:
+
+1. **Project orientation** presents the public repository description and bounded project brief with source captions.
+2. **Community and maintenance facts** shows exact Stars, Watch, Forks, open issues, last push, and license evidence in one semantic definition list.
+3. **What the README says** organizes bounded README overview, audience, problem, use-case, dependency, limitation, and maturity statements without rewriting repository prose.
+4. **Core capabilities** groups the capabilities documented by the repository.
+5. **Documented workflow** presents the repository's ordered process as text that remains understandable without its connecting line.
+6. **README claims and repository observations** separates repository claims from broad project-kind, ecosystem, and source-area observations. It does not expose rule or function-level scoring detail.
+7. **RepoScope commentary** groups deterministic notes under **Worth noting**, **Verify before relying on it**, and **What this means in practice**.
+
+GitHub's `stargazers_count`, `subscribers_count`, and `forks_count` supply Stars, Watch, and Forks respectively; `subscribers_count` is labeled **Watch**. These figures describe public attention. Popularity is not proof of quality or safety.
+
+Repository-authored prose stays in its source language when the interface switches language. README interpretation is deterministic and does not use AI; RepoScope does not use an AI service anywhere in the scan. If no preferred README is found, the dossier says so. If a preferred README is known but was not fetched, the UI presents a partial README interpretation instead of filling gaps.
+
+The dossier is followed by the project decision summary and six numbered, evidence-linked chapters covering project-fit cautions, reliability, broad architecture, installation and development, security and privacy, and maintenance and alternatives.
+
+The evidence status is one of **Sufficient evidence to continue evaluation**, **Key gaps require verification before use**, or **Public evidence is insufficient to judge**. These statuses are deterministic, non-scoring summaries of the inspected public evidence. They do not prove that a project is suitable, correct, secure, private, or safe.
+
+Repository-authored commands are displayed as inert text and are never run. Commands marked for review should be inspected before copying. Source captions link only to the immutable inspected commit. Use the GitHub alternative search as a starting point, then apply the same evidence checks to every candidate. The scoring report and detailed methodology remain available in the **Technical evidence and methodology** appendix, which is closed by default and can be opened without refetching or recomputing the repository.
 
 ## Example report walkthrough
 

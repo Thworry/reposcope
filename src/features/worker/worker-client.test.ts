@@ -7,6 +7,7 @@ import {
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import type { AnalysisReport, ProjectBrief } from "../analysis/model";
@@ -61,6 +62,7 @@ function validReport(): AnalysisReport {
       analyzedAt,
     },
     projectBrief: perfectProjectBrief,
+    readerReport: structuredClone(perfectReaderReport),
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,
@@ -157,6 +159,85 @@ describe("runAnalysis", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
+  it("rejects an old completion without a reader report", async () => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = structuredClone(validReport()) as unknown as Record<
+      string,
+      unknown
+    >;
+    delete report.readerReport;
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "complete", requestId: start.requestId, report },
+      }),
+    );
+
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+  });
+
+  it.each(["community", "readme"] as const)(
+    "rejects an old completion without reader %s evidence",
+    async (key) => {
+      const worker = new FakeWorker();
+      const run = runAnalysis(
+        { owner: "example", repo: "project" },
+        { workerFactory: () => worker as unknown as Worker },
+      );
+      const start = worker.postMessage.mock.calls[0]?.[0] as {
+        requestId: number;
+      };
+      const report = validReport();
+      Reflect.deleteProperty(report.readerReport, key);
+
+      worker.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "complete", requestId: start.requestId, report },
+        }),
+      );
+
+      await expect(run.promise).rejects.toMatchObject({
+        detail: { kind: "worker" },
+      });
+    },
+  );
+
+  it("rejects an unsafe README profile completion", async () => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    const firstWorkflow = report.readerReport.readme.workflow[0];
+    expect(firstWorkflow).toBeDefined();
+    if (firstWorkflow !== undefined) {
+      firstWorkflow.text = `ghp_${"a".repeat(36)}`;
+    }
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "complete", requestId: start.requestId, report },
+      }),
+    );
+
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+  });
+
   it.each([
     ["password assignment", "password=hunter2"],
     ["inline password assignment", "password=`hunter2`"],
@@ -174,6 +255,38 @@ describe("runAnalysis", () => {
     };
     const report = validReport();
     report.repository.description = `Purpose ${credential}`;
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "complete",
+          requestId: start.requestId,
+          report,
+        },
+      }),
+    );
+
+    await expect(run.promise).rejects.toBeInstanceOf(RepositoryAnalysisError);
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+  });
+
+  it("rejects a completion containing a compatibility-equivalent credential", async () => {
+    const fullwidthGitHubToken = `ｇｈｐ＿${"ａ".repeat(36)}`;
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    const firstExcerpt = report.projectBrief.excerpts[0];
+    expect(firstExcerpt).toBeDefined();
+    if (firstExcerpt === undefined) throw new Error("Missing fixture excerpt");
+    firstExcerpt.text = `Purpose ${fullwidthGitHubToken}`;
 
     worker.dispatchEvent(
       new MessageEvent("message", {

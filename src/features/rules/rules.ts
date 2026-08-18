@@ -8,7 +8,7 @@ import type {
   LanguageAnalysis,
   LocalizedDescriptor,
   OverallResult,
-  RepositoryMetadata,
+  ScoringRepositoryMetadata,
   RuleResult,
   RuleState,
   ScoredProject,
@@ -752,7 +752,7 @@ export function scoreRule(ruleId: string, metrics: RuleMetrics): RuleResult {
 
 /** Complete validated static evidence required for deterministic project scoring. */
 export interface ScoreProjectInput {
-  repository: RepositoryMetadata;
+  repository: ScoringRepositoryMetadata;
   general: GeneralMetrics;
   language: LanguageAnalysis;
   duplicates: DuplicateMetrics;
