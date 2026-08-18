@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { perfectReaderReport } from "../../test/fixtures/metrics";
+import * as readerReportPolicy from "./reader-report-policy";
 import {
   READER_ACTIVITY_BANDS,
   READER_AVAILABILITY,
@@ -340,6 +341,47 @@ describe("reader report reliability policy", () => {
 });
 
 describe("README interpretation policy", () => {
+  it("freezes exact raw manifest names separately from normalized serialized IDs", () => {
+    const expected = {
+      "build.gradle": "build.gradle",
+      "build.gradle.kts": "build.gradle.kts",
+      "Cargo.toml": "cargo.toml",
+      "composer.json": "composer.json",
+      Gemfile: "gemfile",
+      "go.mod": "go.mod",
+      "package.json": "package.json",
+      "Package.swift": "package.swift",
+      "pom.xml": "pom.xml",
+      "pubspec.yaml": "pubspec.yaml",
+      "pyproject.toml": "pyproject.toml",
+    } as const;
+    const policy = readerReportPolicy as unknown as {
+      READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID?: unknown;
+      observedReaderConventionalManifest(value: string): string | null;
+      readerConventionalManifest(value: string): string | null;
+    };
+
+    expect(policy.READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID).toEqual(
+      expected,
+    );
+    expect(
+      Object.isFrozen(policy.READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID),
+    ).toBe(true);
+    for (const [rawName, id] of Object.entries(expected)) {
+      expect(policy.observedReaderConventionalManifest(rawName)).toBe(id);
+    }
+    expect(policy.observedReaderConventionalManifest("cargo.toml")).toBeNull();
+    expect(
+      policy.observedReaderConventionalManifest("Package.json"),
+    ).toBeNull();
+    expect(
+      policy.observedReaderConventionalManifest("Ｐａｃｋａｇｅ．ｊｓｏｎ"),
+    ).toBeNull();
+    expect(policy.readerConventionalManifest("ＣＡＲＧＯ．ＴＯＭＬ")).toBe(
+      "cargo.toml",
+    );
+  });
+
   it("freezes the exact commentary vocabulary and canonical groups", () => {
     expect(READER_COMMENTARY_IDS).toEqual([
       "readme-substantial-overview",

@@ -21,6 +21,10 @@ import {
   toPathComparisonKey,
 } from "../scanner/file-registry";
 import { findMarkdownEvidence } from "./line-metrics";
+import {
+  compareReadmePaths,
+  isCanonicalReadmePath,
+} from "./reader-report/readme-policy";
 
 export interface StructuredManifestEvidence {
   hasStructuredEntryPoint: boolean;
@@ -341,10 +345,6 @@ function scopedDocument(
   );
 }
 
-function isReadme(path: string): boolean {
-  return scopedDocument(path, ["", ".github"], ["readme"]);
-}
-
 function isContribution(path: string): boolean {
   return scopedDocument(path, ["", ".github", "docs"], ["contributing"]);
 }
@@ -482,19 +482,8 @@ export function preferredReadme(
   files: readonly FetchedTextFile[],
 ): FetchedTextFile | undefined {
   return [...files]
-    .filter((file) => isReadme(file.path))
-    .sort((left, right) => {
-      const leftRoot = directory(left.path) === "" ? 0 : 1;
-      const rightRoot = directory(right.path) === "" ? 0 : 1;
-
-      return (
-        leftRoot - rightRoot ||
-        toPathComparisonKey(left.path).localeCompare(
-          toPathComparisonKey(right.path),
-          "en-US",
-        )
-      );
-    })[0];
+    .filter((file) => isCanonicalReadmePath(file.path))
+    .sort((left, right) => compareReadmePaths(left.path, right.path))[0];
 }
 
 interface DocumentedCommandFacts {
@@ -780,7 +769,7 @@ export function analyzeGeneralRepository(
   const hasTreeTestConfiguration = paths.some(isTestConfig);
 
   return {
-    hasReadme: paths.some(isReadme),
+    hasReadme: paths.some(isCanonicalReadmePath),
     installHeading: markdown.installHeading,
     installCommand: markdown.installCommand,
     usageHeading: markdown.usageHeading,

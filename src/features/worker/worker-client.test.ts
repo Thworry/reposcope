@@ -185,6 +185,59 @@ describe("runAnalysis", () => {
     });
   });
 
+  it.each(["community", "readme"] as const)(
+    "rejects an old completion without reader %s evidence",
+    async (key) => {
+      const worker = new FakeWorker();
+      const run = runAnalysis(
+        { owner: "example", repo: "project" },
+        { workerFactory: () => worker as unknown as Worker },
+      );
+      const start = worker.postMessage.mock.calls[0]?.[0] as {
+        requestId: number;
+      };
+      const report = validReport();
+      Reflect.deleteProperty(report.readerReport, key);
+
+      worker.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "complete", requestId: start.requestId, report },
+        }),
+      );
+
+      await expect(run.promise).rejects.toMatchObject({
+        detail: { kind: "worker" },
+      });
+    },
+  );
+
+  it("rejects an unsafe README profile completion", async () => {
+    const worker = new FakeWorker();
+    const run = runAnalysis(
+      { owner: "example", repo: "project" },
+      { workerFactory: () => worker as unknown as Worker },
+    );
+    const start = worker.postMessage.mock.calls[0]?.[0] as {
+      requestId: number;
+    };
+    const report = validReport();
+    const firstWorkflow = report.readerReport.readme.workflow[0];
+    expect(firstWorkflow).toBeDefined();
+    if (firstWorkflow !== undefined) {
+      firstWorkflow.text = `ghp_${"a".repeat(36)}`;
+    }
+
+    worker.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "complete", requestId: start.requestId, report },
+      }),
+    );
+
+    await expect(run.promise).rejects.toMatchObject({
+      detail: { kind: "worker" },
+    });
+  });
+
   it.each([
     ["password assignment", "password=hunter2"],
     ["inline password assignment", "password=`hunter2`"],

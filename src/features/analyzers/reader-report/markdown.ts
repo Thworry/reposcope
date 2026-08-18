@@ -9,13 +9,13 @@ import {
   containsCredentialLikeValue,
   isSafeProjectBriefPath,
 } from "../../analysis/project-brief-safety";
-import { toPathComparisonKey } from "../../scanner/file-registry";
 import {
   documentedCommandDisposition,
   isDocumentedRuntimeRequirement,
 } from "./commands";
 import {
   README_PROFILE_CAPS,
+  isCanonicalReadmePath,
   readmeCommandKind,
   readmeLegacySection,
   readmeProfileSection,
@@ -28,10 +28,47 @@ const MAX_PROSE_CODE_POINTS = 480;
 const MAX_HTML_DEPTH = 128;
 const MAX_LINK_SCAN = 2_048;
 
+export const READER_MARKDOWN_PENDING_CAPABILITY_LIMITS = Object.freeze({
+  maxGroups: 128,
+  maxFactsPerGroup: 64,
+  maxFactsTotal: 8_192,
+} as const);
+
 type ProseSection = ReadmeLegacySection;
 type ProfileTextSection = Exclude<ReadmeProfileSection, "capabilities">;
 type MarkdownEvidenceSource = "readme" | "documentation";
 
+const PRE_CAPABILITY_FACT_CAP =
+  README_PROFILE_CAPS.overview +
+  README_PROFILE_CAPS.audiences +
+  README_PROFILE_CAPS.problems +
+  README_PROFILE_CAPS.useCases;
+const CAPABILITY_KEY_CAP =
+  README_PROFILE_CAPS.capabilityGroups *
+  (README_PROFILE_CAPS.capabilityFacts + 1);
+const WORKFLOW_CANDIDATE_CAP =
+  PRE_CAPABILITY_FACT_CAP + CAPABILITY_KEY_CAP + README_PROFILE_CAPS.workflow;
+const DEPENDENCY_CANDIDATE_CAP =
+  WORKFLOW_CANDIDATE_CAP + README_PROFILE_CAPS.dependencies;
+const LIMITATION_CANDIDATE_CAP =
+  DEPENDENCY_CANDIDATE_CAP + README_PROFILE_CAPS.limitations;
+const PROFILE_CANDIDATE_CAPS = Object.freeze({
+  overview: README_PROFILE_CAPS.overview,
+  audiences: README_PROFILE_CAPS.overview + README_PROFILE_CAPS.audiences,
+  problems:
+    README_PROFILE_CAPS.overview +
+    README_PROFILE_CAPS.audiences +
+    README_PROFILE_CAPS.problems,
+  useCases:
+    README_PROFILE_CAPS.overview +
+    README_PROFILE_CAPS.audiences +
+    README_PROFILE_CAPS.problems +
+    README_PROFILE_CAPS.useCases,
+  workflow: WORKFLOW_CANDIDATE_CAP,
+  dependencies: DEPENDENCY_CANDIDATE_CAP,
+  limitations: LIMITATION_CANDIDATE_CAP,
+  maturity: LIMITATION_CANDIDATE_CAP + README_PROFILE_CAPS.maturity,
+} as const satisfies Readonly<Record<ProfileTextSection, number>>);
 const VOID_HTML_TAGS = new Set([
   "area",
   "base",
@@ -151,6 +188,20 @@ export interface ReaderMarkdownEvidence {
   readme: ReaderMarkdownReadmeEvidence;
 }
 
+interface PendingCapabilityGroup {
+  label: string;
+  labelKey: string;
+  factKeys: Set<string>;
+  firstFactIndex: number;
+  lastFactIndex: number;
+}
+
+interface PendingCapabilityFact {
+  text: string;
+  textKey: string;
+  nextFactIndex: number;
+}
+
 export interface ReaderMarkdownExtractionOptions {
   readonly scenarioExclusions?: ReadonlySet<string>;
 }
@@ -176,16 +227,7 @@ function emptyEvidence(): ReaderMarkdownEvidence {
 }
 
 function markdownEvidenceSource(path: string): MarkdownEvidenceSource {
-  const normalized = toPathComparisonKey(path);
-  const slash = normalized.lastIndexOf("/");
-  const directory = slash === -1 ? "" : normalized.slice(0, slash);
-  const basename = slash === -1 ? normalized : normalized.slice(slash + 1);
-  const preferredScope = directory === "" || directory === ".github";
-
-  return preferredScope &&
-    (basename === "readme" || basename.startsWith("readme."))
-    ? "readme"
-    : "documentation";
+  return isCanonicalReadmePath(path) ? "readme" : "documentation";
 }
 
 function containsUnsafeCodePoint(value: string): boolean {
@@ -892,6 +934,7 @@ export function extractReaderMarkdownEvidence(
 
   const source = markdownEvidenceSource(file.path);
   const evidence = emptyEvidence();
+  const lines = file.text.split(/\r?\n/u);
   const seen = {
     scenarios: new Set<string>(),
     architecture: new Set<string>(),
@@ -907,11 +950,16 @@ export function extractReaderMarkdownEvidence(
     limitations: new Set<string>(),
     maturity: new Set<string>(),
   };
-  const capabilityGroups = new Map<
-    string,
-    { label: string; facts: ReaderTextFact[] }
-  >();
-  const capabilityFactsSeen = new Set<string>();
+  const capabilityGroupIndices = new Map<string, number>();
+  const capabilityGroups: PendingCapabilityGroup[] = [];
+  const capabilityFacts: PendingCapabilityFact[] = [];
+  let capabilityGroupsOverflowed = false;
+  const failClosedCapabilityGroups = (): void => {
+    capabilityGroupsOverflowed = true;
+    capabilityGroupIndices.clear();
+    capabilityGroups.length = 0;
+    capabilityFacts.length = 0;
+  };
   const fallbackCandidates: ReaderTextFact[] = [];
   const fallbackSeen = new Set<string>();
   const caps: Readonly<Record<ProseSection, number>> = {
@@ -924,7 +972,6 @@ export function extractReaderMarkdownEvidence(
     [...(options.scenarioExclusions ?? [])].map(canonicalText),
   );
   const headings: HeadingFrame[] = [];
-  const lines = file.text.split(/\r?\n/u);
   let paragraph: ParagraphState | null = null;
   let fence: FenceState | null = null;
   let inHtmlComment = false;
@@ -962,7 +1009,8 @@ export function extractReaderMarkdownEvidence(
     if (text === null) return;
     const key = canonicalText(text);
     if (
-      evidence.readme[section].length >= README_PROFILE_CAPS[section] ||
+      scenarioExclusions.has(key) ||
+      evidence.readme[section].length >= PROFILE_CANDIDATE_CAPS[section] ||
       readmeSeen[section].has(key)
     ) {
       return;
@@ -972,33 +1020,65 @@ export function extractReaderMarkdownEvidence(
   };
 
   const addCapabilityFact = (label: string, candidate: string): void => {
+    if (capabilityGroupsOverflowed) return;
     const safeLabel = visibleProfileProse(label);
     const text = visibleProfileProse(candidate);
 
     if (safeLabel === null || text === null) return;
     const labelKey = canonicalText(safeLabel);
     const textKey = canonicalText(text);
-    let group = capabilityGroups.get(labelKey);
 
-    if (group === undefined) {
-      if (
-        capabilityGroups.size >= README_PROFILE_CAPS.capabilityGroups ||
-        capabilityFactsSeen.has(textKey)
-      ) {
-        return;
-      }
-      group = { label: safeLabel, facts: [] };
-      capabilityGroups.set(labelKey, group);
-      evidence.readme.capabilityGroups.push(group);
-    }
     if (
-      group.facts.length >= README_PROFILE_CAPS.capabilityFacts ||
-      capabilityFactsSeen.has(textKey)
+      scenarioExclusions.has(labelKey) ||
+      scenarioExclusions.has(textKey) ||
+      textKey === labelKey
     ) {
       return;
     }
-    capabilityFactsSeen.add(textKey);
-    group.facts.push({ source, path: file.path, text });
+
+    let groupIndex = capabilityGroupIndices.get(labelKey);
+    if (groupIndex === undefined) {
+      if (
+        capabilityGroups.length >=
+        READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxGroups
+      ) {
+        failClosedCapabilityGroups();
+        return;
+      }
+      groupIndex = capabilityGroups.length;
+      capabilityGroups.push({
+        label: safeLabel,
+        labelKey,
+        factKeys: new Set<string>(),
+        firstFactIndex: -1,
+        lastFactIndex: -1,
+      });
+      capabilityGroupIndices.set(labelKey, groupIndex);
+    }
+
+    const group = capabilityGroups[groupIndex];
+    if (group === undefined) return;
+    if (group.factKeys.has(textKey)) return;
+    if (
+      group.factKeys.size >=
+        READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxFactsPerGroup ||
+      capabilityFacts.length >=
+        READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxFactsTotal
+    ) {
+      failClosedCapabilityGroups();
+      return;
+    }
+    group.factKeys.add(textKey);
+    const factIndex = capabilityFacts.length;
+    capabilityFacts.push({ text, textKey, nextFactIndex: -1 });
+    if (group.lastFactIndex < 0) {
+      group.firstFactIndex = factIndex;
+    } else {
+      const previous = capabilityFacts[group.lastFactIndex];
+      if (previous === undefined) return;
+      previous.nextFactIndex = factIndex;
+    }
+    group.lastFactIndex = factIndex;
   };
 
   const addFallbackCandidate = (candidate: string): void => {
@@ -1011,7 +1091,7 @@ export function extractReaderMarkdownEvidence(
     const text = visibleProfileProse(candidate);
     if (text === null) return;
     const key = canonicalText(text);
-    if (fallbackSeen.has(key)) return;
+    if (scenarioExclusions.has(key) || fallbackSeen.has(key)) return;
     fallbackSeen.add(key);
     fallbackCandidates.push({ source, path: file.path, text });
   };
@@ -1455,6 +1535,64 @@ export function extractReaderMarkdownEvidence(
     evidence.readme.overview.push(
       ...fallbackCandidates.slice(0, README_PROFILE_CAPS.overview),
     );
+  }
+
+  const profileSeen = new Set(scenarioExclusions);
+  const finalizeFacts = (section: ProfileTextSection): void => {
+    const finalized: ReaderTextFact[] = [];
+    for (const fact of evidence.readme[section]) {
+      const key = canonicalText(fact.text);
+      if (profileSeen.has(key)) continue;
+      profileSeen.add(key);
+      finalized.push(fact);
+      if (finalized.length >= README_PROFILE_CAPS[section]) break;
+    }
+    evidence.readme[section] = finalized;
+  };
+
+  for (const section of [
+    "overview",
+    "audiences",
+    "problems",
+    "useCases",
+  ] as const) {
+    finalizeFacts(section);
+  }
+
+  const finalizedGroups: ReaderMarkdownReadmeEvidence["capabilityGroups"] = [];
+  for (const group of capabilityGroups) {
+    if (profileSeen.has(group.labelKey)) continue;
+    const groupSeen = new Set(profileSeen);
+    groupSeen.add(group.labelKey);
+    const facts: ReaderTextFact[] = [];
+    const factKeys: string[] = [];
+    let factIndex = group.firstFactIndex;
+    while (factIndex >= 0) {
+      const fact = capabilityFacts[factIndex];
+      if (fact === undefined) break;
+      if (!groupSeen.has(fact.textKey)) {
+        groupSeen.add(fact.textKey);
+        factKeys.push(fact.textKey);
+        facts.push({ source, path: file.path, text: fact.text });
+      }
+      if (facts.length >= README_PROFILE_CAPS.capabilityFacts) break;
+      factIndex = fact.nextFactIndex;
+    }
+    if (facts.length === 0) continue;
+    profileSeen.add(group.labelKey);
+    for (const key of factKeys) profileSeen.add(key);
+    finalizedGroups.push({ label: group.label, facts });
+    if (finalizedGroups.length >= README_PROFILE_CAPS.capabilityGroups) break;
+  }
+  evidence.readme.capabilityGroups = finalizedGroups;
+
+  for (const section of [
+    "workflow",
+    "dependencies",
+    "limitations",
+    "maturity",
+  ] as const) {
+    finalizeFacts(section);
   }
 
   evidence.commands = READER_COMMAND_KINDS.flatMap((kind) => {

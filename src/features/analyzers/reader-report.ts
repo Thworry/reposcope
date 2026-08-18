@@ -1,5 +1,6 @@
 import {
   READER_COMMAND_KINDS,
+  READER_CONVENTIONAL_MANIFESTS,
   READER_SIGNAL_IDS,
   type CoverageSummary,
   type FetchedTextFile,
@@ -8,6 +9,7 @@ import {
   type ProjectBrief,
   type ProjectKind,
   type ReaderCommandFact,
+  type ReaderConventionalManifest,
   type ReaderEcosystem,
   type ReaderReport,
   type ReaderSignalFact,
@@ -22,6 +24,7 @@ import {
   deriveReaderAvailability,
   deriveReaderQuestions,
   deriveReliabilityStatus,
+  observedReaderConventionalManifest,
 } from "../analysis/reader-report-policy";
 import {
   containsCredentialLikeValue,
@@ -36,6 +39,11 @@ import {
 import { preferredReadme } from "./general";
 import { manifestReaderCommands } from "./reader-report/commands";
 import { extractReaderMarkdownEvidence } from "./reader-report/markdown";
+import { buildReadmeProfile } from "./reader-report/readme-interpretation";
+import {
+  compareReadmePaths,
+  isCanonicalReadmePath,
+} from "./reader-report/readme-policy";
 
 const DAY_MS = 86_400_000;
 const MAX_ARCHITECTURE_DOCUMENTS = 3;
@@ -125,6 +133,25 @@ function comparePath(left: string, right: string): number {
     compareText(leftKey, rightKey) ||
     Number(right === rightKey) - Number(left === leftKey) ||
     compareText(left, right)
+  );
+}
+
+function observedConventionalManifests(
+  paths: readonly string[],
+): ReaderConventionalManifest[] {
+  const observed = new Set<ReaderConventionalManifest>();
+
+  for (const path of paths) {
+    if (isExcludedPath(path) || isExcludedPath(path.normalize("NFKC"))) {
+      continue;
+    }
+    const basename = path.slice(path.lastIndexOf("/") + 1);
+    const manifest = observedReaderConventionalManifest(basename);
+    if (manifest !== null) observed.add(manifest);
+  }
+
+  return READER_CONVENTIONAL_MANIFESTS.filter((manifest) =>
+    observed.has(manifest),
   );
 }
 
@@ -294,6 +321,34 @@ function isSecurityOrPrivacyDocument(path: string): boolean {
     (document.stem.startsWith("security") ||
       document.stem.startsWith("privacy"))
   );
+}
+
+function preferredReadmePath(paths: readonly string[]): string | null {
+  return (
+    paths.filter(isCanonicalReadmePath).sort(compareReadmePaths)[0] ?? null
+  );
+}
+
+function derivePreferredReadmeState(input: {
+  preferredPath: string | null;
+  fetchedPath: string | null;
+  treeComplete: boolean;
+  skipped: CoverageSummary["skipped"];
+  failures: CoverageSummary["failures"];
+}): "missing" | "incomplete" | "fetched" {
+  if (input.preferredPath !== null) {
+    const key = toPathComparisonKey(input.preferredPath);
+    if (input.fetchedPath === input.preferredPath) {
+      return "fetched";
+    }
+    const explicitlyIncomplete = [
+      ...(input.skipped ?? []),
+      ...(input.failures ?? []),
+    ].some(({ path }) => toPathComparisonKey(path) === key);
+
+    if (explicitlyIncomplete || input.treeComplete) return "incomplete";
+  }
+  return input.treeComplete ? "missing" : "incomplete";
 }
 
 function collectTextFacts(
@@ -521,6 +576,13 @@ function validateOpenIssuesCount(value: number): number {
   return value;
 }
 
+function validateCommunityCount(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError("Community count must be a nonnegative safe integer");
+  }
+  return value;
+}
+
 /** Builds deterministic, non-scoring evidence for the human-readable report. */
 export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
   const complete = coverageComplete(input.coverage);
@@ -533,7 +595,17 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
   );
   const treePaths = uniqueSortedPaths(input.tree.files.map(({ path }) => path));
   const fetchedFiles = uniqueSortedFetchedFiles(input.files);
-  const readme = preferredReadme(fetchedFiles);
+  const preferredPath = preferredReadmePath(treePaths);
+  const fallbackReadme = preferredReadme(fetchedFiles);
+  const readme =
+    fetchedFiles.find(({ path }) => path === preferredPath) ?? fallbackReadme;
+  const preferredReadmeState = derivePreferredReadmeState({
+    preferredPath,
+    fetchedPath: readme?.path ?? null,
+    treeComplete: input.coverage.treeComplete,
+    skipped: input.coverage.skipped,
+    failures: input.coverage.failures,
+  });
   const purposeKeys = new Set(
     input.projectBrief.excerpts.map(({ text }) => canonicalText(text)),
   );
@@ -586,6 +658,20 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
     treePaths.filter(isArchitectureDocument),
   ).slice(0, MAX_ARCHITECTURE_DOCUMENTS);
   const structure = architectureStructure(treePaths);
+  const readmeProfile = buildReadmeProfile({
+    preferredReadmeState,
+    evidencePath: readme?.path ?? null,
+    evidence: readmeEvidence.readme,
+    purposeKeys,
+    corroboration: {
+      productShapeObserved: input.projectBrief.kinds.length > 0,
+      ecosystemsObserved: structure.ecosystems.length > 0,
+      treeComplete: input.coverage.treeComplete,
+      readmeCommandKinds: readmeEvidence.commands.map(({ kind }) => kind),
+      securityPrivacyFactCount: readmeEvidence.securityPrivacy.length,
+      observedManifests: observedConventionalManifests(treePaths),
+    },
+  });
   const signals = buildSignals({
     repository: input.repository,
     general: input.general,
@@ -616,6 +702,12 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
     1 + maintenanceSignals.filter(({ state }) => state === "present").length;
 
   return {
+    community: {
+      starsCount: validateCommunityCount(input.repository.starsCount),
+      watchersCount: validateCommunityCount(input.repository.watchersCount),
+      forksCount: validateCommunityCount(input.repository.forksCount),
+    },
+    readme: readmeProfile,
     reliability: {
       availability: !complete
         ? "partial"
@@ -690,6 +782,25 @@ export function unavailableReaderReport(input: {
   );
 
   return {
+    community: {
+      starsCount: validateCommunityCount(input.repository.starsCount),
+      watchersCount: validateCommunityCount(input.repository.watchersCount),
+      forksCount: validateCommunityCount(input.repository.forksCount),
+    },
+    readme: {
+      availability: "unavailable",
+      observedManifests: [],
+      overview: [],
+      audiences: [],
+      problems: [],
+      useCases: [],
+      capabilityGroups: [],
+      workflow: [],
+      dependencies: [],
+      limitations: [],
+      maturity: [],
+      commentary: [],
+    },
     reliability: {
       availability: "unavailable",
       status,

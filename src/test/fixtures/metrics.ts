@@ -65,6 +65,75 @@ function perfectSignal(signal: ReaderSignalId): ReaderSignalFact {
 }
 
 export const perfectReaderReport: ReaderReport = {
+  community: {
+    starsCount: 1_284,
+    watchersCount: 37,
+    forksCount: 146,
+  },
+  readme: {
+    availability: "available",
+    observedManifests: ["package.json"],
+    overview: [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "A bounded project overview.",
+      },
+    ],
+    audiences: [
+      { source: "readme", path: "README.md", text: "Repository adopters" },
+    ],
+    problems: [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Understanding unfamiliar repositories",
+      },
+    ],
+    useCases: [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Evaluate a public project before adoption",
+      },
+    ],
+    capabilityGroups: [
+      {
+        label: "Reader report",
+        facts: [
+          {
+            source: "readme",
+            path: "README.md",
+            text: "Evidence-backed project interpretation",
+          },
+        ],
+      },
+    ],
+    workflow: [
+      { source: "readme", path: "README.md", text: "Fetch evidence" },
+      { source: "readme", path: "README.md", text: "Interpret README" },
+    ],
+    dependencies: [
+      { source: "readme", path: "README.md", text: "A modern browser" },
+    ],
+    limitations: [
+      { source: "readme", path: "README.md", text: "Static evidence only" },
+    ],
+    maturity: [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Versioned methodology",
+      },
+    ],
+    commentary: [
+      "readme-audience-or-use-cases-documented",
+      "readme-capabilities-documented",
+      "readme-workflow-documented",
+      "readme-security-data-flow-unestablished",
+      "readme-external-dependencies-declared",
+    ],
+  },
   reliability: {
     availability: "available",
     status: "continue-evaluation",

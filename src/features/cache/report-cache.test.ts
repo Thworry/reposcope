@@ -71,6 +71,34 @@ function required<T>(value: T | undefined): T {
   return value;
 }
 
+function replaceReadmePaths(report: AnalysisReport, path: string): void {
+  for (const excerpt of report.projectBrief.excerpts) {
+    if (excerpt.source === "readme") excerpt.path = path;
+  }
+  const facts = [
+    ...report.readerReport.readme.overview,
+    ...report.readerReport.readme.audiences,
+    ...report.readerReport.readme.problems,
+    ...report.readerReport.readme.useCases,
+    ...report.readerReport.readme.capabilityGroups.flatMap(
+      ({ facts: groupFacts }) => groupFacts,
+    ),
+    ...report.readerReport.readme.workflow,
+    ...report.readerReport.readme.dependencies,
+    ...report.readerReport.readme.limitations,
+    ...report.readerReport.readme.maturity,
+    ...report.readerReport.scenarios.facts,
+    ...report.readerReport.architecture.excerpts,
+    ...report.readerReport.securityPrivacy.declarations,
+  ];
+  for (const fact of facts) {
+    if (fact.source === "readme") fact.path = path;
+  }
+  for (const command of report.readerReport.gettingStarted.commands) {
+    if (command.source === "readme") command.path = path;
+  }
+}
+
 describe("report cache", () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -116,6 +144,21 @@ describe("report cache", () => {
     expect(getCachedReport(ref, now)).toBeNull();
     expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
   });
+
+  it.each(["community", "readme"] as const)(
+    "removes an old reader report without required %s evidence",
+    (key) => {
+      const stale = structuredClone(validReport());
+      Reflect.deleteProperty(stale.readerReport, key);
+      sessionStorage.setItem(
+        cacheKey(ref),
+        JSON.stringify({ savedAt: now, report: stale }),
+      );
+
+      expect(getCachedReport(ref, now)).toBeNull();
+      expect(sessionStorage.getItem(cacheKey(ref))).toBeNull();
+    },
+  );
 
   it("round trips the maximum valid reader shape below the 2 MiB cap", () => {
     const report = validReport();
@@ -181,6 +224,35 @@ describe("report cache", () => {
       "b",
       "c",
     ];
+    const readmeFacts = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        source: "readme" as const,
+        path: `README-${"r".repeat(1_012)}.md`,
+        text: `${prefix}-${String(index)}-${"x".repeat(450)}`,
+      }));
+    report.readerReport.readme = {
+      availability: "available",
+      observedManifests: ["package.json"],
+      overview: readmeFacts("overview", 4),
+      audiences: readmeFacts("audience", 4),
+      problems: readmeFacts("problem", 4),
+      useCases: readmeFacts("use", 4),
+      capabilityGroups: Array.from({ length: 6 }, (_, groupIndex) => ({
+        label: `Capability ${String(groupIndex)}`,
+        facts: readmeFacts(`capability-${String(groupIndex)}`, 6),
+      })),
+      workflow: readmeFacts("workflow", 8),
+      dependencies: readmeFacts("dependency", 8),
+      limitations: readmeFacts("limitation", 6),
+      maturity: readmeFacts("maturity", 6),
+      commentary: [
+        "readme-substantial-overview",
+        "readme-audience-or-use-cases-documented",
+        "readme-capabilities-documented",
+        "readme-security-data-flow-unestablished",
+        "readme-external-dependencies-declared",
+      ],
+    };
     report.repository.archived = true;
     const state: Partial<Record<ReaderSignalId, ReaderSignalState>> = {
       archived: "present",
@@ -205,6 +277,7 @@ describe("report cache", () => {
       "release-compatibility",
       "vulnerability-process",
     ];
+    replaceReadmePaths(report, `README-${"r".repeat(1_014)}.md`);
     const serialized = JSON.stringify({ savedAt: now, report });
 
     expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(
@@ -283,6 +356,13 @@ describe("report cache", () => {
       (report) => {
         report.readerReport.alternatives.searchTerms[1] = credential;
       },
+      (report) => {
+        required(report.readerReport.readme.workflow[0]).text = credential;
+      },
+      (report) => {
+        required(report.readerReport.readme.capabilityGroups[0]).label =
+          credential;
+      },
     ];
 
     for (const mutate of mutations) {
@@ -352,6 +432,7 @@ describe("report cache", () => {
 
   it("keeps the maximum valid project brief below the existing 2 MiB cap", () => {
     const report = validReport();
+    const maximumReadmePath = `README-${"r".repeat(1_014)}.md`;
     report.repository.owner = ref.owner;
     report.repository.repo = ref.repo;
     report.repository.fullName = `${ref.owner}/${ref.repo}`;
@@ -363,7 +444,11 @@ describe("report cache", () => {
           text: "a".repeat(480),
           path: null,
         },
-        { source: "readme", text: "b".repeat(320), path: "r".repeat(1_024) },
+        {
+          source: "readme",
+          text: "b".repeat(320),
+          path: maximumReadmePath,
+        },
       ],
       kinds: [
         { kind: "application", source: "manifest", path: "a".repeat(1_024) },
@@ -393,6 +478,7 @@ describe("report cache", () => {
         },
       ],
     };
+    replaceReadmePaths(report, maximumReadmePath);
     const serialized = JSON.stringify({ savedAt: now, report });
 
     expect(new TextEncoder().encode(serialized).byteLength).toBeLessThan(

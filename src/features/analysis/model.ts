@@ -43,6 +43,12 @@ export interface RepositoryMetadata extends RepoRef {
   licenseSpdxId: string | null;
 }
 
+/** Repository metadata admitted to deterministic scoring. Popularity is excluded. */
+export type ScoringRepositoryMetadata = Omit<
+  RepositoryMetadata,
+  "starsCount" | "watchersCount" | "forksCount"
+>;
+
 export interface RateLimitMetadata {
   remaining: number | null;
   resetAt: string | null;
@@ -301,8 +307,26 @@ export interface ReaderCapabilityGroup {
   facts: ReaderTextFact[];
 }
 
+export const READER_CONVENTIONAL_MANIFESTS = Object.freeze([
+  "build.gradle",
+  "build.gradle.kts",
+  "cargo.toml",
+  "composer.json",
+  "gemfile",
+  "go.mod",
+  "package.json",
+  "package.swift",
+  "pom.xml",
+  "pubspec.yaml",
+  "pyproject.toml",
+] as const);
+
+export type ReaderConventionalManifest =
+  (typeof READER_CONVENTIONAL_MANIFESTS)[number];
+
 export interface ReaderReadmeProfile {
   availability: ReaderAvailability;
+  observedManifests: ReaderConventionalManifest[];
   overview: ReaderTextFact[];
   audiences: ReaderTextFact[];
   problems: ReaderTextFact[];
@@ -350,6 +374,8 @@ export type ReaderActivityBand = (typeof READER_ACTIVITY_BANDS)[number];
  * intentionally independent from ruleset scoring.
  */
 export interface ReaderReport {
+  community: ReaderCommunityFacts;
+  readme: ReaderReadmeProfile;
   reliability: {
     availability: ReaderAvailability;
     status: ReliabilityStatus;

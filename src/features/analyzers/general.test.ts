@@ -15,9 +15,26 @@ import {
 } from "../../test/fixtures/text-files";
 import {
   analyzeGeneralRepository,
+  preferredReadme,
   readPackageJsonEvidence,
   readPyprojectTomlEvidence,
 } from "./general";
+
+describe("preferredReadme", () => {
+  it("uses the shared stable preference for exact and variant README names", () => {
+    const exact = fetchedTextFile("README.md", "Exact README.");
+    const variant = fetchedTextFile("README_a.md", "Variant README.");
+
+    expect(preferredReadme([variant, exact])?.path).toBe("README.md");
+    expect(preferredReadme([exact, variant])?.path).toBe("README.md");
+    expect(
+      preferredReadme([
+        fetchedTextFile("README.exe", "Executable lookalike."),
+        fetchedTextFile("README-guide.md", "Guide README."),
+      ])?.path,
+    ).toBe("README-guide.md");
+  });
+});
 
 const repository: RepositoryMetadata = {
   owner: "owner",

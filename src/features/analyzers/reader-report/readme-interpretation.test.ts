@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   READER_COMMENTARY_IDS,
   type ReaderCommentaryId,
+  type ReaderConventionalManifest,
   type ReaderReadmeProfile,
   type ReaderTextFact,
 } from "../../analysis/model";
@@ -49,6 +50,7 @@ function profileWith(
 ): ReaderReadmeProfile {
   return {
     availability: "available",
+    observedManifests: [],
     overview: [],
     audiences: [],
     problems: [],
@@ -70,7 +72,7 @@ function corroboration(
     productShapeObserved: false,
     ecosystemsObserved: false,
     treeComplete: false,
-    observedManifestBasenames: [],
+    observedManifests: [],
     readmeCommandKinds: [],
     securityPrivacyFactCount: 1,
     ...overrides,
@@ -82,6 +84,7 @@ function input(
 ): BuildReadmeProfileInput {
   return {
     preferredReadmeState: "fetched",
+    evidencePath: "README.md",
     evidence: evidence(),
     purposeKeys: new Set<string>(),
     corroboration: corroboration(),
@@ -106,7 +109,6 @@ describe("deriveReadmeCommentary", () => {
           ecosystemsObserved: true,
           treeComplete: true,
           securityPrivacyFactCount: 0,
-          observedManifestBasenames: ["package.json"],
         }),
       ),
     ).toEqual([
@@ -268,11 +270,15 @@ describe("deriveReadmeCommentary", () => {
     expect(commentary).not.toContain("readme-external-dependencies-declared");
   });
 
-  it("emits broad verification only for complete, absent structure or an exact missing manifest", () => {
+  it("cross-checks exact conventional manifests before broad corroboration", () => {
     const absentStructure = profileWith({
       overview: [fact("A repository tool")],
     });
-    const manifestClaim = profileWith({ dependencies: [fact("package.json")] });
+    const manifestClaim = (observedManifests: ReaderConventionalManifest[]) =>
+      profileWith({
+        dependencies: [fact("package.json")],
+        observedManifests,
+      });
 
     expect(
       deriveReadmeCommentary(
@@ -285,7 +291,7 @@ describe("deriveReadmeCommentary", () => {
     ).not.toContain("readme-broad-structure-needs-verification");
     expect(
       deriveReadmeCommentary(
-        manifestClaim,
+        manifestClaim([]),
         corroboration({
           treeComplete: true,
           productShapeObserved: true,
@@ -295,17 +301,16 @@ describe("deriveReadmeCommentary", () => {
     ).toContain("readme-broad-structure-needs-verification");
     expect(
       deriveReadmeCommentary(
-        manifestClaim,
+        manifestClaim(["package.json"]),
         corroboration({
           treeComplete: true,
           productShapeObserved: true,
           ecosystemsObserved: true,
-          observedManifestBasenames: ["package.json"],
         }),
       ),
     ).toContain("readme-broad-structure-corroborated");
     const incompleteManifest = deriveReadmeCommentary(
-      manifestClaim,
+      manifestClaim(["package.json"]),
       corroboration({
         productShapeObserved: true,
         ecosystemsObserved: true,
@@ -327,8 +332,38 @@ describe("deriveReadmeCommentary", () => {
           ecosystemsObserved: true,
         }),
       ),
-    ).not.toContain("readme-broad-structure-needs-verification");
+    ).toContain("readme-broad-structure-corroborated");
   });
+
+  it.each(["package.json", "go.mod"] as const)(
+    "keeps exact %s manifest cross-checking stable under observed-order reversal",
+    (manifest) => {
+      const observedManifests: ReaderConventionalManifest[] = [
+        "go.mod",
+        "package.json",
+      ];
+      const profile = profileWith({
+        dependencies: [fact(manifest)],
+        observedManifests,
+      });
+      const reversed = profileWith({
+        ...profile,
+        observedManifests: [...observedManifests].reverse(),
+      });
+      const context = corroboration({
+        treeComplete: true,
+        productShapeObserved: true,
+        ecosystemsObserved: true,
+      });
+
+      expect(deriveReadmeCommentary(reversed, context)).toEqual(
+        deriveReadmeCommentary(profile, context),
+      );
+      expect(deriveReadmeCommentary(profile, context)).toContain(
+        "readme-broad-structure-corroborated",
+      );
+    },
+  );
 
   it("keeps canonical commentary stable when evidence and context sets are reversed", () => {
     const forward = profileWith({
@@ -351,7 +386,6 @@ describe("deriveReadmeCommentary", () => {
         treeComplete: true,
         productShapeObserved: true,
         ecosystemsObserved: true,
-        observedManifestBasenames: ["package.json", "go.mod"],
         readmeCommandKinds: ["install", "run"],
       }),
     );
@@ -361,7 +395,6 @@ describe("deriveReadmeCommentary", () => {
         treeComplete: true,
         productShapeObserved: true,
         ecosystemsObserved: true,
-        observedManifestBasenames: ["go.mod", "package.json"],
         readmeCommandKinds: ["run", "install"],
       }),
     );
@@ -416,6 +449,7 @@ describe("buildReadmeProfile", () => {
 
   it("returns canonical empty profiles for missing and empty partial README states", () => {
     const emptyArrays = {
+      observedManifests: [],
       overview: [],
       audiences: [],
       problems: [],
@@ -463,7 +497,7 @@ describe("buildReadmeProfile", () => {
     ]);
   });
 
-  it("normalizes purpose keys and excludes them before overview and use-case caps", () => {
+  it("normalizes purpose keys and excludes them before every profile cap", () => {
     const result = buildReadmeProfile(
       input({
         purposeKeys: new Set(["Ｐｒｉｍａｒｙ purpose"]),
@@ -482,6 +516,15 @@ describe("buildReadmeProfile", () => {
             fact("Use three"),
             fact("Use four"),
           ],
+          audiences: [fact("Primary purpose"), fact("Maintainers")],
+          problems: [fact("Ｐｒｉｍａｒｙ purpose"), fact("Hard adoption")],
+          capabilityGroups: [
+            group("Core", fact("Primary purpose"), fact("Safe capability")),
+          ],
+          workflow: [fact("Primary purpose"), fact("Inspect evidence")],
+          dependencies: [fact("Primary purpose"), fact("Node.js 24")],
+          limitations: [fact("Primary purpose"), fact("Static only")],
+          maturity: [fact("Primary purpose"), fact("Versioned")],
         }),
       }),
     );
@@ -498,6 +541,17 @@ describe("buildReadmeProfile", () => {
       "Use three",
       "Use four",
     ]);
+    expect(result.audiences.map(({ text }) => text)).toEqual(["Maintainers"]);
+    expect(result.problems.map(({ text }) => text)).toEqual(["Hard adoption"]);
+    expect(result.capabilityGroups).toEqual([
+      group("Core", fact("Safe capability")),
+    ]);
+    expect(result.workflow.map(({ text }) => text)).toEqual([
+      "Inspect evidence",
+    ]);
+    expect(result.dependencies.map(({ text }) => text)).toEqual(["Node.js 24"]);
+    expect(result.limitations.map(({ text }) => text)).toEqual(["Static only"]);
+    expect(result.maturity.map(({ text }) => text)).toEqual(["Versioned"]);
   });
 
   it("deduplicates facts globally and merges duplicate capability labels in policy order", () => {
@@ -521,6 +575,70 @@ describe("buildReadmeProfile", () => {
       group("Ｐｌａｎｎｉｎｇ", fact("Draft"), fact("Review")),
     ]);
     expect(result.workflow.map(({ text }) => text)).toEqual(["Publish"]);
+  });
+
+  it("deduplicates capability labels against purpose, facts, and their own group", () => {
+    const result = buildReadmeProfile(
+      input({
+        purposeKeys: new Set(["Ｐｕｒｐｏｓｅ label"]),
+        evidence: evidence({
+          overview: [fact("Existing overview")],
+          capabilityGroups: [
+            group("Purpose label", fact("Excluded by purpose")),
+            group("Ｅｘｉｓｔｉｎｇ overview", fact("Excluded by overview")),
+            group(
+              "Core label",
+              ...Array.from({ length: 6 }, () => fact("Ｃｏｒｅ label")),
+              fact("Retained capability"),
+            ),
+          ],
+          workflow: [fact("Core label"), fact("Retained workflow")],
+        }),
+      }),
+    );
+
+    expect(result.capabilityGroups).toEqual([
+      group("Core label", fact("Retained capability")),
+    ]);
+    expect(result.workflow.map(({ text }) => text)).toEqual([
+      "Retained workflow",
+    ]);
+  });
+
+  it("retains facts only from the selected evidence path", () => {
+    const result = buildReadmeProfile(
+      input({
+        evidencePath: "README-guide.md",
+        evidence: evidence({
+          overview: [
+            fact("Selected", "README-guide.md"),
+            fact("Mixed", "README.md"),
+          ],
+          workflow: [fact("Also mixed", ".github/README.md")],
+        }),
+      }),
+    );
+
+    expect(result.overview).toEqual([fact("Selected", "README-guide.md")]);
+    expect(result.workflow).toEqual([]);
+  });
+
+  it("normalizes and orders bounded observed conventional manifests", () => {
+    const result = buildReadmeProfile(
+      input({
+        evidence: evidence({ overview: [fact("Repository overview")] }),
+        corroboration: corroboration({
+          observedManifests: [
+            "PACKAGE.JSON",
+            "go.mod",
+            "requirements.txt",
+            "ｇｏ．ｍｏｄ",
+          ],
+        }),
+      }),
+    );
+
+    expect(result.observedManifests).toEqual(["go.mod", "package.json"]);
   });
 
   it("reapplies every frozen cap without mutating document order", () => {
@@ -571,6 +689,7 @@ describe("buildReadmeProfile", () => {
   it("filters noncanonical README source/path pairs before availability and output", () => {
     const result = buildReadmeProfile(
       input({
+        evidencePath: ".github/README.md",
         evidence: evidence({
           overview: [
             fact("Canonical", ".github/README.md"),
@@ -615,6 +734,7 @@ describe("buildReadmeProfile", () => {
 
     expect(result).toEqual({
       availability: "unavailable",
+      observedManifests: [],
       overview: [],
       audiences: [],
       problems: [],

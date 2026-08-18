@@ -2,6 +2,8 @@ import {
   PROJECT_BRIEF_CAUTIONS,
   PROJECT_KINDS,
   READER_COMMAND_KINDS,
+  READER_COMMENTARY_IDS,
+  READER_CONVENTIONAL_MANIFESTS,
   READER_ECOSYSTEMS,
   READER_SIGNAL_IDS,
 } from "./model";
@@ -16,8 +18,12 @@ import type {
   LocalizedDescriptor,
   ProjectBrief,
   ProjectKind,
+  ReaderCapabilityGroup,
   ReaderCommandFact,
+  ReaderCommunityFacts,
+  ReaderConventionalManifest,
   ReaderEcosystem,
+  ReaderReadmeProfile,
   ReaderReport,
   ReaderSignalFact,
   ReaderSignalId,
@@ -27,11 +33,19 @@ import type {
 import {
   activityBand,
   activityState,
+  deriveCanonicalReadmeCommentary,
   deriveReaderAvailability,
   deriveReaderQuestions,
   deriveReliabilityStatus,
+  PRACTICAL_IDS,
+  VERIFY_IDS,
+  WORTH_NOTING_IDS,
 } from "./reader-report-policy";
 import { toPathComparisonKey } from "../scanner/file-registry";
+import {
+  isCanonicalReadmePath,
+  README_PROFILE_CAPS,
+} from "../analyzers/reader-report/readme-policy";
 import { buildFindings } from "../rules/findings";
 import { calculateConfidence } from "../rules/confidence";
 import {
@@ -101,6 +115,9 @@ const READER_KIND_TERMS: Readonly<Record<ProjectKind, string>> = Object.freeze({
   template: "template",
   documentation: "documentation",
 });
+const WORTH_NOTING_ID_SET: ReadonlySet<string> = new Set(WORTH_NOTING_IDS);
+const VERIFY_ID_SET: ReadonlySet<string> = new Set(VERIFY_IDS);
+const PRACTICAL_ID_SET: ReadonlySet<string> = new Set(PRACTICAL_IDS);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -118,6 +135,159 @@ function exactKeys(
     required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
     keys.every((key) => allowed.has(key))
   );
+}
+
+function exactDataRecord(
+  value: unknown,
+  required: readonly string[],
+): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  try {
+    if (Array.isArray(value)) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.length !== required.length ||
+      keys.some((key) => typeof key !== "string" || !required.includes(key))
+    ) {
+      return null;
+    }
+
+    const snapshot: Record<string, unknown> = {};
+    for (const key of required) {
+      const descriptor = descriptors[key];
+      if (
+        descriptor === undefined ||
+        !descriptor.enumerable ||
+        !("value" in descriptor)
+      ) {
+        return null;
+      }
+      if (!Object.is(Reflect.get(value, key), descriptor.value)) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function detachedDataClone(value: unknown): object | null {
+  if (typeof value !== "object" || value === null) return null;
+  const pending: unknown[] = [value];
+  const seen = new WeakSet();
+  let nodes = 0;
+  let properties = 0;
+
+  try {
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (typeof current === "string" && current.length > 4_096) return null;
+      if (
+        current === null ||
+        (typeof current !== "object" && typeof current !== "function")
+      ) {
+        continue;
+      }
+      if (typeof current === "function") return null;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      nodes += 1;
+      if (nodes > 10_000) return null;
+
+      const descriptors = Object.getOwnPropertyDescriptors(current);
+      for (const key of Reflect.ownKeys(descriptors)) {
+        const descriptor = descriptors[key as keyof typeof descriptors];
+        if (descriptor === undefined || !("value" in descriptor)) return null;
+        properties += 1;
+        if (properties > 50_000) return null;
+        pending.push(descriptor.value);
+      }
+    }
+
+    return structuredClone(value);
+  } catch {
+    return null;
+  }
+}
+
+function denseDataArray(value: unknown, cap: number): unknown[] | null {
+  try {
+    if (!Array.isArray(value)) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(
+      value,
+    ) as unknown as Record<PropertyKey, PropertyDescriptor | undefined>;
+    const repeatedDescriptors = Object.getOwnPropertyDescriptors(
+      value,
+    ) as unknown as Record<PropertyKey, PropertyDescriptor | undefined>;
+    const descriptorKeys = Reflect.ownKeys(descriptors);
+    const repeatedKeys = Reflect.ownKeys(repeatedDescriptors);
+    if (
+      descriptorKeys.length !== repeatedKeys.length ||
+      descriptorKeys.some((key, index) => key !== repeatedKeys[index]) ||
+      descriptorKeys.some((key) => {
+        const first = descriptors[key];
+        const repeated = repeatedDescriptors[key];
+        return (
+          first === undefined ||
+          repeated === undefined ||
+          first.enumerable !== repeated.enumerable ||
+          first.configurable !== repeated.configurable ||
+          "value" in first !== "value" in repeated ||
+          ("value" in first &&
+            (!Object.is(first.value, repeated.value) ||
+              first.writable !== repeated.writable)) ||
+          ("get" in first &&
+            (first.get !== repeated.get || first.set !== repeated.set))
+        );
+      })
+    ) {
+      return null;
+    }
+    const lengthDescriptor = descriptors["length"];
+    if (
+      lengthDescriptor === undefined ||
+      !("value" in lengthDescriptor) ||
+      typeof lengthDescriptor.value !== "number" ||
+      !Number.isSafeInteger(lengthDescriptor.value) ||
+      lengthDescriptor.value < 0 ||
+      lengthDescriptor.value > cap
+    ) {
+      return null;
+    }
+    if (!Object.is(Reflect.get(value, "length"), lengthDescriptor.value)) {
+      return null;
+    }
+
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.some((key) => typeof key !== "string") ||
+      keys.length !== lengthDescriptor.value + 1 ||
+      !keys.includes("length")
+    ) {
+      return null;
+    }
+
+    const snapshot: unknown[] = [];
+    for (let index = 0; index < lengthDescriptor.value; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (
+        descriptor === undefined ||
+        !descriptor.enumerable ||
+        !("value" in descriptor)
+      ) {
+        return null;
+      }
+      if (!Object.is(Reflect.get(value, String(index)), descriptor.value)) {
+        return null;
+      }
+      snapshot.push(descriptor.value);
+    }
+    return snapshot;
+  } catch {
+    return null;
+  }
 }
 
 function finiteInteger(value: unknown, minimum = 0, maximum = 100): boolean {
@@ -364,6 +534,400 @@ function validReaderTextFacts(
   return true;
 }
 
+function validReaderCommunity(value: unknown): ReaderCommunityFacts | null {
+  const snapshot = exactDataRecord(value, [
+    "starsCount",
+    "watchersCount",
+    "forksCount",
+  ]);
+  if (
+    snapshot === null ||
+    !finiteInteger(snapshot.starsCount, 0, Number.MAX_SAFE_INTEGER) ||
+    !finiteInteger(snapshot.watchersCount, 0, Number.MAX_SAFE_INTEGER) ||
+    !finiteInteger(snapshot.forksCount, 0, Number.MAX_SAFE_INTEGER)
+  ) {
+    return null;
+  }
+
+  return {
+    starsCount: snapshot.starsCount as number,
+    watchersCount: snapshot.watchersCount as number,
+    forksCount: snapshot.forksCount as number,
+  };
+}
+
+function validReaderReadmePath(value: unknown): value is string {
+  return (
+    validReaderPath(value) && isCanonicalReadmePath(value.normalize("NFKC"))
+  );
+}
+
+interface SelectedReadmePath {
+  value: string | null;
+}
+
+function validReaderReadmeFact(
+  value: unknown,
+  selectedPath: SelectedReadmePath,
+): ReaderTextFact | null {
+  const snapshot = exactDataRecord(value, ["source", "path", "text"]);
+  if (
+    snapshot === null ||
+    snapshot.source !== "readme" ||
+    !validReaderReadmePath(snapshot.path) ||
+    !validReaderText(snapshot.text)
+  ) {
+    return null;
+  }
+  if (selectedPath.value === null) selectedPath.value = snapshot.path;
+  else if (snapshot.path !== selectedPath.value) return null;
+
+  return {
+    source: "readme",
+    path: snapshot.path,
+    text: snapshot.text,
+  };
+}
+
+function validReaderReadmeFacts(
+  value: unknown,
+  cap: number,
+  seenFacts: Set<string>,
+  purposeKeys: ReadonlySet<string>,
+  selectedPath: SelectedReadmePath,
+): ReaderTextFact[] | null {
+  const values = denseDataArray(value, cap);
+  if (values === null) return null;
+
+  const facts: ReaderTextFact[] = [];
+  for (const candidate of values) {
+    const fact = validReaderReadmeFact(candidate, selectedPath);
+    if (fact === null) return null;
+    const key = canonicalReaderText(fact.text);
+    if (seenFacts.has(key) || purposeKeys.has(key)) return null;
+    seenFacts.add(key);
+    facts.push(fact);
+  }
+  return facts;
+}
+
+function validReaderCapabilityGroups(
+  value: unknown,
+  seenFacts: Set<string>,
+  purposeKeys: ReadonlySet<string>,
+  selectedPath: SelectedReadmePath,
+): ReaderCapabilityGroup[] | null {
+  const values = denseDataArray(value, README_PROFILE_CAPS.capabilityGroups);
+  if (values === null) return null;
+
+  const labels = new Set<string>();
+  const groups: ReaderCapabilityGroup[] = [];
+  for (const candidate of values) {
+    const snapshot = exactDataRecord(candidate, ["label", "facts"]);
+    if (snapshot === null || !validReaderText(snapshot.label)) return null;
+    const labelKey = canonicalReaderText(snapshot.label);
+    if (
+      labels.has(labelKey) ||
+      purposeKeys.has(labelKey) ||
+      seenFacts.has(labelKey)
+    ) {
+      return null;
+    }
+    labels.add(labelKey);
+    seenFacts.add(labelKey);
+    const facts = validReaderReadmeFacts(
+      snapshot.facts,
+      README_PROFILE_CAPS.capabilityFacts,
+      seenFacts,
+      purposeKeys,
+      selectedPath,
+    );
+    if (facts === null || facts.length === 0) return null;
+    groups.push({ label: snapshot.label, facts });
+  }
+  return groups;
+}
+
+function validReaderCommentary(
+  value: unknown,
+): ReaderReadmeProfile["commentary"] | null {
+  const values = denseDataArray(value, 8);
+  if (values === null) return null;
+
+  let previous = -1;
+  let worthNoting = 0;
+  let verify = 0;
+  let practical = 0;
+  const result: ReaderReadmeProfile["commentary"] = [];
+  for (const candidate of values) {
+    if (typeof candidate !== "string") return null;
+    const index = READER_COMMENTARY_IDS.indexOf(
+      candidate as (typeof READER_COMMENTARY_IDS)[number],
+    );
+    if (index <= previous) return null;
+    previous = index;
+    if (WORTH_NOTING_ID_SET.has(candidate)) worthNoting += 1;
+    else if (VERIFY_ID_SET.has(candidate)) verify += 1;
+    else if (PRACTICAL_ID_SET.has(candidate)) practical += 1;
+    else return null;
+    result.push(candidate as ReaderReadmeProfile["commentary"][number]);
+  }
+
+  return worthNoting <= 3 && verify <= 4 && practical <= 1 ? result : null;
+}
+
+function validReaderObservedManifests(
+  value: unknown,
+): ReaderConventionalManifest[] | null {
+  const values = denseDataArray(value, READER_CONVENTIONAL_MANIFESTS.length);
+  if (values === null) return null;
+
+  const result: ReaderConventionalManifest[] = [];
+  let previous = -1;
+  for (const candidate of values) {
+    const index = READER_CONVENTIONAL_MANIFESTS.indexOf(
+      candidate as ReaderConventionalManifest,
+    );
+    const manifest = READER_CONVENTIONAL_MANIFESTS[index];
+    if (index <= previous || manifest === undefined) return null;
+    previous = index;
+    result.push(manifest);
+  }
+  return result;
+}
+
+function readmeProfileFactCount(profile: ReaderReadmeProfile): number {
+  return (
+    profile.overview.length +
+    profile.audiences.length +
+    profile.problems.length +
+    profile.useCases.length +
+    profile.capabilityGroups.reduce(
+      (total, group) => total + group.facts.length,
+      0,
+    ) +
+    profile.workflow.length +
+    profile.dependencies.length +
+    profile.limitations.length +
+    profile.maturity.length
+  );
+}
+
+function validReaderCommentaryEvidence(
+  profile: ReaderReadmeProfile,
+  reader: ReaderReport,
+  projectBrief: ProjectBrief,
+  coverage: AnalysisReport["coverage"],
+): boolean {
+  const evidencePath =
+    profile.overview[0]?.path ??
+    profile.audiences[0]?.path ??
+    profile.problems[0]?.path ??
+    profile.useCases[0]?.path ??
+    profile.capabilityGroups[0]?.facts[0]?.path ??
+    profile.workflow[0]?.path ??
+    profile.dependencies[0]?.path ??
+    profile.limitations[0]?.path ??
+    profile.maturity[0]?.path ??
+    null;
+  const expected = deriveCanonicalReadmeCommentary(profile, {
+    productShapeObserved: projectBrief.kinds.length > 0,
+    ecosystemsObserved: reader.architecture.ecosystems.length > 0,
+    treeComplete: coverage.treeComplete,
+    readmeCommandKinds: reader.gettingStarted.commands.flatMap(
+      ({ source, path, kind }) =>
+        source === "readme" && path === evidencePath ? [kind] : [],
+    ),
+    securityPrivacyFactCount: reader.securityPrivacy.declarations.filter(
+      ({ source, path }) => source === "readme" && path === evidencePath,
+    ).length,
+  });
+
+  return (
+    profile.commentary.length === expected.length &&
+    profile.commentary.every((id, index) => id === expected[index])
+  );
+}
+
+function validSingleReadmeEvidencePath(
+  projectBrief: ProjectBrief,
+  reader: ReaderReport,
+): boolean {
+  const paths = new Set<string>();
+  const add = (source: string, path: string | null): boolean => {
+    if (source !== "readme") return true;
+    if (path === null || !validReaderReadmePath(path)) return false;
+    paths.add(path);
+    return paths.size <= 1;
+  };
+  const profileFacts = [
+    ...reader.readme.overview,
+    ...reader.readme.audiences,
+    ...reader.readme.problems,
+    ...reader.readme.useCases,
+    ...reader.readme.capabilityGroups.flatMap(({ facts }) => facts),
+    ...reader.readme.workflow,
+    ...reader.readme.dependencies,
+    ...reader.readme.limitations,
+    ...reader.readme.maturity,
+  ];
+
+  return (
+    projectBrief.excerpts.every(({ source, path }) => add(source, path)) &&
+    profileFacts.every(({ source, path }) => add(source, path)) &&
+    reader.scenarios.facts.every(({ source, path }) => add(source, path)) &&
+    reader.architecture.excerpts.every(({ source, path }) =>
+      add(source, path),
+    ) &&
+    reader.gettingStarted.commands.every(({ source, path }) =>
+      add(source, path),
+    ) &&
+    reader.securityPrivacy.declarations.every(({ source, path }) =>
+      add(source, path),
+    )
+  );
+}
+
+function validReaderReadmeProfile(
+  value: unknown,
+  projectBrief: ProjectBrief,
+): ReaderReadmeProfile | null {
+  const snapshot = exactDataRecord(value, [
+    "availability",
+    "observedManifests",
+    "overview",
+    "audiences",
+    "problems",
+    "useCases",
+    "capabilityGroups",
+    "workflow",
+    "dependencies",
+    "limitations",
+    "maturity",
+    "commentary",
+  ]);
+  if (
+    snapshot === null ||
+    (snapshot.availability !== "available" &&
+      snapshot.availability !== "partial" &&
+      snapshot.availability !== "unavailable")
+  ) {
+    return null;
+  }
+
+  const purposeKeys = new Set(
+    projectBrief.excerpts.map(({ text }) => canonicalReaderText(text)),
+  );
+  const seenFacts = new Set<string>();
+  const selectedPath: SelectedReadmePath = { value: null };
+  const observedManifests = validReaderObservedManifests(
+    snapshot.observedManifests,
+  );
+  const overview = validReaderReadmeFacts(
+    snapshot.overview,
+    README_PROFILE_CAPS.overview,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const audiences = validReaderReadmeFacts(
+    snapshot.audiences,
+    README_PROFILE_CAPS.audiences,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const problems = validReaderReadmeFacts(
+    snapshot.problems,
+    README_PROFILE_CAPS.problems,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const useCases = validReaderReadmeFacts(
+    snapshot.useCases,
+    README_PROFILE_CAPS.useCases,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const capabilityGroups = validReaderCapabilityGroups(
+    snapshot.capabilityGroups,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const workflow = validReaderReadmeFacts(
+    snapshot.workflow,
+    README_PROFILE_CAPS.workflow,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const dependencies = validReaderReadmeFacts(
+    snapshot.dependencies,
+    README_PROFILE_CAPS.dependencies,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const limitations = validReaderReadmeFacts(
+    snapshot.limitations,
+    README_PROFILE_CAPS.limitations,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const maturity = validReaderReadmeFacts(
+    snapshot.maturity,
+    README_PROFILE_CAPS.maturity,
+    seenFacts,
+    purposeKeys,
+    selectedPath,
+  );
+  const commentary = validReaderCommentary(snapshot.commentary);
+  if (
+    observedManifests === null ||
+    overview === null ||
+    audiences === null ||
+    problems === null ||
+    useCases === null ||
+    capabilityGroups === null ||
+    workflow === null ||
+    dependencies === null ||
+    limitations === null ||
+    maturity === null ||
+    commentary === null
+  ) {
+    return null;
+  }
+
+  const profile: ReaderReadmeProfile = {
+    availability: snapshot.availability,
+    observedManifests,
+    overview,
+    audiences,
+    problems,
+    useCases,
+    capabilityGroups,
+    workflow,
+    dependencies,
+    limitations,
+    maturity,
+    commentary,
+  };
+  const factCount = readmeProfileFactCount(profile);
+  if (
+    (profile.availability === "available" && factCount === 0) ||
+    (profile.availability === "unavailable" &&
+      (factCount > 0 || profile.commentary.length > 0)) ||
+    (factCount === 0 && profile.commentary.length > 0)
+  ) {
+    return null;
+  }
+  return profile;
+}
+
 function validReaderSignalFact(
   value: unknown,
   signal: ReaderSignalId,
@@ -594,22 +1158,28 @@ function validReaderAvailability(
 }
 
 function validReaderReport(
-  value: unknown,
+  candidate: unknown,
   repository: AnalysisReport["repository"],
   projectBrief: ProjectBrief,
   coverage: AnalysisReport["coverage"],
-): value is ReaderReport {
+): candidate is ReaderReport {
+  const value = exactDataRecord(candidate, [
+    "community",
+    "readme",
+    "reliability",
+    "scenarios",
+    "architecture",
+    "gettingStarted",
+    "securityPrivacy",
+    "maintenance",
+    "alternatives",
+  ]);
+  if (value === null) return false;
+  const community = validReaderCommunity(value.community);
+  const readme = validReaderReadmeProfile(value.readme, projectBrief);
   if (
-    !isRecord(value) ||
-    !exactKeys(value, [
-      "reliability",
-      "scenarios",
-      "architecture",
-      "gettingStarted",
-      "securityPrivacy",
-      "maintenance",
-      "alternatives",
-    ]) ||
+    community === null ||
+    readme === null ||
     !isRecord(value.reliability) ||
     !exactKeys(value.reliability, [
       "availability",
@@ -693,6 +1263,10 @@ function validReaderReport(
   }
 
   const reader = value as unknown as ReaderReport;
+  if (!validSingleReadmeEvidencePath(projectBrief, reader)) return false;
+  if (!validReaderCommentaryEvidence(readme, reader, projectBrief, coverage)) {
+    return false;
+  }
   const signals = reader.reliability.signals;
   const purposeKeys = new Set(
     projectBrief.excerpts.map(({ text }) => canonicalReaderText(text)),
@@ -766,7 +1340,10 @@ function validReaderReport(
   const unavailableFallback = allUnknown;
   if (
     unavailableFallback &&
-    (reader.scenarios.facts.length > 0 ||
+    (readme.availability !== "unavailable" ||
+      readmeProfileFactCount(readme) > 0 ||
+      readme.commentary.length > 0 ||
+      reader.scenarios.facts.length > 0 ||
       reader.architecture.excerpts.length > 0 ||
       reader.architecture.documents.length > 0 ||
       reader.architecture.entryPoints.length > 0 ||
@@ -1261,21 +1838,21 @@ function equalImprovement(
   );
 }
 
-function validateAnalysisReport(value: unknown): value is AnalysisReport {
+function validateAnalysisReport(input: unknown): input is AnalysisReport {
+  const value = exactDataRecord(input, [
+    "rulesetVersion",
+    "repository",
+    "projectBrief",
+    "readerReport",
+    "overall",
+    "confidence",
+    "dimensions",
+    "strengths",
+    "weaknesses",
+    "coverage",
+  ]);
   if (
-    !isRecord(value) ||
-    !exactKeys(value, [
-      "rulesetVersion",
-      "repository",
-      "projectBrief",
-      "readerReport",
-      "overall",
-      "confidence",
-      "dimensions",
-      "strengths",
-      "weaknesses",
-      "coverage",
-    ]) ||
+    value === null ||
     value.rulesetVersion !== RULESET_VERSION ||
     !validRepository(value.repository) ||
     !validProjectBrief(value.projectBrief) ||
@@ -1433,7 +2010,8 @@ function validateAnalysisReport(value: unknown): value is AnalysisReport {
 
 export function isAnalysisReport(value: unknown): value is AnalysisReport {
   try {
-    return validateAnalysisReport(value);
+    const detached = detachedDataClone(value);
+    return detached !== null && validateAnalysisReport(detached);
   } catch {
     return false;
   }

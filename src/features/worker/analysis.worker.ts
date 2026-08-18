@@ -5,6 +5,8 @@ import type {
   LanguageAnalysis,
   ReaderReport,
   RepoRef,
+  RepositoryMetadata,
+  ScoringRepositoryMetadata,
   ScanPhase,
   SelectedFile,
 } from "../analysis/model";
@@ -101,6 +103,28 @@ const productionDependencies: AnalysisDependencies = {
   findings: buildFindings,
   now: Date.now,
 };
+
+function scoringRepository(
+  repository: RepositoryMetadata,
+): ScoringRepositoryMetadata {
+  return {
+    owner: repository.owner,
+    repo: repository.repo,
+    name: repository.name,
+    fullName: repository.fullName,
+    url: repository.url,
+    description: repository.description,
+    defaultBranch: repository.defaultBranch,
+    archived: repository.archived,
+    createdAt: repository.createdAt,
+    updatedAt: repository.updatedAt,
+    pushedAt: repository.pushedAt,
+    size: repository.size,
+    openIssuesCount: repository.openIssuesCount,
+    topics: repository.topics,
+    licenseSpdxId: repository.licenseSpdxId,
+  } satisfies ScoringRepositoryMetadata;
+}
 
 type Failure = NonNullable<CoverageSummary["failures"]>[number];
 
@@ -530,7 +554,7 @@ export async function executeAnalysis(
     }
 
     const scored = dependencies.score({
-      repository: snapshot.repository,
+      repository: scoringRepository(snapshot.repository),
       general,
       language,
       duplicates,

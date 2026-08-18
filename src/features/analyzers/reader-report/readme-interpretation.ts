@@ -1,57 +1,35 @@
 import type {
   ReaderCapabilityGroup,
   ReaderCommentaryId,
-  ReaderCommandKind,
+  ReaderConventionalManifest,
   ReaderReadmeProfile,
   ReaderTextFact,
 } from "../../analysis/model";
+import { READER_CONVENTIONAL_MANIFESTS } from "../../analysis/model";
 import {
-  PRACTICAL_IDS,
-  VERIFY_IDS,
-  WORTH_NOTING_IDS,
+  deriveCanonicalReadmeCommentary,
   deriveReadmeAvailability,
+  readerConventionalManifest,
+  type CanonicalReadmeCommentaryEvidence,
   type PreferredReadmeState,
 } from "../../analysis/reader-report-policy";
 import {
   containsCredentialLikeValue,
   isSafeProjectBriefPath,
 } from "../../analysis/project-brief-safety";
-import { toPathComparisonKey } from "../../scanner/file-registry";
 import type { ReaderMarkdownReadmeEvidence } from "./markdown";
-import { README_PROFILE_CAPS } from "./readme-policy";
+import { isCanonicalReadmePath, README_PROFILE_CAPS } from "./readme-policy";
 
-const CONVENTIONAL_ECOSYSTEM_MANIFESTS = new Set([
-  "build.gradle",
-  "build.gradle.kts",
-  "cargo.toml",
-  "composer.json",
-  "gemfile",
-  "go.mod",
-  "package.json",
-  "package.swift",
-  "pom.xml",
-  "pubspec.yaml",
-  "pyproject.toml",
-]);
-const ONBOARDING_COMMAND_KINDS = new Set<ReaderCommandKind>([
-  "install",
-  "run",
-  "develop",
-]);
 const MAX_EVIDENCE_ITEMS_TO_INSPECT = 128;
 const INVALID_DATA_PROPERTY = Symbol("invalid-data-property");
 
-export interface ReaderReadmeCorroboration {
-  productShapeObserved: boolean;
-  ecosystemsObserved: boolean;
-  treeComplete: boolean;
-  observedManifestBasenames: readonly string[];
-  readmeCommandKinds: readonly ReaderCommandKind[];
-  securityPrivacyFactCount: number;
-}
+export type ReaderReadmeCorroboration = CanonicalReadmeCommentaryEvidence & {
+  observedManifests: readonly string[];
+};
 
 export interface BuildReadmeProfileInput {
   preferredReadmeState: PreferredReadmeState;
+  evidencePath: string | null;
   evidence: ReaderMarkdownReadmeEvidence;
   purposeKeys: ReadonlySet<string>;
   corroboration: ReaderReadmeCorroboration;
@@ -131,18 +109,13 @@ function canonicalReadmePath(path: unknown): path is string {
   ) {
     return false;
   }
-  const normalized = toPathComparisonKey(normalizedPath);
-  const slash = normalized.lastIndexOf("/");
-  const directory = slash === -1 ? "" : normalized.slice(0, slash);
-  const basename = slash === -1 ? normalized : normalized.slice(slash + 1);
-
-  return (
-    (directory === "" || directory === ".github") &&
-    (basename === "readme" || basename.startsWith("readme."))
-  );
+  return isCanonicalReadmePath(normalizedPath);
 }
 
-function canonicalReadmeFact(fact: unknown): ReaderTextFact | null {
+function canonicalReadmeFact(
+  fact: unknown,
+  evidencePath: string | null,
+): ReaderTextFact | null {
   const source = ownDataProperty(fact, "source");
   const path = ownDataProperty(fact, "path");
   const text = ownDataProperty(fact, "text");
@@ -150,6 +123,7 @@ function canonicalReadmeFact(fact: unknown): ReaderTextFact | null {
   if (
     source !== "readme" ||
     !canonicalReadmePath(path) ||
+    path !== evidencePath ||
     !canonicalSafeValue(text)
   ) {
     return null;
@@ -197,16 +171,33 @@ function evidenceField(
   return value === INVALID_DATA_PROPERTY ? undefined : value;
 }
 
+function canonicalObservedManifests(
+  value: unknown,
+): ReaderConventionalManifest[] {
+  const observed = new Set<ReaderConventionalManifest>();
+
+  for (const candidate of evidenceArray(value)) {
+    if (typeof candidate !== "string") continue;
+    const manifest = readerConventionalManifest(candidate);
+    if (manifest !== null) observed.add(manifest);
+  }
+
+  return READER_CONVENTIONAL_MANIFESTS.filter((manifest) =>
+    observed.has(manifest),
+  );
+}
+
 function boundedFacts(
   facts: unknown,
   cap: number,
   seenFacts: Set<string>,
+  evidencePath: string | null,
   excludedKeys: ReadonlySet<string> = new Set<string>(),
 ): ReaderTextFact[] {
   const result: ReaderTextFact[] = [];
 
   for (const fact of evidenceArray(facts)) {
-    const snapshot = canonicalReadmeFact(fact);
+    const snapshot = canonicalReadmeFact(fact, evidencePath);
     if (snapshot === null) continue;
     const key = canonicalKey(snapshot.text);
     if (excludedKeys.has(key) || seenFacts.has(key)) continue;
@@ -221,6 +212,8 @@ function boundedFacts(
 function boundedGroups(
   groups: unknown,
   seenFacts: Set<string>,
+  evidencePath: string | null,
+  excludedKeys: ReadonlySet<string>,
 ): ReaderCapabilityGroup[] {
   const result: ReaderCapabilityGroup[] = [];
   const byLabel = new Map<string, ReaderCapabilityGroup>();
@@ -236,19 +229,28 @@ function boundedGroups(
 
     if (
       target === undefined &&
-      result.length >= README_PROFILE_CAPS.capabilityGroups
+      (excludedKeys.has(labelKey) ||
+        seenFacts.has(labelKey) ||
+        result.length >= README_PROFILE_CAPS.capabilityGroups)
     ) {
       continue;
     }
     for (const fact of evidenceArray(facts)) {
-      const snapshot = canonicalReadmeFact(fact);
+      const snapshot = canonicalReadmeFact(fact, evidencePath);
       if (snapshot === null) continue;
       const factKey = canonicalKey(snapshot.text);
-      if (seenFacts.has(factKey)) continue;
+      if (
+        factKey === labelKey ||
+        excludedKeys.has(factKey) ||
+        seenFacts.has(factKey)
+      ) {
+        continue;
+      }
       if (target === undefined) {
         target = { label, facts: [] };
         byLabel.set(labelKey, target);
         result.push(target);
+        seenFacts.add(labelKey);
       }
       if (target.facts.length >= README_PROFILE_CAPS.capabilityFacts) break;
       seenFacts.add(factKey);
@@ -264,6 +266,7 @@ function emptyProfile(
 ): ReaderReadmeProfile {
   return {
     availability,
+    observedManifests: [],
     overview: [],
     audiences: [],
     problems: [],
@@ -294,82 +297,12 @@ function profileFactCount(profile: ReaderReadmeProfile): number {
   );
 }
 
-function conventionalManifestName(value: string): string | null {
-  const normalized = canonicalKey(value).toLocaleLowerCase("en-US");
-  return CONVENTIONAL_ECOSYSTEM_MANIFESTS.has(normalized) ? normalized : null;
-}
-
-function unobservedManifestReference(
-  profile: ReaderReadmeProfile,
-  corroboration: ReaderReadmeCorroboration,
-): boolean {
-  const observed = new Set(
-    corroboration.observedManifestBasenames.map((value) =>
-      (toPathComparisonKey(value).split("/").at(-1) ?? "").toLocaleLowerCase(
-        "en-US",
-      ),
-    ),
-  );
-
-  return profile.dependencies.some(({ text }) => {
-    const mentioned = conventionalManifestName(text);
-    return mentioned !== null && !observed.has(mentioned);
-  });
-}
-
 /** Derives only frozen commentary identifiers from canonical README evidence. */
 export function deriveReadmeCommentary(
   profile: ReaderReadmeProfile,
   corroboration: ReaderReadmeCorroboration,
 ): ReaderCommentaryId[] {
-  if (
-    profile.availability === "unavailable" ||
-    profileFactCount(profile) === 0
-  ) {
-    return [];
-  }
-
-  const onboardingDocumented = corroboration.readmeCommandKinds.some((kind) =>
-    ONBOARDING_COMMAND_KINDS.has(kind),
-  );
-  const manifestUnobserved = unobservedManifestReference(
-    profile,
-    corroboration,
-  );
-  const manifestMissing = corroboration.treeComplete && manifestUnobserved;
-  const broadStructureAbsent =
-    corroboration.treeComplete &&
-    !corroboration.productShapeObserved &&
-    !corroboration.ecosystemsObserved;
-  const broadNeedsVerification = manifestMissing || broadStructureAbsent;
-  const triggers: Readonly<Record<ReaderCommentaryId, boolean>> = {
-    "readme-substantial-overview": profile.overview.length >= 2,
-    "readme-audience-or-use-cases-documented":
-      profile.audiences.length > 0 || profile.useCases.length > 0,
-    "readme-capabilities-documented": profile.capabilityGroups.length > 0,
-    "readme-workflow-documented": profile.workflow.length > 0,
-    "readme-onboarding-documented": onboardingDocumented,
-    "readme-limitations-documented": profile.limitations.length > 0,
-    "readme-maturity-documented": profile.maturity.length > 0,
-    "readme-broad-structure-corroborated":
-      corroboration.productShapeObserved &&
-      corroboration.ecosystemsObserved &&
-      !manifestUnobserved,
-    "readme-security-data-flow-unestablished":
-      corroboration.securityPrivacyFactCount <= 0,
-    "readme-limitations-unestablished": profile.limitations.length === 0,
-    "readme-maturity-unestablished": profile.maturity.length === 0,
-    "readme-broad-structure-needs-verification": broadNeedsVerification,
-    "readme-external-dependencies-declared": profile.dependencies.length > 0,
-  };
-  const selected = (ids: readonly ReaderCommentaryId[]) =>
-    ids.filter((id) => triggers[id]);
-
-  return [
-    ...selected(WORTH_NOTING_IDS).slice(0, 3),
-    ...selected(VERIFY_IDS),
-    ...selected(PRACTICAL_IDS),
-  ];
+  return deriveCanonicalReadmeCommentary(profile, corroboration);
 }
 
 /** Builds a detached, bounded README profile without attaching it to ReaderReport. */
@@ -388,51 +321,70 @@ export function buildReadmeProfile(
   const seenFacts = new Set<string>();
   const profile: ReaderReadmeProfile = {
     availability: "unavailable",
+    observedManifests: canonicalObservedManifests(
+      ownDataProperty(input.corroboration, "observedManifests"),
+    ),
     overview: boundedFacts(
       evidenceField(input.evidence, "overview"),
       README_PROFILE_CAPS.overview,
       seenFacts,
+      input.evidencePath,
       purposeKeys,
     ),
     audiences: boundedFacts(
       evidenceField(input.evidence, "audiences"),
       README_PROFILE_CAPS.audiences,
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     problems: boundedFacts(
       evidenceField(input.evidence, "problems"),
       README_PROFILE_CAPS.problems,
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     useCases: boundedFacts(
       evidenceField(input.evidence, "useCases"),
       README_PROFILE_CAPS.useCases,
       seenFacts,
+      input.evidencePath,
       purposeKeys,
     ),
     capabilityGroups: boundedGroups(
       evidenceField(input.evidence, "capabilityGroups"),
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     workflow: boundedFacts(
       evidenceField(input.evidence, "workflow"),
       README_PROFILE_CAPS.workflow,
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     dependencies: boundedFacts(
       evidenceField(input.evidence, "dependencies"),
       README_PROFILE_CAPS.dependencies,
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     limitations: boundedFacts(
       evidenceField(input.evidence, "limitations"),
       README_PROFILE_CAPS.limitations,
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     maturity: boundedFacts(
       evidenceField(input.evidence, "maturity"),
       README_PROFILE_CAPS.maturity,
       seenFacts,
+      input.evidencePath,
+      purposeKeys,
     ),
     commentary: [],
   };

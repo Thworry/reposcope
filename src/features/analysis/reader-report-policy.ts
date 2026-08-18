@@ -1,7 +1,11 @@
 import {
+  READER_CONVENTIONAL_MANIFESTS,
   type ReaderCommentaryId,
   type ReaderActivityBand,
   type ReaderAvailability,
+  type ReaderCommandKind,
+  type ReaderConventionalManifest,
+  type ReaderReadmeProfile,
   type ReaderQuestionId,
   type ReaderSignalFact,
   type ReaderSignalId,
@@ -30,6 +34,126 @@ export const VERIFY_IDS = Object.freeze([
 export const PRACTICAL_IDS = Object.freeze([
   "readme-external-dependencies-declared",
 ] as const satisfies readonly ReaderCommentaryId[]);
+
+export interface CanonicalReadmeCommentaryEvidence {
+  productShapeObserved: boolean;
+  ecosystemsObserved: boolean;
+  treeComplete: boolean;
+  readmeCommandKinds: readonly ReaderCommandKind[];
+  securityPrivacyFactCount: number;
+}
+
+export function readerConventionalManifest(
+  value: string,
+): ReaderConventionalManifest | null {
+  const normalized = value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+
+  return (
+    READER_CONVENTIONAL_MANIFESTS.find((manifest) => manifest === normalized) ??
+    null
+  );
+}
+
+export const READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID = Object.freeze({
+  "build.gradle": "build.gradle",
+  "build.gradle.kts": "build.gradle.kts",
+  "Cargo.toml": "cargo.toml",
+  "composer.json": "composer.json",
+  Gemfile: "gemfile",
+  "go.mod": "go.mod",
+  "package.json": "package.json",
+  "Package.swift": "package.swift",
+  "pom.xml": "pom.xml",
+  "pubspec.yaml": "pubspec.yaml",
+  "pyproject.toml": "pyproject.toml",
+} as const satisfies Readonly<Record<string, ReaderConventionalManifest>>);
+
+/** Exact raw tree identity; README prose normalization must not reach here. */
+export function observedReaderConventionalManifest(
+  basename: string,
+): ReaderConventionalManifest | null {
+  if (!Object.hasOwn(READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID, basename)) {
+    return null;
+  }
+
+  return READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID[
+    basename as keyof typeof READER_CONVENTIONAL_MANIFEST_RAW_NAME_TO_ID
+  ];
+}
+
+function readmeProfileFactCount(profile: ReaderReadmeProfile): number {
+  return (
+    profile.overview.length +
+    profile.audiences.length +
+    profile.problems.length +
+    profile.useCases.length +
+    profile.capabilityGroups.reduce(
+      (total, group) => total + group.facts.length,
+      0,
+    ) +
+    profile.workflow.length +
+    profile.dependencies.length +
+    profile.limitations.length +
+    profile.maturity.length
+  );
+}
+
+/** Canonical commentary derived only from evidence serialized in the report. */
+export function deriveCanonicalReadmeCommentary(
+  profile: ReaderReadmeProfile,
+  evidence: CanonicalReadmeCommentaryEvidence,
+): ReaderCommentaryId[] {
+  if (
+    profile.availability === "unavailable" ||
+    readmeProfileFactCount(profile) === 0
+  ) {
+    return [];
+  }
+
+  const onboardingDocumented = evidence.readmeCommandKinds.some(
+    (kind) => kind === "install" || kind === "run" || kind === "develop",
+  );
+  const observedManifests = new Set(profile.observedManifests);
+  const hasUnobservedManifestClaim = profile.dependencies.some(({ text }) => {
+    const manifest = readerConventionalManifest(text);
+    return manifest !== null && !observedManifests.has(manifest);
+  });
+  const broadStructureCorroborated =
+    evidence.treeComplete &&
+    evidence.productShapeObserved &&
+    evidence.ecosystemsObserved &&
+    !hasUnobservedManifestClaim;
+  const broadStructureNeedsVerification =
+    evidence.treeComplete &&
+    (hasUnobservedManifestClaim ||
+      (!evidence.productShapeObserved && !evidence.ecosystemsObserved));
+  const triggers: Readonly<Record<ReaderCommentaryId, boolean>> = {
+    "readme-substantial-overview": profile.overview.length >= 2,
+    "readme-audience-or-use-cases-documented":
+      profile.audiences.length > 0 || profile.useCases.length > 0,
+    "readme-capabilities-documented": profile.capabilityGroups.length > 0,
+    "readme-workflow-documented": profile.workflow.length > 0,
+    "readme-onboarding-documented": onboardingDocumented,
+    "readme-limitations-documented": profile.limitations.length > 0,
+    "readme-maturity-documented": profile.maturity.length > 0,
+    "readme-broad-structure-corroborated": broadStructureCorroborated,
+    "readme-security-data-flow-unestablished":
+      evidence.securityPrivacyFactCount <= 0,
+    "readme-limitations-unestablished": profile.limitations.length === 0,
+    "readme-maturity-unestablished": profile.maturity.length === 0,
+    "readme-broad-structure-needs-verification":
+      broadStructureNeedsVerification,
+    "readme-external-dependencies-declared": profile.dependencies.length > 0,
+  };
+  const selected = (ids: readonly ReaderCommentaryId[]) =>
+    ids.filter((id) => triggers[id]);
+
+  return [
+    ...selected(WORTH_NOTING_IDS).slice(0, 3),
+    ...selected(VERIFY_IDS),
+    ...selected(PRACTICAL_IDS),
+  ];
+}
 
 export type PreferredReadmeState = "missing" | "incomplete" | "fetched";
 

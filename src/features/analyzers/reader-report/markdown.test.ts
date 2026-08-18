@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { FetchedTextFile } from "../../analysis/model";
-import { extractReaderMarkdownEvidence } from "./markdown";
+import {
+  READER_MARKDOWN_PENDING_CAPABILITY_LIMITS,
+  extractReaderMarkdownEvidence,
+} from "./markdown";
 import { README_PROFILE_CAPS, README_SECTION_HEADINGS } from "./readme-policy";
 
 function fetched(path: string, text: string): FetchedTextFile {
@@ -51,6 +54,19 @@ function group(label: string, facts: readonly string[]) {
 }
 
 describe("extractReaderMarkdownEvidence", () => {
+  it("uses canonical README path semantics for evidence provenance", () => {
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched("README-guide.md", "## Overview\n\nGuide orientation."),
+      ).readme.overview[0]?.source,
+    ).toBe("readme");
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched("README.exe", "## Overview\n\nLookalike orientation."),
+      ).readme.overview[0]?.source,
+    ).toBe("documentation");
+  });
+
   it("freezes the exact bilingual README vocabulary and caps", () => {
     expect(README_PROFILE_CAPS).toEqual({
       overview: 4,
@@ -472,6 +488,86 @@ ${lists("Milestone", 7)}
     expect(result.dependencies).toHaveLength(README_PROFILE_CAPS.dependencies);
     expect(result.limitations).toHaveLength(README_PROFILE_CAPS.limitations);
     expect(result.maturity).toHaveLength(README_PROFILE_CAPS.maturity);
+  });
+
+  it("excludes NFKC purpose duplicates from every README profile section before caps", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Overview
+Primary purpose.
+
+Overview one.
+
+Overview two.
+
+Overview three.
+
+Overview four.
+
+## Audience
+- Ｐｒｉｍａｒｙ purpose.
+- Maintainers.
+
+## Features
+### Core
+- Primary purpose.
+- Safe capability.
+
+## Workflow
+1. Primary purpose.
+2. Inspect evidence.
+`,
+      ),
+      { scenarioExclusions: new Set(["Ｐｒｉｍａｒｙ purpose."]) },
+    ).readme;
+
+    expect(result.overview.map(({ text }) => text)).toEqual([
+      "Overview one.",
+      "Overview two.",
+      "Overview three.",
+      "Overview four.",
+    ]);
+    expect(result.audiences.map(({ text }) => text)).toEqual(["Maintainers."]);
+    expect(result.capabilityGroups).toEqual([
+      group("Core", ["Safe capability."]),
+    ]);
+    expect(result.workflow.map(({ text }) => text)).toEqual([
+      "Inspect evidence.",
+    ]);
+  });
+
+  it("deduplicates capability labels in model order before applying the group cap", () => {
+    const groups = (labels: readonly string[]) =>
+      labels
+        .map((label) => `### ${label}\n- ${label} capability.`)
+        .join("\n\n");
+    const unique = [
+      "Group 2",
+      "Group 3",
+      "Group 4",
+      "Group 5",
+      "Group 6",
+      "Group 7",
+    ];
+    const extract = (labels: readonly string[]) =>
+      extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `## Overview\n\nDuplicate label\n\n## Features\n\n${groups(labels)}`,
+        ),
+      ).readme.capabilityGroups;
+
+    expect(
+      extract(["Ｄｕｐｌｉｃａｔｅ label", ...unique]).map(
+        ({ label }) => label,
+      ),
+    ).toEqual(unique);
+    expect(
+      extract(["Ｄｕｐｌｉｃａｔｅ label", ...unique].reverse()).map(
+        ({ label }) => label,
+      ),
+    ).toEqual([...unique].reverse());
   });
 
   it("keeps category output deterministic when recognized section order is reversed", () => {
@@ -1066,11 +1162,19 @@ Fourth declaration.
     expect(
       extractReaderMarkdownEvidence(readme).scenarios.map(({ text }) => text),
     ).toEqual(["Purpose one.", "Ｐｕｒｐｏｓｅ two.", "Unique one."]);
-    expect(
-      extractReaderMarkdownEvidence(readme, {
-        scenarioExclusions: new Set(["Purpose one.", "Purpose two."]),
-      }).scenarios.map(({ text }) => text),
-    ).toEqual(["Unique one.", "Unique two.", "Unique three."]);
+    const excluded = extractReaderMarkdownEvidence(readme, {
+      scenarioExclusions: new Set(["Purpose one.", "Purpose two."]),
+    });
+    expect(excluded.scenarios.map(({ text }) => text)).toEqual([
+      "Unique one.",
+      "Unique two.",
+      "Unique three.",
+    ]);
+    expect(excluded.readme.useCases.map(({ text }) => text)).toEqual([
+      "Unique one.",
+      "Unique two.",
+      "Unique three.",
+    ]);
   });
 
   it("omits prose over 480 code points rather than truncating it", () => {
@@ -1811,6 +1915,101 @@ Go to the project page for details.
     expect(result.readme.limitations).toEqual([
       fact("Runtime behavior is not observed"),
     ]);
+  });
+
+  it("handles 30,000 unique facts in one near-limit capability group linearly", () => {
+    const candidates = Array.from(
+      { length: 30_000 },
+      (_, index) => `- x${index < 22_000 ? "zz" : "z"}${index.toString(36)}`,
+    );
+    const file = fetched(
+      "README.md",
+      `## Features\n\n### Massive group\n\n${candidates.join("\n")}`,
+    );
+    const started = performance.now();
+    const result = extractReaderMarkdownEvidence(file);
+
+    expect(file.bytes).toBeGreaterThan(254 * 1024);
+    expect(file.bytes).toBeLessThanOrEqual(256 * 1024);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(result.readme.capabilityGroups).toEqual([]);
+  });
+
+  it("bounds 15,000 micro-groups with small output-related budgets", () => {
+    const groups = Array.from({ length: 15_000 }, (_, index) => {
+      const fact = index === 14_999 ? "unique" : "dup";
+      return `### grp${index.toString(36)}\n- ${fact}`;
+    });
+    const file = fetched(
+      "README.md",
+      `## Features\n${groups.join("\n")}\n\n## Workflow\n- Inspect bounded evidence.`,
+    );
+    const started = performance.now();
+    const result = extractReaderMarkdownEvidence(file);
+
+    expect(file.bytes).toBeGreaterThan(247 * 1024);
+    expect(file.bytes).toBeLessThanOrEqual(256 * 1024);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(READER_MARKDOWN_PENDING_CAPABILITY_LIMITS).toEqual({
+      maxGroups: 128,
+      maxFactsPerGroup: 64,
+      maxFactsTotal: 8_192,
+    });
+    expect(result.readme.capabilityGroups).toEqual([]);
+    expect(result.readme.workflow).toEqual([fact("Inspect bounded evidence.")]);
+  });
+
+  it("keeps exact capability budgets and fails closed on the next distinct candidate", () => {
+    const groups = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) => `### Group ${String(index)}\n- Fact ${String(index)}`,
+      ).join("\n");
+    const facts = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) => `- Fact ${String(index)}`,
+      ).join("\n");
+
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `## Features\n${groups(READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxGroups)}`,
+        ),
+      ).readme.capabilityGroups.map(({ label }) => label),
+    ).toEqual(
+      Array.from({ length: 6 }, (_, index) => `Group ${String(index)}`),
+    );
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `## Features\n${groups(READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxGroups + 1)}`,
+        ),
+      ).readme.capabilityGroups,
+    ).toEqual([]);
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `## Features\n### One group\n${facts(READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxFactsPerGroup)}`,
+        ),
+      ).readme.capabilityGroups,
+    ).toEqual([
+      group(
+        "One group",
+        Array.from({ length: 6 }, (_, index) => `Fact ${String(index)}`),
+      ),
+    ]);
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched(
+          "README.md",
+          `## Features\n### One group\n${facts(READER_MARKDOWN_PENDING_CAPABILITY_LIMITS.maxFactsPerGroup + 1)}`,
+        ),
+      ).readme.capabilityGroups,
+    ).toEqual([]);
   });
 
   it("fails fast on a near-limit line of unmatched link openers", () => {

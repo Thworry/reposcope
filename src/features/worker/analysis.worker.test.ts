@@ -193,6 +193,9 @@ describe("executeAnalysis", () => {
       vi.mocked(dependencies.score).mock.invocationCallOrder[0] ?? 0,
     );
     expect(completedReport(events).readerReport).toEqual(perfectReaderReport);
+    expect(completedReport(events).readerReport.community).toEqual(
+      perfectReaderReport.community,
+    );
     expect(readerReport).toHaveBeenCalledWith({
       repository: perfectRepository,
       tree: { files: [], complete: true, skippedEntries: [] },
@@ -204,6 +207,24 @@ describe("executeAnalysis", () => {
     });
     expect(vi.mocked(dependencies.score).mock.calls[0]?.[0]).not.toHaveProperty(
       "readerReport",
+    );
+    expect(vi.mocked(dependencies.score).mock.calls[0]?.[0]).not.toHaveProperty(
+      "community",
+    );
+    const scoreRepository = vi.mocked(dependencies.score).mock.calls[0]?.[0]
+      .repository;
+    expect(scoreRepository).not.toHaveProperty("starsCount");
+    expect(scoreRepository).not.toHaveProperty("watchersCount");
+    expect(scoreRepository).not.toHaveProperty("forksCount");
+    expect(scoreRepository).toEqual(
+      Object.fromEntries(
+        Object.entries(perfectRepository).filter(
+          ([key]) =>
+            key !== "starsCount" &&
+            key !== "watchersCount" &&
+            key !== "forksCount",
+        ),
+      ),
     );
   });
 
@@ -248,6 +269,16 @@ describe("executeAnalysis", () => {
         ({ state }) => state === "unknown",
       ),
     ).toBe(true);
+    expect(report.readerReport.community).toEqual({
+      starsCount: perfectRepository.starsCount,
+      watchersCount: perfectRepository.watchersCount,
+      forksCount: perfectRepository.forksCount,
+    });
+    expect(report.readerReport.readme).toMatchObject({
+      availability: "unavailable",
+      overview: [],
+      commentary: [],
+    });
   });
 
   it("does not turn scoring failures into reader fallbacks", async () => {

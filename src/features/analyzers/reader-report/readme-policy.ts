@@ -1,4 +1,66 @@
 import type { ReaderCommandKind } from "../../analysis/model";
+import { toPathComparisonKey } from "../../scanner/file-registry";
+
+const README_DOCUMENT_EXTENSIONS = Object.freeze([
+  ".asciidoc",
+  ".markdown",
+  ".adoc",
+  ".mdx",
+  ".txt",
+  ".rst",
+  ".md",
+] as const);
+
+function readmePathParts(path: string): {
+  directory: string;
+  stem: string;
+} | null {
+  const normalized = toPathComparisonKey(path.normalize("NFKC"));
+  const slash = normalized.lastIndexOf("/");
+  const directory = slash === -1 ? "" : normalized.slice(0, slash);
+  const basename = slash === -1 ? normalized : normalized.slice(slash + 1);
+  const extension = README_DOCUMENT_EXTENSIONS.find((candidate) =>
+    basename.endsWith(candidate),
+  );
+  const stem =
+    extension === undefined
+      ? basename.includes(".")
+        ? null
+        : basename
+      : basename.slice(0, -extension.length);
+
+  return stem === null ? null : { directory, stem };
+}
+
+/** One stable README identity used by selection, extraction, and validation. */
+export function isCanonicalReadmePath(path: string): boolean {
+  const parts = readmePathParts(path);
+
+  return (
+    parts !== null &&
+    (parts.directory === "" || parts.directory === ".github") &&
+    (parts.stem === "readme" || /^readme[-_.]/u.test(parts.stem))
+  );
+}
+
+/** Stable binary preference: root, exact README stem, normalized path, spelling. */
+export function compareReadmePaths(left: string, right: string): number {
+  const leftParts = readmePathParts(left);
+  const rightParts = readmePathParts(right);
+  const leftRoot = leftParts?.directory === "" ? 0 : 1;
+  const rightRoot = rightParts?.directory === "" ? 0 : 1;
+  const leftExact = leftParts?.stem === "readme" ? 0 : 1;
+  const rightExact = rightParts?.stem === "readme" ? 0 : 1;
+  const leftKey = toPathComparisonKey(left.normalize("NFKC"));
+  const rightKey = toPathComparisonKey(right.normalize("NFKC"));
+
+  return (
+    leftRoot - rightRoot ||
+    leftExact - rightExact ||
+    (leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0) ||
+    (left < right ? -1 : left > right ? 1 : 0)
+  );
+}
 
 export const README_PROFILE_CAPS = Object.freeze({
   overview: 4,
