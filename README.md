@@ -13,7 +13,7 @@ RepoScope is an evidence inspector, not a verdict. It does not run a repository,
 1. Open the [RepoScope site](https://thworry.github.io/reposcope/).
 2. Paste one public URL in the form `https://github.com/owner/repository`.
 3. Choose **Analyze repository**. RepoScope handles one repository at a time.
-4. Start with the decision-first reader report. Open **Technical evidence and methodology** only when you need the score, confidence, six dimensions, strengths, improvements, coverage, and rule-level evidence; it is closed by default.
+4. Start with the README-first evidence dossier and decision summary. Open **Technical evidence and methodology** only when you need the score, confidence, six dimensions, strengths, improvements, coverage, and rule-level evidence; it is closed by default.
 5. Use **English / 简体中文** to change the interface language. Switching language does not refetch data or recompute scores.
 
 A successful report has a share URL containing only the repository slug. A fresh scan makes exactly three unauthenticated, read-only GitHub REST requests, then bounded reads from immutable raw-file URLs pinned to the inspected commit.
@@ -24,16 +24,23 @@ For any inspected public repository, the deterministic reader report keeps purpo
 
 See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
 
-## Decision-first reader report
+## README-first evidence dossier
 
-Completed reports lead with project purpose and practical scenarios so a person can quickly decide whether the repository is the kind of project they intended to inspect. Six numbered, evidence-linked chapters then cover:
+Completed reports begin with a seven-region README-first evidence dossier for people evaluating an unfamiliar project:
 
-1. purpose and practical scenarios;
-2. evidence of reliability;
-3. core principles and code architecture;
-4. how to install, run, test, and extend the project;
-5. security and privacy risks and unknowns; and
-6. activity, maintenance, and alternatives.
+1. **Project orientation** presents the public repository description and bounded project brief with source captions.
+2. **Community and maintenance facts** shows exact Stars, Watch, Forks, open issues, last push, and license evidence in one semantic definition list.
+3. **What the README says** organizes bounded README overview, audience, problem, use-case, dependency, limitation, and maturity statements without rewriting repository prose.
+4. **Core capabilities** groups the capabilities documented by the repository.
+5. **Documented workflow** presents the repository's ordered process as text that remains understandable without its connecting line.
+6. **README claims and repository observations** separates repository claims from broad project-kind, ecosystem, and source-area observations. It does not expose rule or function-level scoring detail.
+7. **RepoScope commentary** groups deterministic notes under **Worth noting**, **Verify before relying on it**, and **What this means in practice**.
+
+GitHub's `stargazers_count`, `subscribers_count`, and `forks_count` supply Stars, Watch, and Forks respectively; `subscribers_count` is labeled **Watch**. These figures describe public attention. Popularity is not proof of quality or safety.
+
+Repository-authored prose stays in its source language when the interface switches language. README interpretation is deterministic and does not use AI; RepoScope does not use an AI service anywhere in the scan. If no preferred README is found, the dossier says so. If a preferred README is known but was not fetched, the UI presents a partial README interpretation instead of filling gaps.
+
+The dossier is followed by the project decision summary and six numbered, evidence-linked chapters covering project-fit cautions, reliability, broad architecture, installation and development, security and privacy, and maintenance and alternatives.
 
 The evidence status is one of **Sufficient evidence to continue evaluation**, **Key gaps require verification before use**, or **Public evidence is insufficient to judge**. These statuses are deterministic, non-scoring summaries of the inspected public evidence. They do not prove that a project is suitable, correct, secure, private, or safe.
 

@@ -6,7 +6,7 @@ All notable changes to RepoScope are documented in this file.
 
 ### Added
 
-- Added a deterministic, evidence-linked decision-first reader report covering purpose, reliability, architecture, setup, security and privacy, maintenance, and alternatives, with a closed technical appendix for detailed evidence and methodology.
+- Added a deterministic, evidence-linked README-first evidence dossier with seven ordered interpretation regions, followed by the project decision summary and six human reader chapters; a closed technical appendix keeps full evidence and methodology.
 - Preserved immutable source links, inert repository commands, bilingual output, and honest missing-evidence states throughout the new report.
 
 ## 0.1.1 - 2026-08-13

@@ -35,11 +35,14 @@ export interface FixtureOptions {
   repo?: string;
   blockFirstRest?: boolean;
   failRestAttempt?: number;
+  failRawPath?: string;
 }
 
 export interface RequestLedger {
   restGets(): readonly string[];
   rawGets(): readonly string[];
+  expectedRestGets(): readonly string[];
+  expectedRawGets(): readonly string[];
   analyzerChunks(): readonly string[];
   releaseFirstRest(): void;
   assertComplete(expected?: { rest: number; raw: number }): Promise<void>;
@@ -50,6 +53,160 @@ interface FixtureData {
   tree: Record<string, unknown>;
   sources: SourceFileMap;
 }
+
+const FICTION_WORKBENCH_README = `# Fiction Workbench
+
+Fiction Workbench 2.4.1 · maintained beta
+
+## Overview
+
+Fiction Workbench is a browser-based planning studio for shaping long-form stories without sending manuscript notes to a hosted service.
+
+## Who is this for
+
+Novelists, serial-fiction writers, and story editors who need a shared view of continuity before a manuscript is published.
+
+## Problem
+
+Long-form projects scatter character details, setting rules, scene goals, and unresolved plot threads across unrelated notes.
+
+## Use cases
+
+- Turn a premise into a structured story bible.
+- Track characters, locations, and unresolved plot threads.
+- Prepare a release briefing for an editor or writing group.
+
+## Capabilities
+
+### Story bible
+
+- Organize characters, locations, factions, and setting constraints.
+- Keep source notes beside the story decisions they support.
+
+### Continuity review
+
+- Record unresolved plot threads and scene-level questions.
+- Review timeline conflicts before exporting a draft.
+
+### Editorial handoff
+
+- Assemble a bounded briefing for an editor or writing group.
+- Export plain-text notes without executing manuscript content.
+
+## Workflow
+
+1. Capture the premise and intended audience.
+2. Shape characters, settings, and story constraints.
+3. Draft scenes against the shared story bible.
+4. Review continuity notes before export.
+
+## Architecture
+
+The browser interface coordinates a worker that indexes local story notes, derives cross-reference views, and returns inert text to the editor. The package.json manifest defines the application scripts, while src contains interface and analysis code and test contains deterministic checks.
+
+## Requirements
+
+- A current browser for using the workbench.
+- Node.js ^20.19.0 || ^22.12.0 || >=24.0.0
+- pnpm 11 for contributor workflows.
+
+## Installation
+
+\`\`\`sh
+pnpm install --frozen-lockfile
+\`\`\`
+
+## Usage
+
+\`\`\`sh
+pnpm start
+\`\`\`
+
+## Development
+
+\`\`\`sh
+pnpm dev
+\`\`\`
+
+## Testing
+
+\`\`\`sh
+pnpm test
+\`\`\`
+
+## Build
+
+\`\`\`sh
+pnpm build
+\`\`\`
+
+## Security and privacy
+
+Story notes stay in the browser session unless the writer explicitly exports them. The workbench does not execute manuscript text or upload drafts to a hosted model service.
+
+## Limitations
+
+- There is no collaborative synchronization or account recovery.
+- Exported notes still require a human continuity and privacy review.
+
+## Status
+
+Fiction Workbench 2.4.1 is a maintained beta with a versioned local data format.
+`;
+
+const FICTION_WORKBENCH_SOURCE_FILES: SourceFileMap = Object.freeze({
+  ...READER_COMPLETE_SOURCE_FILES,
+  "README.md": FICTION_WORKBENCH_README,
+});
+
+const PARTIAL_SOURCE_FILES: SourceFileMap = Object.freeze({
+  ...SOURCE_FILES,
+  "README.md": FICTION_WORKBENCH_README,
+});
+
+const TYPESCRIPT_RAW_PATHS = [
+  "README.md",
+  "package.json",
+  "src/index.ts",
+  "src/math.ts",
+  "src/format.ts",
+  "src/stats.ts",
+  "src/validate.ts",
+  "test/math.test.ts",
+] as const;
+const READER_COMPLETE_RAW_PATHS = [
+  ...TYPESCRIPT_RAW_PATHS,
+  "SECURITY.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  ".github/workflows/ci.yml",
+  ".github/dependabot.yml",
+  ".env.example",
+] as const;
+
+export const EXPECTED_RAW_PATHS_BY_FIXTURE: Readonly<
+  Record<FixtureKind, readonly string[]>
+> = Object.freeze({
+  typescript: TYPESCRIPT_RAW_PATHS,
+  python: [
+    "README.md",
+    "pyproject.toml",
+    "src/__init__.py",
+    "src/main.py",
+    "src/formatting.py",
+    "src/statistics.py",
+    "src/validation.py",
+    "tests/test_main.py",
+  ],
+  go: ["README.md", "go.mod"],
+  minimal: ["package.json"],
+  partial: TYPESCRIPT_RAW_PATHS,
+  hostile: [...TYPESCRIPT_RAW_PATHS, "src/<img src=x onerror=alert(1)>.ts"],
+  "reader-complete": READER_COMPLETE_RAW_PATHS,
+  "archived-stale": READER_COMPLETE_RAW_PATHS,
+  "not-found": [],
+  "rate-limit": [],
+});
 
 function sha(index: number): string {
   return index.toString(16).padStart(40, "a").slice(-40);
@@ -75,6 +232,10 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
     name: repo,
     full_name: `${owner}/${repo}`,
     html_url: `https://github.com/${owner}/${repo}`,
+    stargazers_count: 1284,
+    subscribers_count: 37,
+    forks_count: 146,
+    open_issues_count: 23,
   };
 
   if (kind === "python") {
@@ -101,8 +262,8 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
   if (kind === "partial") {
     return {
       repository: baseRepository,
-      tree: treeFor(SOURCE_FILES, true),
-      sources: SOURCE_FILES,
+      tree: treeFor(PARTIAL_SOURCE_FILES, true),
+      sources: PARTIAL_SOURCE_FILES,
     };
   }
   if (kind === "hostile") {
@@ -118,18 +279,23 @@ function dataFor(kind: FixtureKind, owner: string, repo: string): FixtureData {
     };
   }
   if (kind === "reader-complete" || kind === "archived-stale") {
+    const fictionRepository = {
+      ...baseRepository,
+      description:
+        "A local-first fiction planning workbench for long-form writers and story editors.",
+    };
     return {
       repository:
         kind === "archived-stale"
           ? {
-              ...baseRepository,
+              ...fictionRepository,
               archived: true,
               updated_at: "2024-07-01T00:00:00Z",
               pushed_at: "2024-07-01T00:00:00Z",
             }
-          : baseRepository,
-      tree: treeFor(READER_COMPLETE_SOURCE_FILES),
-      sources: READER_COMPLETE_SOURCE_FILES,
+          : fictionRepository,
+      tree: treeFor(FICTION_WORKBENCH_SOURCE_FILES),
+      sources: FICTION_WORKBENCH_SOURCE_FILES,
     };
   }
   return {
@@ -186,14 +352,17 @@ export async function installGitHubRoutes(
   const repositoryUrl = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}`;
   const commitUrl = `${repositoryUrl}/commits/main`;
   const treeUrl = `${repositoryUrl}/git/trees/${TREE_SHA}?recursive=1`;
-  const expectedRawUrls = new Set(
-    Object.keys(data.sources).map(
-      (path) =>
-        `https://raw.githubusercontent.com/${encodedOwner}/${encodedRepo}/${COMMIT_SHA}/${path
-          .split("/")
-          .map(encodeURIComponent)
-          .join("/")}`,
-    ),
+  const expectedRestUrls = [repositoryUrl, commitUrl, treeUrl] as const;
+  const rawUrlForPath = (path: string): string =>
+    `https://raw.githubusercontent.com/${encodedOwner}/${encodedRepo}/${COMMIT_SHA}/${path
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/")}`;
+  const allowedRawUrls = new Set(
+    Object.keys(data.sources).map((path) => rawUrlForPath(path)),
+  );
+  const expectedRawUrls = EXPECTED_RAW_PATHS_BY_FIXTURE[kind].map((path) =>
+    rawUrlForPath(path),
   );
   const rest: string[] = [];
   const raw: string[] = [];
@@ -295,7 +464,7 @@ export async function installGitHubRoutes(
         request.method() !== "GET" ||
         path === null ||
         !(path in data.sources) ||
-        !expectedRawUrls.has(url.href)
+        !allowedRawUrls.has(url.href)
       ) {
         routeFailures.push(
           `unmatched GitHub raw route: ${request.method()} ${url.href}`,
@@ -310,6 +479,14 @@ export async function installGitHubRoutes(
         await route.abort("blockedbyclient");
         return;
       }
+      if (path === options.failRawPath) {
+        await route.fulfill({
+          status: 500,
+          contentType: "text/plain",
+          body: "fixture failure",
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "text/plain",
@@ -321,6 +498,8 @@ export async function installGitHubRoutes(
   return {
     restGets: () => rest,
     rawGets: () => raw,
+    expectedRestGets: () => expectedRestUrls,
+    expectedRawGets: () => expectedRawUrls,
     analyzerChunks: () => chunks,
     releaseFirstRest: () => {
       firstRest.resolve();

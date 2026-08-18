@@ -331,33 +331,103 @@ describe("open-source repository contract", () => {
     }
   });
 
-  it("publishes the bilingual decision-first reader-report contract", () => {
+  it("publishes the bilingual README-first evidence-dossier contract", () => {
     const english = read("README.md");
     const chinese = read("README.zh-CN.md");
 
     for (const statement of [
-      "Completed reports lead with project purpose and practical scenarios",
-      "evidence of reliability",
-      "core principles and code architecture",
-      "install, run, test, and extend",
-      "security and privacy risks and unknowns",
-      "activity, maintenance, and alternatives",
+      "seven-region README-first evidence dossier",
+      "Project orientation",
+      "Community and maintenance facts",
+      "What the README says",
+      "Core capabilities",
+      "Documented workflow",
+      "README claims and repository observations",
+      "RepoScope commentary",
+      "Worth noting",
+      "Verify before relying on it",
+      "What this means in practice",
+      "`subscribers_count` is labeled **Watch**",
+      "Popularity is not proof of quality or safety.",
+      "does not use AI",
+      "partial README interpretation",
       "Technical evidence and methodology",
       "closed by default",
     ]) {
       expect(english).toContain(statement);
     }
     for (const statement of [
-      "完成的报告会先说明项目用途与实际场景",
-      "可靠性证据",
-      "核心原理与代码架构",
-      "安装、运行、测试和二次开发",
-      "安全与隐私风险及未知项",
-      "活跃度、维护状况与替代方案",
+      "由七个区域组成的 README 优先证据档案",
+      "项目定位",
+      "社区与维护事实",
+      "README 如何介绍项目",
+      "核心能力",
+      "README 中的工作流程",
+      "README 声明与仓库观察",
+      "RepoScope 解读",
+      "值得注意",
+      "依赖前需要核实",
+      "对实际使用意味着什么",
+      "`subscribers_count` 标记为 **Watch**",
+      "流行度不能证明项目质量或安全性。",
+      "不使用 AI",
+      "README 解读会标记为部分可用",
       "技术证据与方法",
       "默认关闭",
     ]) {
       expect(chinese).toContain(statement);
+    }
+    expect(english).toContain(
+      "**Project orientation** presents the public repository description and bounded project brief",
+    );
+    expect(english).toContain(
+      "**What the README says** organizes bounded README overview, audience, problem, use-case",
+    );
+    expect(chinese).toContain("**项目定位**：展示公开仓库说明和有界的项目简介");
+    expect(chinese).toContain(
+      "**README 如何介绍项目**：按原始语言组织 README 的概览、目标读者、待解决问题、使用场景",
+    );
+    expect(chinese).not.toContain("依赖前请核实");
+    expect(chinese).not.toContain("这在实际中意味着什么");
+  });
+
+  it("documents bounded README interpretation without changing score or assurance claims", () => {
+    const methodology = read("docs/methodology.md");
+
+    for (const statement of [
+      "README interpretation is deterministic and does not use AI.",
+      "`subscribers_count` is the GitHub source for **Watch**",
+      "Popularity is attention evidence, not quality or safety evidence.",
+      "overview 4; audiences 4; problems 4; use cases 4; capability groups 6 with 6 facts each; workflow 8; dependencies 8; limitations 6; maturity 6",
+      "**Worth noting**",
+      "**Verify before relying on it**",
+      "**What this means in practice**",
+      "preferred README is missing",
+      "preferred README was identified but not fetched",
+      "does not change dimension scores, rule applicability, thresholds, weights, confidence, or findings",
+      "does not prove suitability or safety",
+    ]) {
+      expect(methodology).toContain(statement);
+    }
+  });
+
+  it("documents the real README-report assembly and rendering order", () => {
+    const architecture = read("docs/architecture.md");
+    const pipeline =
+      "GitHub metadata and immutable tree evidence → preferred README selection and a single bounded safe scan → README interpretation and broad repository corroboration → unchanged scoring over a separate input → combined strict report guard → snapshot-validated session cache → React README-first UI and closed technical appendix";
+
+    expect(architecture).toContain(pipeline);
+
+    for (const statement of [
+      "general evidence and the project brief are derived",
+      "deep analyzers finish and coverage is finalized",
+      "the bounded README-first reader report is derived",
+      "the isolated scoring input is scored without community popularity counts or reader evidence",
+      "the complete report is strictly cloned and validated",
+      "the README evidence dossier renders before the decision summary and six reader chapters",
+      "src/components/readme-interpretation.tsx",
+    ]) {
+      expect(architecture).toContain(statement);
     }
   });
 
@@ -371,10 +441,20 @@ describe("open-source repository contract", () => {
     expect(changelog).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
     expect(changelog).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
     expect(changelog).toContain(
-      "Added a deterministic, evidence-linked decision-first reader report",
+      "Added a deterministic, evidence-linked README-first evidence dossier with seven ordered interpretation regions, followed by the project decision summary and six human reader chapters; a closed technical appendix keeps full evidence and methodology.",
+    );
+    expect(changelog).not.toContain(
+      "decision-first reader report covering purpose",
     );
     expect(changelog).toContain("closed technical appendix");
     expect(changelog).toContain("immutable source links");
+    const dossierEntry = changelog
+      .split("\n")
+      .find((line) => line.includes("README-first evidence dossier"));
+    expect(dossierEntry).toBeDefined();
+    expect(dossierEntry ?? "").not.toMatch(
+      /AI|security|scor|ruleset|threshold|weight/iu,
+    );
     expect(packageManifest.version).toBe("0.1.1");
   });
 
@@ -571,15 +651,15 @@ describe("open-source repository contract", () => {
     expect(architecture).toContain("closed technical appendix");
   });
 
-  it("records the decision-first UI without claiming a scoring change", () => {
+  it("records the README-first UI without claiming a scoring change", () => {
     const changelog = read("CHANGELOG.md");
-    const decisionEntry = changelog
+    const dossierEntry = changelog
       .split("\n")
-      .find((line) => line.includes("decision-first reader report"));
+      .find((line) => line.includes("README-first evidence dossier"));
 
-    expect(decisionEntry).toBeDefined();
-    expect(decisionEntry ?? "").toContain("closed technical appendix");
-    expect(decisionEntry ?? "").not.toMatch(/ruleset|scor|threshold|weight/iu);
+    expect(dossierEntry).toBeDefined();
+    expect(dossierEntry ?? "").toContain("closed technical appendix");
+    expect(dossierEntry ?? "").not.toMatch(/ruleset|scor|threshold|weight/iu);
   });
 
   it("routes vulnerability reports privately", () => {
