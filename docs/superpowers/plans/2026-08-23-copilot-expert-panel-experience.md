@@ -12,6 +12,9 @@
 
 - Apply every global constraint from the foundation and analysis plans.
 - No API origin means the current static product, privacy boundary, network allowlist, tests, and report remain functional.
+- Production expert mode uses a same-site custom frontend/API domain pair. The
+  default GitHub Pages domain remains in static mode because v1 does not rely on
+  cross-site third-party cookies.
 - The browser receives only session status, a CSRF token, bounded progress, and a strictly validated final report; it never receives GitHub or model credentials.
 - First authorization requires an explicit public-evidence disclosure. Later scans may run automatically only after the user stores the exact preference value `enabled`.
 - Do not translate repository quotations or present model interpretations as repository facts.
@@ -72,6 +75,10 @@ Read and validate `REPOSCOPE_API_ORIGIN` in `vite.config.ts`. Inject its canonic
 origin as the compile-time string `__REPOSCOPE_API_ORIGIN__`; declare that global
 in `globals.d.ts`. `api-origin.ts` returns a detached `URL` or `null` and
 never reads arbitrary runtime DOM configuration.
+
+The authorization client constructs `returnTo` from the validated
+`import.meta.env.BASE_URL`, preserving release paths such as `/reposcope/`; it
+never assumes the application is mounted at `/`.
 
 Refactor `CONTENT_SECURITY_POLICY` into `contentSecurityPolicy(apiOrigin)`.
 When enabled, append the exact origin after the existing GitHub connect sources.
@@ -137,14 +144,9 @@ const events: DeepAnalysisEvent[] = [];
 await runDeepAnalysis(request, session, (event) => events.push(event), {
   fetch,
 });
-expect(events.map((event) => event.type)).toEqual([
-  "stage",
-  "stage",
-  "stage",
-  "stage",
-  "stage",
-  "complete",
-]);
+expect(events.filter((event) => event.type === "stage")).toHaveLength(5);
+expect(events.filter((event) => event.type === "specialist")).toHaveLength(6);
+expect(events.at(-1)?.type).toBe("complete");
 
 const { result, rerender } = renderHook(
   ({ report }) =>
@@ -184,9 +186,14 @@ The hook returns:
 
 ```ts
 export interface UseDeepAnalysisResult {
-  availability: "disabled" | "checking" | "signed-out" | "ready";
+  availability:
+    "disabled" | "checking" | "signed-out" | "ready" | "unavailable";
   status: "idle" | "running" | "success" | "error";
   stage: DeepAnalysisStage | null;
+  specialists: Record<
+    DeepSpecialistRole,
+    "pending" | "running" | "complete" | "failed"
+  >;
   report: DeepReport | null;
   error: DeepAnalysisErrorKind | null;
   authorize(): void;
@@ -199,9 +206,15 @@ export interface UseDeepAnalysisResult {
 ```
 
 Persist only exact key `reposcope:deep-analysis` with value `enabled`; every
-other value means disabled. Abort and clear deep state when repository commit
-or requested output language changes. Automatic generation requires ready
-session, successful deterministic report, stored consent, and idle state.
+other value means disabled. Key work by owner/repo/commit SHA/language rather
+than object identity. On an identity change, abort the old request, increment a
+request ID, and clear only a mismatched deep report. A same-identity retry
+failure preserves the last valid report; cancellation returns to success when
+one exists, otherwise idle. Reject late events unless request ID, identity, and
+AbortSignal all match. A session-network failure is `unavailable`, not
+`signed-out`; an unconfigured API makes zero session calls. Automatic
+generation requires ready session, successful deterministic report, stored
+consent, and idle state, and must not duplicate under React StrictMode.
 
 - [ ] **Step 6: Verify client/hook tests and commit**
 
@@ -280,10 +293,11 @@ rate-limited, repository changed, GitHub unavailable, and internal failure.
 
 - [ ] **Step 4: Implement five-stage progress**
 
-Render a semantic ordered list with current/completed/pending text states and
-one polite live-region sentence. Do not announce token counts, model IDs, or
-rapid specialist sub-events. Cancel is a real button and returns focus to the
-Generate action.
+Render a semantic ordered list with current/completed/pending text states and a
+three-item visual specialist sublist driven by the typed role events. Keep one
+polite live-region sentence at the five-stage level; do not announce token
+counts, model IDs, or every rapid specialist transition. Cancel is a real
+button and returns focus to the Generate action.
 
 - [ ] **Step 5: Integrate without coupling deterministic state**
 
@@ -292,6 +306,12 @@ Render the control after `ReportSummary` through a new prop on `ReportView` in
 the next task; until then render it immediately before `ReportView`. A deep
 failure must not set `analysis.error`, clear `analysis.report`, change the share
 URL, or disable deterministic refresh.
+
+When an API origin is configured, select the optional-mode privacy,
+`privacyMark`, and methodology-boundary copy; those strings explain that the
+deterministic scan remains local and that only an authorized expert run sends
+selected public evidence. An unconfigured static build retains the existing
+absolute local-only copy.
 
 - [ ] **Step 6: Verify UI tests and commit**
 
@@ -371,12 +391,12 @@ that attention is not proof of quality or safety.
 
 - [ ] **Step 5: Integrate the report at the presentation boundary**
 
-Extend `ReportView` with:
+Extend `ReportView` with an optional presentation boundary:
 
 ```ts
 interface ReportViewProps {
   report: AnalysisReport;
-  expert: ReactNode;
+  expert?: ReactNode;
   language: Language;
   onRefresh: () => void;
 }
@@ -423,7 +443,8 @@ Add tests for disabled static mode, cache-ready authorization session, first-use
 consent, five streamed stages, success chapter order, Chinese generation,
 automatic next-repository generation, cancellation, allowance failure fallback,
 invalid terminal report rejection, deterministic refresh independence, and
-late first-repository result isolation.
+late first-repository result isolation. Include a release-base-path case proving
+the OAuth return target is `/reposcope/?repo=...`.
 
 - [ ] **Step 2: Run one focused desktop case and verify failure**
 
@@ -435,9 +456,11 @@ Expected: FAIL until fixtures and UI flow are complete.
 
 Build E2E with `REPOSCOPE_API_ORIGIN=http://127.0.0.1:4173`. Fulfill
 `/api/v1/session`, auth start, sign-out, and deep-analysis requests inside
-Playwright. Stream deterministic NDJSON chunks that deliberately split a
-multibyte Chinese character. Record request body, credentials mode, CSRF header,
-cancel signal, and call count.
+Playwright. Record request body, credentials mode, CSRF header, cancel signal,
+and call count. Route fulfillment validates the complete user flow; exact UTF-8
+split boundaries, 2 MiB caps, interrupted streams, and late chunks use a custom
+`ReadableStream` in `client.test.ts` because route fulfillment does not prove
+network chunking.
 
 The external-request guard continues to reject every unexpected host. No E2E
 test calls GitHub Copilot or consumes user entitlement.
@@ -487,7 +510,7 @@ git commit -m "test: verify expert interpretation flows"
 
 **Interfaces:**
 
-- Consumes: built `server-dist`, static `dist`, GitHub App configuration, and a persistent cache volume.
+- Consumes: built `server-dist`, static `dist`, GitHub OAuth App configuration, and a persistent cache volume.
 - Produces: reproducible container service, exact deployment procedure, updated bilingual privacy/security claims, and release checklist.
 
 - [ ] **Step 1: Write failing repository-document contract tests**
@@ -495,8 +518,10 @@ git commit -m "test: verify expert interpretation flows"
 Assert that English and Chinese docs both disclose optional GitHub authorization,
 Copilot evidence transfer, user allowance, static fallback, no code execution,
 token retention, cache contents, and the fact that GitHub Models itself is not
-used. Assert the deployment guide lists every environment variable and callback
-URL without example secrets.
+used. Assert configured builds conditionally replace every absolute “no login /
+no backend / no AI” interface claim while static builds retain it. Assert the
+deployment guide lists every environment variable, the same-site custom-domain
+requirement, and callback URL without example secrets.
 
 - [ ] **Step 2: Run the documentation contract and verify failure**
 
@@ -513,19 +538,20 @@ health check against `/api/v1/health`, and `node server-dist/server/index.js`.
 Do not bake environment files, GitHub credentials, source fixtures, or browser
 test artifacts into the runtime image.
 
-- [ ] **Step 4: Document GitHub App and hosting setup**
+- [ ] **Step 4: Document GitHub OAuth App and hosting setup**
 
 The guide specifies:
 
-1. create a GitHub App with only the user-level Copilot Requests permission;
-2. set the exact callback URL and frontend origin;
+1. create a GitHub OAuth App and request no scopes or private-repository access;
+2. configure a custom same-site domain pair for the frontend and API, then set
+   the exact callback URL and frontend URL including its base path;
 3. deploy the container with GitHub client ID/secret and persistent cache path;
 4. set the Pages repository variable `REPOSCOPE_API_ORIGIN` to the HTTPS service origin;
 5. verify health, signed-out session, OAuth state rejection, authorized session,
    one live public repository, sign-out, and static fallback; and
 6. rotate the client secret and clear active sessions after a credential event.
 
-State explicitly that actual App registration, secret creation, DNS, and hosting
+State explicitly that actual OAuth App registration, secret creation, DNS, and hosting
 are external deployment operations and are not performed by source builds.
 
 - [ ] **Step 5: Update architecture, privacy, security, and contribution copy**
@@ -554,7 +580,7 @@ pnpm check:lighthouse
 docker build -t reposcope-expert-panel:test .
 docker run --rm -d --name reposcope-expert-panel-test -p 8787:8787 \
   -e NODE_ENV=development \
-  -e REPOSCOPE_FRONTEND_ORIGIN=http://127.0.0.1:4173 \
+  -e REPOSCOPE_FRONTEND_URL=http://127.0.0.1:4173/ \
   -e REPOSCOPE_API_ORIGIN=http://127.0.0.1:8787 \
   reposcope-expert-panel:test
 curl --fail http://127.0.0.1:8787/api/v1/health
@@ -571,7 +597,53 @@ git add Dockerfile .dockerignore docs README.md README.zh-CN.md SECURITY.md CONT
 git commit -m "docs: ship expert analysis deployment boundaries"
 ```
 
-### Task 7: Run guarded live smoke and publish the branch
+### Task 7: Gate expert mode with curated human evaluation
+
+**Files:**
+
+- Create: `evals/deep-analysis/cases.json`
+- Create: `evals/deep-analysis/rubric.md`
+- Create: `scripts/check-deep-analysis-eval.mjs`
+- Create: `scripts/check-deep-analysis-eval.test.mjs`
+- Modify: `package.json`
+- Modify: `docs/deep-analysis-deployment.md`
+
+**Interfaces:**
+
+- Consumes: versioned bilingual reports for 10–20 diverse public repositories,
+  including sparse, mature, archived, multilingual, and malicious-README cases.
+- Produces: a redacted six-dimension human scorecard gate; no model transcript,
+  prompt, credential, or repository body is committed.
+
+- [ ] **Step 1: Define the frozen corpus and rubric**
+
+Score correctness, usefulness, evidence discipline, uncertainty, alternative
+quality, and reading quality from one to five. Require median >= 4 in every
+dimension, no high-severity unsupported security/privacy claim, and no prompt
+injection success. Keep expert mode unconfigured in production until this gate
+has a dated passing result.
+
+- [ ] **Step 2: Implement and test the scorecard validator**
+
+Reject missing cases/raters/dimensions, out-of-range values, duplicate case IDs,
+unresolved severe findings, stale schema/prompt versions, and accidental secret
+or transcript fields. The default repository test validates the corpus/rubric
+shape without pretending human scores exist.
+
+- [ ] **Step 3: Run the human gate when authorized reports exist**
+
+Two reviewers independently score every generated report. A failing or absent
+scorecard is a typed deployment blocker, not a source-build failure; the static
+deterministic product remains publishable.
+
+- [ ] **Step 4: Commit**
+
+```sh
+git add evals/deep-analysis scripts/check-deep-analysis-eval.mjs scripts/check-deep-analysis-eval.test.mjs package.json docs/deep-analysis-deployment.md
+git commit -m "test: gate expert analysis reading quality"
+```
+
+### Task 8: Run guarded live smoke and publish the branch
 
 **Files:**
 
@@ -602,7 +674,7 @@ environment values.
 - [ ] **Step 3: Run live smoke only when existing entitlement is safely available**
 
 Run the script with the opt-in flag and token passed through the process
-environment without printing it. If entitlement or external GitHub App setup is
+environment without printing it. If entitlement or external GitHub OAuth App setup is
 unavailable, record a typed skipped result in the handoff; do not weaken tests,
 embed a token, create an external app, or substitute a project-owned credential.
 

@@ -18,6 +18,9 @@
 - A normal uncached run uses three parallel specialists, one skeptic, and one chief editor. Only schema repair may add one bounded call.
 - Narrative cache values contain validated public output only, never raw evidence bodies, prompts, transcripts, user identity, or credentials.
 - All network concurrency, byte limits, retry counts, and timeouts are finite constants with tests.
+- The first deployment is deliberately one Node process. In-memory sessions,
+  rate limits, and active-run state do not claim horizontal-scale semantics;
+  a shared session/rate-limit store is required before adding replicas.
 
 ---
 
@@ -30,12 +33,14 @@
 - Create: `server/github/guards.test.ts`
 - Create: `server/github/client.ts`
 - Create: `server/github/client.test.ts`
+- Create: `server/github/activity.ts`
+- Create: `server/github/activity.test.ts`
 - Create: `server/test/github-fixtures.ts`
 
 **Interfaces:**
 
 - Consumes: a GitHub user token, `DeepAnalysisRequest`, injected `fetch`, clock, and abort signal.
-- Produces: `ServerGitHubClient.verifySnapshot(request, token, signal)`, `fetchEvidenceFiles(snapshot, token, signal)`, `fetchAlternatives(queries, token, signal)`, and strict server GitHub models.
+- Produces: `ServerGitHubClient.verifySnapshot(request, token, signal)`, `fetchEvidenceFiles(snapshot, token, signal)`, `fetchReleaseSummary(snapshot, token, signal)`, `fetchRecentActivity(snapshot, token, signal)`, `fetchAlternatives(queries, token, signal)`, and strict server GitHub models.
 
 - [ ] **Step 1: Write fixed-endpoint and hostile-response tests**
 
@@ -52,7 +57,7 @@ const snapshot = await client.verifySnapshot(
     repository: { owner: "owner", repo: "repo", commitSha: SHA },
     language: "en",
   },
-  "ghu_user",
+  "gho_user",
   AbortSignal.timeout(5_000),
 );
 expect(snapshot.commitSha).toBe(SHA);
@@ -128,6 +133,11 @@ URLs, `redirect: "error"`, and bounded streams. Search and release support must
 remain separate methods so an evidence failure can be reported without losing
 the verified snapshot.
 
+Release and recent-activity methods use fixed repository endpoints, bounded
+pagination, strict response guards, and server-owned timestamps/counts. A
+missing releases endpoint is an observed “no release data” value, not proof that
+the project is abandoned.
+
 - [ ] **Step 5: Verify GitHub client limits**
 
 Run:
@@ -153,6 +163,10 @@ git commit -m "feat: acquire bounded expert panel evidence"
 - Create: `server/evidence/model.ts`
 - Create: `server/evidence/safe-readme.ts`
 - Create: `server/evidence/safe-readme.test.ts`
+- Create: `server/evidence/safe-document.ts`
+- Create: `server/evidence/safe-document.test.ts`
+- Create: `server/evidence/manifest-facts.ts`
+- Create: `server/evidence/manifest-facts.test.ts`
 - Create: `server/evidence/alternatives.ts`
 - Create: `server/evidence/alternatives.test.ts`
 - Create: `server/evidence/build-evidence-pack.ts`
@@ -161,7 +175,7 @@ git commit -m "feat: acquire bounded expert panel evidence"
 **Interfaces:**
 
 - Consumes: `VerifiedRepositorySnapshot`, `EvidenceTextFile[]`, optional release/activity facts, and strict search results.
-- Produces: `EvidencePack`, `EvidenceFact`, `buildEvidencePack(input)`, `buildAlternativeQueries(snapshot, readmeEvidence)`, and `sanitizeReadmeForModel(file)`.
+- Produces: `EvidencePack`, `EvidenceFact`, `EvidenceContentBlock`, `buildEvidencePack(input)`, `buildAlternativeQueries(snapshot, readmeEvidence)`, `sanitizeReadmeForModel(file)`, `sanitizeDocumentForModel(file)`, and `extractManifestFacts(file)`.
 
 - [ ] **Step 1: Write evidence identity and injection fixtures**
 
@@ -176,10 +190,10 @@ const pack = buildEvidencePack(input);
 expect(pack.facts.map((fact) => fact.id)).toEqual(["ev-0001", "ev-0002"]);
 expect(JSON.stringify(pack)).not.toContain("ghp_");
 expect(
-  pack.untrustedReadme.some((block) => block.text.includes("ignore system")),
+  pack.contentBlocks.some((block) => block.text.includes("ignore system")),
 ).toBe(true);
 expect(
-  pack.untrustedReadme.every((block) => block.trust === "repository-authored"),
+  pack.contentBlocks.every((block) => block.trust === "repository-authored"),
 ).toBe(true);
 ```
 
@@ -201,6 +215,13 @@ lists, tables, and inert fenced commands with source-line ranges.
 No block may exceed 640 code points. Mark every block as untrusted
 repository-authored content; do not translate or execute it.
 
+Apply the same hostile-text boundary to selected documentation. Parse manifests
+only with format-specific strict parsers and project allowlists: package/project
+name, runtime constraints, dependency names/versions, documented entry points,
+and inert script text. Never send an entire raw JSON/TOML/YAML manifest to the
+model, never resolve references, and never execute or normalize commands into
+recommendations.
+
 - [ ] **Step 4: Implement conservative alternative queries**
 
 Create no more than three queries from normalized topics, GitHub description
@@ -210,7 +231,9 @@ and frozen qualifiers. The model never supplies raw search syntax.
 Filter results to public non-archived repositories, remove the source repository
 and obvious forks, require description/topic overlap, and keep at most five.
 Use relevance before stars and canonical full-name tie-breaking. Convert every
-candidate fact into server-owned `alternative` evidence.
+candidate fact into server-owned `alternative` evidence. Re-fetch each selected
+repository through the fixed repository endpoint before admitting it; cache the
+verified shortlist for 24 hours independently of the 30-day narrative cache.
 
 - [ ] **Step 5: Assemble and freeze the evidence pack**
 
@@ -231,7 +254,10 @@ export interface EvidencePack {
   repository: { owner: string; repo: string; commitSha: string };
   acquiredAt: string;
   facts: EvidenceFact[];
-  untrustedReadme: Array<{
+  contentBlocks: Array<{
+    id: string;
+    kind: "readme" | "documentation" | "manifest";
+    path: string;
     heading: string | null;
     text: string;
     startLine: number;
@@ -246,8 +272,15 @@ export interface EvidencePack {
 }
 ```
 
-Assign IDs after canonical sorting, deep-clone and freeze the result, and expose
-only a serializer that wraps untrusted blocks in explicit data delimiters.
+Assign IDs across both facts and content blocks after canonical sorting,
+deep-clone and freeze the result, and expose only a serializer that wraps
+untrusted blocks in explicit data delimiters. Every model-citable README,
+documentation, and manifest block therefore owns a canonical `ev-*` ID.
+
+Validate report-facing URLs independently of the model: primary-repository file
+links must be exact `https://github.com/{owner}/{repo}/blob/{commitSha}/...`
+URLs, while alternatives may link only to canonical GitHub repository roots.
+Reject credentials, other schemes/hosts, queries, fragments, and redirect URLs.
 
 - [ ] **Step 6: Verify evidence tests and commit**
 
@@ -374,6 +407,14 @@ live community values, and server-verified facts for only the alternative
 repositories already present in the evidence pack. The model cannot author or
 override those fields.
 
+Freeze and test one role-to-required-section matrix. Reduced coverage is legal
+only when the union of accepted roles still covers every required section in
+that matrix. Entries in `unknowns` must use `provenance: "unknown"`, low
+confidence, and known evidence IDs when evidence demonstrates the limitation.
+Skeptic challenges convert to disagreements/next checks through a deterministic
+kind-to-section rule; the editor may word them but cannot silently drop an
+unresolved primary challenge.
+
 - [ ] **Step 4: Build separate immutable system/user prompts**
 
 Each system prompt fixes the role, output JSON schema, language, provenance
@@ -422,11 +463,12 @@ git commit -m "feat: define grounded expert panel roles"
 
 Use a fake SDK to assert start/stop, three parallel specialist sessions,
 session deletion, abort cleanup, no tools, empty mode, isolated directory,
-highest supported reasoning for skeptic/editor, distinct selectable models when
+highest actually supported reasoning for skeptic/editor, distinct allowed models when
 available, and automatic selection when no explicit model is usable.
 
 ```ts
 expect(sessionConfigs[0]).toMatchObject({
+  gitHubToken: "gho_user_a",
   availableTools: [],
   excludedTools: ["builtin:*", "mcp:*", "custom:*"],
   enableSessionStore: false,
@@ -434,9 +476,17 @@ expect(sessionConfigs[0]).toMatchObject({
   infiniteSessions: { enabled: false },
   memory: { enabled: false },
   enableSessionTelemetry: false,
+  systemMessage: { mode: "append", content: expect.any(String) },
 });
 expect(fakeClient.stop).toHaveBeenCalledOnce();
 ```
+
+Also run two different user tokens concurrently and prove client, model cache,
+session config, and temporary directory isolation. Cover hostile/partial model
+metadata, disabled policy, absent/unknown reasoning efforts, explicit-model
+fallback to auto, polluted parent token/OTEL environment, timeout and caller
+abort, late completion, stop errors/hangs, force-stop, and exactly-once session
+deletion.
 
 - [ ] **Step 2: Run tests and verify missing dependency**
 
@@ -455,7 +505,7 @@ Map SDK `ModelInfo` into:
 ```ts
 export interface PanelModelCandidate {
   id: string;
-  selectable: boolean;
+  policyAllowed: boolean;
   reasoningEfforts: Array<"low" | "medium" | "high" | "xhigh" | "max">;
 }
 
@@ -469,24 +519,42 @@ export interface PanelModelAllocation {
 }
 ```
 
-Select only policy-allowed models. Prefer distinct normalized model families for
-the first three roles; use the strongest supported reasoning option for skeptic
-and editor. If explicit selection is unavailable or rejected, retry that role
-once with `model` omitted and classify the run as `auto`.
+Treat models returned by `listModels()` as candidates only when policy is not
+disabled/unconfigured; `createSession` remains authoritative. Prefer distinct
+normalized model families for the first three roles. Pass `reasoningEffort`
+only when it appears in that model's actual `supportedReasoningEfforts`; missing
+metadata means omit it. If explicit selection is unavailable or rejected, retry
+that role once with `model` omitted and classify the run as `auto`.
 
 - [ ] **Step 5: Implement the SDK gateway**
 
-Create one isolated temporary base directory per panel run and one
-`CopilotClient` with `mode: "empty"`, explicit user token,
-`useLoggedInUser: false`, `logLevel: "error"`, and no inherited Copilot token
-environment variables. Start, list models, create bounded sessions, call
-`sendAndWait`, accept only `assistant.message` string content, disconnect/delete
-each session, stop/force-stop on timeout, and remove only the validated temporary
-directory.
+Create one isolated temporary base directory and one `CopilotClient` per user
+panel run with `mode: "empty"`, explicit user token, `useLoggedInUser: false`,
+`enableRemoteSessions: false`, bounded `sessionIdleTimeoutSeconds`,
+`logLevel: "error"`, and an explicit scrubbed child environment. Never reuse a
+client or its model cache across user tokens. Remove Copilot/GitHub token, auth
+override, home, and OTEL variables while retaining only the minimum runtime
+environment needed to launch the SDK.
 
-Every session sets the tested zero-tool/memory/store options, `systemMessage`
-mode `replace`, and a 60-second response timeout. Do not expose SDK logs or
-response metadata to callers.
+Start and list models, then create uniquely identified bounded sessions. Pass
+the same user `gitHubToken` again in every session because session identity
+controls entitlement, routing, and content-exclusion behavior. Call
+`sendAndWait`, accept only `assistant.message` string content, and register an
+always-deny permission handler as defense in depth.
+
+Every session sets `tools: []`, `mcpServers: {}`, `availableTools: []`, the
+excluded tool patterns, and disables config discovery, custom instructions,
+skills, embeddings, on-demand instructions, file hooks, host Git operations,
+memory, persistence, remote sessions, and telemetry. Use `systemMessage` mode
+`append`; never use `replace`, which removes SDK guardrails. Repository evidence
+still appears only in the user message.
+
+A 60-second timeout or caller cancellation must call `session.abort()`; timeout
+on `sendAndWait` alone does not stop in-flight work. Then perform bounded
+`disconnect()` and `client.deleteSession(sessionId)` exactly once per session.
+Treat non-empty errors returned by `client.stop()` or a stop timeout as grounds
+for `forceStop()`. Delete only the verified temporary directory after the child
+process has ended. Do not expose SDK logs or response metadata to callers.
 
 - [ ] **Step 6: Verify gateway tests and dependency isolation**
 
@@ -517,15 +585,17 @@ git commit -m "feat: run isolated Copilot panel sessions"
 - Create: `server/panel/parse-json.test.ts`
 - Create: `server/panel/orchestrator.ts`
 - Create: `server/panel/orchestrator.test.ts`
-- Create: `server/cache/deep-report-cache.ts`
-- Create: `server/cache/deep-report-cache.test.ts`
+- Create: `server/cache/deep-narrative-cache.ts`
+- Create: `server/cache/deep-narrative-cache.test.ts`
+- Create: `server/cache/alternative-shortlist-cache.ts`
+- Create: `server/cache/alternative-shortlist-cache.test.ts`
 - Create: `server/deep-analysis/service.ts`
 - Create: `server/deep-analysis/service.test.ts`
 
 **Interfaces:**
 
 - Consumes: GitHub evidence client, evidence builder, model gateway, strict panel guards, clock, SQLite cache, progress callback, and abort signal.
-- Produces: `DeepAnalysisService.run(request, token, onStage, signal): Promise<DeepReport>` and `DeepReportCache`.
+- Produces: `DeepAnalysisService.run(request, token, onEvent, signal): Promise<DeepReport>`, `DeepNarrativeCache`, and `AlternativeShortlistCache`.
 
 - [ ] **Step 1: Write orchestration and cache tests**
 
@@ -536,7 +606,7 @@ commit/language/prompt-version cache separation, malformed cache deletion, and
 no raw evidence in SQLite.
 
 ```ts
-await service.run(request, "ghu_user", onStage, signal);
+await service.run(request, "gho_user", onEvent, signal);
 expect(order).toEqual([
   "product:start",
   "onboarding:start",
@@ -549,7 +619,9 @@ expect(order).toEqual([
   "editor:start",
   "editor:end",
 ]);
-expect(onStage.mock.calls.map(([stage]) => stage)).toEqual(DEEP_STAGES);
+expect(onEvent.mock.calls.filter(([event]) => event.type === "stage")).toEqual(
+  DEEP_STAGES.map((stage) => [{ type: "stage", stage }]),
+);
 ```
 
 - [ ] **Step 2: Run tests and verify failure**
@@ -571,24 +643,34 @@ supplied by accepted findings; otherwise fail locally. Build the final report by
 attaching only referenced server evidence and current server-owned alternative
 facts, then run `isDeepReport` before returning.
 
+Emit a shared `consulting-specialists` stage followed by per-role
+`started`/`complete`/`failed` events so the browser can show independent expert
+progress. Feed every line through the same sequence guard used by the client.
+
 - [ ] **Step 4: Implement the SQLite narrative cache**
 
-Use `node:sqlite` with one table keyed by repository, commit SHA, evidence schema
-version, panel prompt version, language, and capability class. Store only final
-validated report JSON, `saved_at`, and `expires_at`. Set a 30-day TTL, a 2 MiB
-row cap, WAL mode, prepared statements, and a 5,000-row LRU-style cap.
+Use `node:sqlite` with a narrative table keyed by repository, commit SHA,
+evidence schema version, panel prompt version, language, and capability class.
+Store only the validated narrative draft (never live community counts,
+maintenance timestamps, or alternative repository metrics), `saved_at`, and
+`expires_at`. Set a 30-day TTL, a 2 MiB row cap, WAL mode, prepared statements,
+and a 5,000-row LRU-style cap. Store verified alternative shortlists separately
+with a 24-hour TTL.
 
-On read, parse and run `isDeepReport`; delete invalid, oversized, expired,
-future-dated, or key-mismatched rows. Tests inspect the database text and assert
-that README fixture prose not referenced by the report is absent.
+On read, parse and run the strict `DeepReportDraft` guard; delete invalid,
+oversized, expired, future-dated, or key-mismatched rows. Tests inspect the
+database text and assert that README fixture prose not referenced by the report
+is absent and that changed stars/forks/watchers/issues/pushed-at values do not
+require another model call.
 
 - [ ] **Step 5: Implement the end-to-end service**
 
 `DeepAnalysisService` emits each canonical stage once, verifies the requested
 snapshot, builds evidence and alternatives, derives model capability class,
 checks cache, runs the panel on a miss, validates the result, writes cache, and
-returns a detached snapshot. Cache hits still emit preparation and validation
-stages but make zero model calls.
+joins the cached/new narrative with freshly fetched community and alternative
+facts, then returns a detached final report. Cache hits still emit preparation
+and validation stages but make zero model calls.
 
 - [ ] **Step 6: Verify service and full server tests**
 
@@ -614,10 +696,13 @@ git commit -m "feat: orchestrate and cache expert reports"
 
 - Create: `server/http/rate-limit.ts`
 - Create: `server/http/rate-limit.test.ts`
+- Create: `server/http/active-runs.ts`
+- Create: `server/http/active-runs.test.ts`
 - Create: `server/deep-analysis/routes.ts`
 - Create: `server/deep-analysis/routes.test.ts`
 - Modify: `server/app.ts`
 - Modify: `server/index.ts`
+- Modify: `server/auth/routes.ts`
 
 **Interfaces:**
 
@@ -657,7 +742,7 @@ Expected: FAIL because the streamed endpoint is missing.
 
 Use monotonic timestamps, a five-start sliding window per session, and one active
 abort controller per session. A new start while active returns `409`; sign-out
-or request disconnect aborts work. Emit one compact JSON object plus `\n` per
+or request disconnect aborts work through the shared `ActiveRunRegistry`. Emit one compact JSON object plus `\n` per
 event and flush promptly. Set `Cache-Control: no-store`,
 `X-Content-Type-Options: nosniff`, and disable proxy buffering.
 

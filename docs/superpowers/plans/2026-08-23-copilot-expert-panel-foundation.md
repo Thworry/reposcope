@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add strict deep-report contracts and a secure TypeScript service with GitHub App user authorization, while leaving the existing deterministic report unchanged.
+**Goal:** Add strict deep-report contracts and a secure TypeScript service with scope-less GitHub OAuth App user authorization, while leaving the existing deterministic report unchanged.
 
 **Architecture:** Browser-safe contracts live under `src/features/deep-analysis`; a Hono service under `server` owns configuration, HTTP security, short-lived sessions, and the GitHub authorization code exchange. The static application remains usable when the service is not configured.
 
@@ -11,8 +11,9 @@
 ## Global Constraints
 
 - Public repositories only; do not add private-repository permissions.
-- Never expose a GitHub user token, GitHub App secret, OAuth code, or raw callback to frontend JavaScript, browser storage, logs, or error responses.
+- Never expose a GitHub user token, OAuth App secret, OAuth code, or raw callback to frontend JavaScript, browser storage, logs, or error responses.
 - Use secure HTTP-only same-site cookies, exact-origin CORS, OAuth state validation, and an explicit CSRF token for state-changing API calls.
+- Production expert mode requires the frontend and API to be same-site through a custom domain (for example `reposcope.example.com` and `api.reposcope.example.com`). The default `github.io` deployment remains a deterministic fallback; v1 does not depend on fragile third-party cookies.
 - Keep the deterministic ruleset, score input, resource caps, worker behavior, and technical appendix unchanged.
 - Deep analysis must fail independently and leave the deterministic report available.
 - Node.js remains `>=24 <25`; pnpm remains `11.16.0`.
@@ -123,7 +124,7 @@ git commit -m "build: add expert panel server toolchain"
 **Interfaces:**
 
 - Consumes: `Language` and `RepoRef` from `src/features/analysis/model.ts`.
-- Produces: `DeepAnalysisRequest`, `DeepAnalysisEvent`, `DeepReport`, `DeepStatement`, `DeepEvidence`, `isDeepAnalysisRequest`, `isDeepAnalysisEvent`, and `isDeepReport`.
+- Produces: `DeepAnalysisRequest`, `DeepAnalysisEvent`, `DeepReport`, `DeepStatement`, `DeepEvidence`, `isDeepAnalysisRequest`, `isDeepAnalysisEvent`, `DeepEventSequenceGuard`, `isDeepReport`, and `reportMatchesDeepRequest`.
 
 - [ ] **Step 1: Write failing guard tests**
 
@@ -194,6 +195,11 @@ export const DEEP_ERROR_KINDS = Object.freeze([
   "cancelled",
   "internal",
 ] as const);
+export const DEEP_SPECIALIST_ROLES = Object.freeze([
+  "product",
+  "onboarding-architecture",
+  "trust-ecosystem",
+] as const);
 export const DEEP_REPORT_CAPS = Object.freeze({
   evidence: 160,
   statementsPerList: 12,
@@ -207,6 +213,7 @@ export const DEEP_REPORT_CAPS = Object.freeze({
 
 export type DeepAnalysisStage = (typeof DEEP_STAGES)[number];
 export type DeepAnalysisErrorKind = (typeof DEEP_ERROR_KINDS)[number];
+export type DeepSpecialistRole = (typeof DEEP_SPECIALIST_ROLES)[number];
 ```
 
 Use the following top-level contracts:
@@ -236,6 +243,11 @@ export interface DeepAnalysisRequest {
 
 export type DeepAnalysisEvent =
   | { type: "stage"; stage: DeepAnalysisStage }
+  | {
+      type: "specialist";
+      role: DeepSpecialistRole;
+      status: "started" | "complete" | "failed";
+    }
   | { type: "complete"; report: DeepReport }
   | { type: "error"; error: { kind: DeepAnalysisErrorKind } };
 
@@ -321,7 +333,8 @@ discriminants remain typed facts rather than model-authored prose.
 - [ ] **Step 4: Implement descriptor-based strict guards**
 
 Follow the hostile-object conventions in `src/features/analysis/guards.ts`:
-read only own data properties, reject accessors/proxies, require exact keys,
+read only own data properties, reject accessors and throwing, inconsistent, or
+non-cloneable exotic objects, require exact keys,
 reject sparse or oversized arrays, normalize text with NFKC for duplicate
 checks, validate safe code points, and recompute all evidence references.
 
@@ -330,8 +343,11 @@ Enforce these semantic rules:
 - `unknown` statements use low confidence;
 - all non-`unknown` statements have one to six known evidence IDs;
 - evidence IDs are canonical `ev-0001` through `ev-9999` values in order;
-- repository and commit exactly match the request/report identity;
-- the last event is either one `complete` or one `error` event; and
+- `reportMatchesDeepRequest` verifies repository, commit, and language against
+  the initiating request;
+- `DeepEventSequenceGuard` accepts only monotonic stages, specialist events
+  within the specialist stage, legal per-role transitions, and exactly one
+  terminal event; and
 - a report contains no credential-shaped text.
 
 - [ ] **Step 5: Run focused and full frontend tests**
@@ -396,18 +412,21 @@ Expected: FAIL because the server files do not exist.
 
 - [ ] **Step 3: Implement exact configuration parsing**
 
-`ServerConfig` contains `environment`, `host`, `port`, `frontendOrigin`,
-`apiOrigin`, `cachePath`, optional GitHub App client values, `sessionIdleMs`
+`ServerConfig` contains `environment`, `host`, `port`, `frontendBaseUrl`, its
+derived `frontendOrigin`, `apiOrigin`, `cachePath`, optional GitHub OAuth App
+client values, `sessionIdleMs`
 fixed to eight hours, and a `deepAnalysisEnabled` boolean that is true only when
 every required GitHub value is present. Every environment may start disabled;
 production rejects a partially configured credential set. HTTPS is required
 for non-loopback public origins; canonical loopback HTTP is admitted for local
-validation only.
+validation only. Production documentation and startup diagnostics make the
+same-site custom-domain requirement explicit; cross-site third-party-cookie
+operation is unsupported.
 
 `.env.example` contains names and safe empty values only:
 
 ```dotenv
-REPOSCOPE_FRONTEND_ORIGIN=http://127.0.0.1:5173
+REPOSCOPE_FRONTEND_URL=http://127.0.0.1:5173/
 REPOSCOPE_API_ORIGIN=http://127.0.0.1:8787
 REPOSCOPE_GITHUB_CLIENT_ID=
 REPOSCOPE_GITHUB_CLIENT_SECRET=
@@ -463,6 +482,11 @@ git commit -m "feat: add secure deep analysis service shell"
 
 - Consumes: `ServerConfig`, injected `fetch`, clock, and cryptographic random bytes.
 - Produces: `AuthSessionStore`, `GitHubOAuthClient`, `GET /api/v1/session`, `GET /api/v1/auth/start`, `GET /api/v1/auth/callback`, and `POST /api/v1/sign-out`.
+
+This release uses a GitHub OAuth App authorization-code flow with no requested
+scopes. The resulting `gho_` user token supplies the end user's Copilot identity
+to the SDK and may read only public GitHub data needed here. Do not substitute a
+GitHub App installation token or request private-repository scopes.
 
 - [ ] **Step 1: Write hostile session and OAuth tests**
 
@@ -520,10 +544,14 @@ Use cookie name `__Host-reposcope_session` in HTTPS production and
 `Path=/`, bounded `Max-Age`, and `Secure` in production.
 
 Construct only `https://github.com/login/oauth/authorize` with validated
-`client_id`, fixed callback, and random state. Exchange only at
+`client_id`, fixed callback, no `scope` parameter, and random state. Exchange only at
 `https://github.com/login/oauth/access_token` with `Accept: application/json`.
-Accept only an own-property string `access_token` beginning with `gho_` or
-`ghu_`; map all provider bodies to local error kinds.
+Use a 15-second timeout, `redirect: "error"`, and a 64 KiB response cap. Accept
+only an own-property string `access_token` beginning with `gho_`; map all
+provider bodies to local error kinds. The local session expires after eight
+hours even if the provider token remains valid; a provider 401 clears it and
+requires authorization again. No refresh token is accepted or retained in this
+OAuth App design.
 
 - [ ] **Step 5: Add auth routes**
 
@@ -535,7 +563,9 @@ Accept only an own-property string `access_token` beginning with `gho_` or
 { "status": "ready", "csrfToken": "opaque-random-value" }
 ```
 
-`auth/start` accepts only a relative `/?repo=owner%2Frepo` return target.
+`auth/start` accepts only a relative return target under the configured frontend
+base path, such as `/reposcope/?repo=owner%2Frepo`, and rejects traversal,
+authority, fragment, or alternate-path values.
 `auth/callback` rotates the session and redirects to that target with
 `deep=authorized`; it never puts a token or provider error in the URL.
 `sign-out` requires the exact CSRF header, deletes the session, and clears the
@@ -591,7 +621,7 @@ Expected: FAIL until root scripts and workflows include server validation.
 Set:
 
 ```json
-"check": "pnpm lint && pnpm format:check && pnpm test && pnpm test:server && pnpm exec tsc -b && pnpm build"
+"check": "pnpm lint && pnpm format:check && pnpm test && pnpm test:server && pnpm typecheck:server && pnpm build"
 ```
 
 Add `pnpm test:server` after frontend coverage in both workflows. Keep the Pages

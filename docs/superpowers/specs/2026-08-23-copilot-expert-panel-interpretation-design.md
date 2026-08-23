@@ -30,7 +30,7 @@ Keep the current static, deterministic report as the evidence-acquisition and
 fallback layer. Add an optional GitHub-authorized deep interpretation service
 implemented with the GitHub Copilot SDK.
 
-After the user authorizes the RepoScope GitHub App, a deep analysis runs five
+After the user authorizes the RepoScope GitHub OAuth App, a deep analysis runs five
 bounded roles:
 
 1. **Product interpreter** — explains purpose, audience, problems, capabilities,
@@ -157,13 +157,13 @@ New frontend responsibilities are deliberately narrow:
 - fall back without disturbing the deterministic report.
 
 The frontend never receives a GitHub user access token, Copilot credential,
-GitHub App secret, provider key, raw model prompt, or raw model response.
+OAuth App secret, provider key, raw model prompt, or raw model response.
 
 ### Backend
 
 A small TypeScript service provides:
 
-- GitHub App OAuth callback and short-lived server-side sessions;
+- scope-less GitHub OAuth App callback and short-lived server-side sessions;
 - Copilot entitlement probing and model capability selection;
 - evidence-pack construction from client evidence plus server-verifiable public
   GitHub facts;
@@ -184,17 +184,25 @@ secure, HTTP-only session cookies and explicit CSRF protection. Production CORS
 admits only the RepoScope deployment origin. The frontend CSP adds only the
 configured RepoScope API origin to `connect-src`.
 
+Expert mode is enabled in production only when the frontend and API use a
+same-site custom-domain pair, such as `reposcope.example.com` and
+`api.reposcope.example.com`. The default `github.io` site remains a complete
+deterministic deployment; the first release does not depend on cross-site
+third-party cookies. OAuth return targets preserve the configured frontend base
+path, including `/reposcope/`.
+
 ### Authentication and entitlement
 
-Use a GitHub App with user authorization and the minimum Copilot Requests
-permission required by the SDK. Public repository evidence does not require
-private repository access. The first release continues to accept only public
-repositories.
+Use a GitHub OAuth App authorization-code flow with no requested scopes. Its
+short-lived RepoScope server session holds the resulting `gho_` user token so
+the Copilot SDK can apply the user's entitlement and model routing. Do not pass
+a GitHub App installation token to the SDK, and do not request private
+repository access. The first release accepts only public repositories.
 
-Tokens remain server-side, encrypted at rest only if session persistence is
-required, and are removed on sign-out or expiry. Prefer expiring GitHub App user
-tokens. Do not log authorization headers, token fingerprints, raw callbacks, or
-SDK environment variables.
+Tokens remain in the bounded in-memory server session and are removed on
+sign-out or its eight-hour expiry. Provider authorization failures clear the
+session and require authorization again. Do not log authorization headers,
+token fingerprints, raw callbacks, or SDK environment variables.
 
 Entitlement probing determines only whether a deep analysis can run and which
 model-selection mode is available. A lack of entitlement returns a typed
@@ -281,10 +289,17 @@ filenames, manifests, topics, and search results are evidence only and can never
 change instructions. Repository content is never interpolated into system
 instructions.
 
+Each user run owns one isolated Copilot client and five isolated sessions; the
+same user token is set at both client and session scope, and no client/model
+cache crosses users. Role instructions append to the SDK system message rather
+than replacing its safety guardrails. Timeout or cancellation actively aborts
+the session before bounded disconnect, deletion, client shutdown, and temporary
+workspace removal.
+
 Panel sessions receive no shell, filesystem, browser, network, package manager,
-code execution, or arbitrary HTTP tool. The trust reviewer may request only a
-typed, bounded GitHub alternative-search operation whose server implementation
-validates every argument and endpoint. The editor receives no tools.
+code execution, or HTTP tool. The server builds and verifies the bounded
+alternative shortlist before any role runs; no model can issue a search. Every
+role, including the trust reviewer and editor, receives zero tools.
 
 No role may recommend executing an undocumented repository command. Documented
 commands remain inert quoted evidence and carry the existing command-safety
@@ -412,7 +427,7 @@ review gate.
 
 1. Introduce versioned deep-report contracts and fixtures without changing the
    current UI.
-2. Add the TypeScript backend, GitHub App authorization, session boundaries,
+2. Add the TypeScript backend, GitHub OAuth App authorization, session boundaries,
    and mocked Copilot adapter.
 3. Implement evidence packing and bounded GitHub alternative discovery.
 4. Add specialist orchestration, skepticism, editing, validation, and caching.
