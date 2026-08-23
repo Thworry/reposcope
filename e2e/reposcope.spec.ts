@@ -3,13 +3,17 @@ import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import {
   COMMIT_SHA,
+  E2E_ORIGIN,
   FIXED_NOW,
+  installDeepAnalysisRoutes,
+  installDisabledDeepSessionRoute,
   installExternalRequestGuard,
   installGitHubRoutes,
+  type DeepRequestLedger,
   type RequestLedger,
 } from "./fixtures";
 
-const APP_PATH = "/";
+const APP_PATH = "/reposcope/";
 const GITHUB_RATE_LIMIT_DOCS =
   "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api";
 const TYPESCRIPT_SCORES = [53, 70, 100, 100, 60, 30] as const;
@@ -115,6 +119,7 @@ interface RuntimeMonitor {
 async function monitorRuntime(
   context: Parameters<typeof installExternalRequestGuard>[0],
   page: Page,
+  options: { allowDeepRateLimitConsole?: boolean } = {},
 ): Promise<RuntimeMonitor> {
   const failures: string[] = [];
   const assertExternalRequests = await installExternalRequestGuard(context);
@@ -124,6 +129,14 @@ async function monitorRuntime(
   });
   page.on("console", (message) => {
     if (message.type() === "warning" || message.type() === "error") {
+      if (
+        options.allowDeepRateLimitConsole === true &&
+        message.type() === "error" &&
+        message.text().includes("429") &&
+        message.location().url === `${E2E_ORIGIN}/api/v1/deep-analysis`
+      ) {
+        return;
+      }
       failures.push(`console ${message.type()}: ${message.text()}`);
     }
   });
@@ -439,7 +452,7 @@ async function expectResponsiveTargets(
   page: Page,
   testInfo: TestInfo,
 ): Promise<void> {
-  const widths = [375, 768, 1366] as const;
+  const widths = [188, 320, 375, 768, 1366] as const;
   const measurements: Array<{
     width: number;
     overflow: number;
@@ -455,9 +468,16 @@ async function expectResponsiveTargets(
     for (let index = 0; index < (await targets.count()); index += 1) {
       const target = targets.nth(index);
       if (!(await target.isVisible())) continue;
-      const box = await target.boundingBox();
+      const box = await target.evaluate((element) => {
+        const hitArea =
+          element instanceof HTMLInputElement &&
+          (element.type === "checkbox" || element.type === "radio")
+            ? (element.closest("label") ?? element)
+            : element;
+        const rect = hitArea.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
       expect(box, `missing target box at ${String(width)}px`).not.toBeNull();
-      if (box === null) continue;
       smallestTarget = Math.min(smallestTarget, box.width, box.height);
       expect(
         box.width,
@@ -490,9 +510,54 @@ async function expectResponsiveTargets(
     zoomEquivalentOverflow,
     `200% zoom-equivalent narrow reflow: ${JSON.stringify(overflowing)}`,
   ).toBe(0);
+
+  await page.setViewportSize({ width: 812, height: 375 });
+  const landscapeOverflow = await page.evaluate(() =>
+    Math.max(
+      0,
+      document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    ),
+  );
+  expect(landscapeOverflow, "horizontal overflow at 812×375 landscape").toBe(0);
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  const enlargedFont = await page.evaluate(() => {
+    const previous = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = "200%";
+    const overflow = Math.max(
+      0,
+      document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    const elements = [...document.querySelectorAll("*")]
+      .filter(
+        (element) =>
+          element.getBoundingClientRect().right >
+          document.documentElement.clientWidth + 0.5,
+      )
+      .slice(0, 12)
+      .map((element) => ({
+        selector: `${element.tagName.toLowerCase()}.${element.className}`,
+        right: element.getBoundingClientRect().right,
+        width: element.getBoundingClientRect().width,
+      }));
+    document.documentElement.style.fontSize = previous;
+    return { overflow, elements };
+  });
+  expect(
+    enlargedFont.overflow,
+    `200% root-font proxy overflow: ${JSON.stringify(enlargedFont.elements)}`,
+  ).toBe(0);
   await testInfo.attach("responsive-measurements", {
     body: JSON.stringify(
-      { measurements, zoomEquivalentWidth: 188, zoomEquivalentOverflow },
+      {
+        measurements,
+        zoomEquivalentWidth: 188,
+        zoomEquivalentOverflow,
+        landscape: { width: 812, height: 375, overflow: landscapeOverflow },
+        enlargedFont,
+      },
       null,
       2,
     ),
@@ -633,8 +698,71 @@ async function captureStableScreenshot(
   }
 }
 
+const ENGLISH_EXPERT_CHAPTERS = [
+  "Thirty-second orientation",
+  "Good fit / poor fit",
+  "Practical situations",
+  "Capabilities and workflow",
+  "How it broadly works",
+  "Install, run, and extend",
+  "Reliability, security, and privacy",
+  "Maintenance and community",
+  "Alternatives worth comparing",
+  "Expert verdict",
+] as const;
+
+const CHINESE_EXPERT_CHAPTERS = [
+  "30 秒看懂项目",
+  "适合谁 / 不适合谁",
+  "具体使用场景",
+  "能力与使用流程",
+  "大体如何工作",
+  "安装、运行与二次开发",
+  "可靠性、安全与隐私",
+  "维护状态与社区",
+  "值得对比的替代项目",
+  "专家结论",
+] as const;
+
+async function expectExpertChapterOrder(
+  page: Page,
+  language: "en" | "zh-CN",
+): Promise<void> {
+  const report = page.locator(".expert-report");
+  const expected =
+    language === "en" ? ENGLISH_EXPERT_CHAPTERS : CHINESE_EXPERT_CHAPTERS;
+  await expect(report.locator(".expert-chapter")).toHaveCount(10);
+  await expect(report.locator(".expert-chapter h3")).toHaveText([...expected]);
+  await expect(report.locator(".expert-chapter > .section-index")).toHaveText(
+    expected.map((_, index) => `${String(index + 1).padStart(2, "0")} / 10`),
+  );
+}
+
+function expectSecureDeepRequest(
+  ledger: DeepRequestLedger,
+  index: number,
+  expected: { owner: string; repo: string; language: "en" | "zh-CN" },
+): void {
+  const request = ledger.analysisRequests()[index];
+  expect(request, `missing expert request ${String(index + 1)}`).toBeDefined();
+  expect(request?.method).toBe("POST");
+  expect(request?.accept).toBe("application/x-ndjson");
+  expect(request?.contentType).toContain("application/json");
+  expect(request?.csrf).toBe("fixture-csrf-token");
+  expect(request?.cookie).toContain("reposcope_e2e_session=ready");
+  expect(request?.body).toEqual({
+    repository: {
+      owner: expected.owner,
+      repo: expected.repo,
+      commitSha: COMMIT_SHA,
+    },
+    language: expected.language,
+  });
+}
+
 test.beforeEach(async ({ context, page }) => {
   await context.clearCookies();
+  await installDisabledDeepSessionRoute(context);
   await installFixedClock(page);
   await installWorkerActivityCounter(page);
 });
@@ -727,7 +855,7 @@ test("complete TypeScript report is decision-first, shareable, responsive, and a
   page,
 }, testInfo) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-    origin: "http://127.0.0.1:4173",
+    origin: E2E_ORIGIN,
   });
   const runtime = await monitorRuntime(context, page);
   const ledger = await installGitHubRoutes(context, page);
@@ -1486,5 +1614,321 @@ test("cancellation yields to a newer run and failed refresh preserves its report
   expect(ledger.restGets()).toHaveLength(5);
   expectAnalyzerChunks(ledger, { jsTs: true, python: false });
   await ledger.assertComplete({ rest: 5, raw: 8 });
+  await runtime.assertClean();
+});
+
+test("expert mode stays absent when the deployment is static-only", async ({
+  context,
+  page,
+}) => {
+  const runtime = await monitorRuntime(context, page);
+  const expert = await installDeepAnalysisRoutes(context, page, {
+    session: "disabled",
+  });
+  const github = await installGitHubRoutes(context, page);
+
+  await gotoLanding(page);
+  await submitRepository(page);
+  await expectReport(page);
+  await expect(
+    page.getByRole("heading", { name: "A human-readable second opinion" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(FIXTURE_DESCRIPTION, { exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => expert.sessionRequests().length).toBe(1);
+  expect(expert.analysisRequests()).toHaveLength(0);
+
+  await expectBoundedRequests(github);
+  await expert.assertComplete();
+  await runtime.assertClean();
+});
+
+test("first consent explains the boundary and preserves the /reposcope/ OAuth return target", async ({
+  context,
+  page,
+}) => {
+  const runtime = await monitorRuntime(context, page);
+  const expert = await installDeepAnalysisRoutes(context, page, {
+    session: "signed-out",
+  });
+  const github = await installGitHubRoutes(context, page);
+
+  await page.goto(`${APP_PATH}?repo=owner%2Frepo`);
+  await expectReport(page);
+  await expect(
+    page.getByRole("heading", { name: "A human-readable second opinion" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Generate expert interpretation" })
+    .click();
+  const disclosure = page.getByRole("complementary", {
+    name: "Before the expert panel starts",
+  });
+  await expect(disclosure).toContainText("selected text", { ignoreCase: true });
+  await expect(disclosure).toContainText("Copilot entitlement");
+  await expect(disclosure).toContainText("does not execute repository code");
+  await expect(disclosure).toContainText(
+    "deterministic browser report stays intact",
+  );
+  await disclosure
+    .getByRole("button", { name: "Agree and continue with GitHub" })
+    .click();
+
+  await expect.poll(() => expert.authStarts().length).toBe(1);
+  const authorization = expert.authStarts()[0];
+  expect(authorization?.method).toBe("GET");
+  const authorizationUrl = new URL(authorization?.url ?? "about:blank");
+  expect(authorizationUrl.origin).toBe(E2E_ORIGIN);
+  expect(authorizationUrl.pathname).toBe("/api/v1/auth/start");
+  expect(authorizationUrl.searchParams.get("returnTo")).toBe(
+    "/reposcope/?repo=owner%2Frepo",
+  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("reposcope:deep-analysis")),
+  ).toBe("enabled");
+  expect(expert.analysisRequests()).toHaveLength(0);
+
+  await expectBoundedRequests(github);
+  await expert.assertComplete();
+  await runtime.assertClean();
+});
+
+test("ready expert mode renders a sourced bilingual ten-chapter briefing without coupling refresh", async ({
+  context,
+  page,
+}, testInfo) => {
+  const runtime = await monitorRuntime(context, page);
+  const expert = await installDeepAnalysisRoutes(context, page, {
+    session: "ready",
+    outcomes: ["success", "success"],
+  });
+  const github = await installGitHubRoutes(context, page);
+
+  await gotoLanding(page);
+  await submitRepository(page);
+  await expectReport(page);
+  await expect(
+    page.getByText(
+      "Ready to interpret the inspected commit. Existing scores and evidence will not be changed.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(expert.analysisRequests()).toHaveLength(0);
+  await page
+    .getByRole("button", { name: "Generate expert interpretation" })
+    .click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Repository briefing" }),
+  ).toBeVisible();
+  await expectExpertChapterOrder(page, "en");
+  expect(expert.servedStages()[0]).toEqual([
+    "preparing-evidence",
+    "consulting-specialists",
+    "challenging-findings",
+    "editing-briefing",
+    "validating-sources",
+  ]);
+  expectSecureDeepRequest(expert, 0, {
+    owner: "owner",
+    repo: "repo",
+    language: "en",
+  });
+
+  const expertReport = page.locator(".expert-report");
+  await expect(expertReport.getByText("1,284", { exact: true })).toBeVisible();
+  await expect(
+    expertReport.getByText("37", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(
+    expertReport.getByText("146", { exact: true }).first(),
+  ).toBeVisible();
+  const alternative = expertReport.getByRole("link", {
+    name: "example/reader-alternative",
+  });
+  await expect(alternative).toHaveAttribute(
+    "href",
+    "https://github.com/example/reader-alternative",
+  );
+  await expect(alternative).toHaveAttribute("rel", "noopener noreferrer");
+  const evidence = expertReport.locator(".expert-evidence-drawer");
+  await expect(evidence).not.toHaveAttribute("open", "");
+
+  const deepCallsBeforeRefresh = expert.analysisRequests().length;
+  const appendix = await openTechnicalAppendix(page);
+  await appendix.getByRole("button", { name: "Refresh public data" }).click();
+  await expectReport(page);
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Repository briefing" }),
+  ).toBeVisible();
+  expect(expert.analysisRequests()).toHaveLength(deepCallsBeforeRefresh);
+
+  await expectNoSeriousAxeViolations(page);
+  await expectResponsiveTargets(page, testInfo);
+  await expectKeyboardFocus(page);
+  await expectReducedMotion(page);
+
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.getByRole("button", { name: "简体中文" }).click();
+  await expect(
+    page.getByRole("button", { name: "生成专家解读" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "生成专家解读" }).click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "项目简报" }),
+  ).toBeVisible();
+  await expectExpertChapterOrder(page, "zh-CN");
+  expectSecureDeepRequest(expert, 1, {
+    owner: "owner",
+    repo: "repo",
+    language: "zh-CN",
+  });
+  await expectNoSeriousAxeViolations(page);
+
+  await page.getByRole("button", { name: "退出专家模式" }).click();
+  await expect.poll(() => expert.signOutRequests().length).toBe(1);
+  const signOut = expert.signOutRequests()[0];
+  expect(signOut?.method).toBe("POST");
+  expect(signOut?.csrf).toBe("fixture-csrf-token");
+  expect(signOut?.cookie).toContain("reposcope_e2e_session=ready");
+
+  await github.assertComplete({ rest: 6, raw: 16 });
+  await expert.assertComplete();
+  await runtime.assertClean();
+});
+
+test("cancelled expert work cannot overwrite the automatically generated next repository", async ({
+  context,
+  page,
+}) => {
+  const runtime = await monitorRuntime(context, page);
+  const expert = await installDeepAnalysisRoutes(context, page, {
+    session: "ready",
+    outcomes: ["deferred-success", "success"],
+  });
+  const firstGitHub = await installGitHubRoutes(context, page);
+
+  await gotoLanding(page);
+  await submitRepository(page);
+  await expectReport(page);
+  await page
+    .getByRole("checkbox", {
+      name: /Generate automatically for later repositories/u,
+    })
+    .check();
+  await expect(
+    page.getByRole("heading", { name: "Expert panel in progress" }),
+  ).toBeVisible();
+  await expect.poll(() => expert.analysisRequests().length).toBe(1);
+  await page.getByRole("button", { name: "Cancel expert analysis" }).click();
+  await expect(
+    page.getByRole("button", { name: "Generate expert interpretation" }),
+  ).toBeFocused();
+  await expect.poll(() => expert.cancellations().length).toBeGreaterThan(0);
+
+  await firstGitHub.assertComplete({ rest: 3, raw: 8 });
+  await context.unroute("https://api.github.com/**");
+  await context.unroute("https://raw.githubusercontent.com/**");
+  const nextGitHub = await installGitHubRoutes(context, page, { repo: "next" });
+  await submitRepository(page, "https://github.com/owner/next");
+  await expectReport(page, "owner/next");
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Repository briefing" }),
+  ).toBeVisible();
+  expectSecureDeepRequest(expert, 1, {
+    owner: "owner",
+    repo: "next",
+    language: "en",
+  });
+
+  expert.releaseNext();
+  await page.waitForTimeout(100);
+  await expectReport(page, "owner/next");
+  await expect(
+    page.locator('.expert-report a[href*="/owner/repo"]'),
+  ).toHaveCount(0);
+  expect(
+    await page.locator('.expert-report a[href*="/owner/next"]').count(),
+  ).toBeGreaterThan(0);
+  expect(expert.analysisRequests()).toHaveLength(2);
+
+  await nextGitHub.assertComplete({ rest: 3, raw: 8 });
+  await expert.assertComplete();
+  await runtime.assertClean();
+});
+
+test("allowance, rate, and invalid terminal failures preserve accepted reports", async ({
+  context,
+  page,
+}) => {
+  const runtime = await monitorRuntime(context, page, {
+    allowDeepRateLimitConsole: true,
+  });
+  const expert = await installDeepAnalysisRoutes(context, page, {
+    session: "ready",
+    outcomes: [
+      "success",
+      "allowance-exhausted",
+      "rate-limit",
+      "invalid-terminal",
+    ],
+  });
+  const github = await installGitHubRoutes(context, page);
+
+  await gotoLanding(page);
+  await submitRepository(page);
+  await expectReport(page);
+  await page
+    .getByRole("button", { name: "Generate expert interpretation" })
+    .click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Repository briefing" }),
+  ).toBeVisible();
+  const acceptedVerdict = page.getByText(
+    "On balance, the evidence supports a reversible trial with explicit boundaries.",
+    { exact: true },
+  );
+  await expect(acceptedVerdict).toBeVisible();
+
+  await page
+    .getByRole("button", { name: "Regenerate expert interpretation" })
+    .click();
+  await expect(
+    page.getByText(
+      "The current Copilot allowance cannot complete this briefing. The deterministic report is unchanged.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expectReport(page);
+  await expect(acceptedVerdict).toBeVisible();
+
+  await page.getByRole("button", { name: "Try expert analysis again" }).click();
+  await expect(
+    page.getByText(
+      "Expert analysis has reached its temporary start limit. Try again later.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expectReport(page);
+  await expect(acceptedVerdict).toBeVisible();
+
+  await page.getByRole("button", { name: "Try expert analysis again" }).click();
+  await expect(
+    page.getByText(
+      "The expert output did not pass RepoScope’s evidence and safety checks, so it was not shown.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expectReport(page);
+  await expect(acceptedVerdict).toBeVisible();
+  expect(expert.analysisRequests()).toHaveLength(4);
+  expect(
+    expert
+      .analysisRequests()
+      .every((request) => request.csrf === "fixture-csrf-token"),
+  ).toBe(true);
+
+  await expectBoundedRequests(github);
+  await expert.assertComplete();
   await runtime.assertClean();
 });

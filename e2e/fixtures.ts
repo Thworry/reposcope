@@ -12,9 +12,12 @@ import {
   SOURCE_FILES,
   type SourceFileMap,
 } from "./fixtures/source-files";
+import type { DeepAnalysisRequest } from "../src/features/deep-analysis/model";
+import { makeDeepReport, successfulDeepEvents } from "./fixtures/deep-report";
 
 export const FIXED_NOW = "2026-08-11T12:00:00.000Z";
 export const COMMIT_SHA = commitJson.sha;
+export const E2E_ORIGIN = "http://127.0.0.1:4175";
 const TREE_SHA = commitJson.commit.tree.sha;
 
 export type FixtureKind =
@@ -46,6 +49,41 @@ export interface RequestLedger {
   analyzerChunks(): readonly string[];
   releaseFirstRest(): void;
   assertComplete(expected?: { rest: number; raw: number }): Promise<void>;
+}
+
+export type DeepFixtureSession = "disabled" | "signed-out" | "ready";
+export type DeepFixtureOutcome =
+  | "success"
+  | "deferred-success"
+  | "allowance-exhausted"
+  | "rate-limit"
+  | "invalid-terminal";
+
+export interface DeepFixtureOptions {
+  session?: DeepFixtureSession;
+  outcomes?: readonly DeepFixtureOutcome[];
+}
+
+export interface DeepRequestRecord {
+  method: string;
+  url: string;
+  accept: string | undefined;
+  contentType: string | undefined;
+  csrf: string | undefined;
+  cookie: string | undefined;
+  body: unknown;
+}
+
+export interface DeepRequestLedger {
+  sessionRequests(): readonly DeepRequestRecord[];
+  authStarts(): readonly DeepRequestRecord[];
+  signOutRequests(): readonly DeepRequestRecord[];
+  analysisRequests(): readonly DeepRequestRecord[];
+  servedStages(): readonly (readonly string[])[];
+  cancellations(): readonly string[];
+  releaseNext(): void;
+  releaseAll(): void;
+  assertComplete(): Promise<void>;
 }
 
 interface FixtureData {
@@ -525,6 +563,276 @@ export async function installGitHubRoutes(
   };
 }
 
+function deepRequestRecord(request: Request): DeepRequestRecord {
+  const headers = request.headers();
+  let body: unknown = null;
+  const postData = request.postData();
+  if (postData !== null && postData !== "") {
+    try {
+      body = JSON.parse(postData) as unknown;
+    } catch {
+      body = postData;
+    }
+  }
+  return {
+    method: request.method(),
+    url: request.url(),
+    accept: headers.accept,
+    contentType: headers["content-type"],
+    csrf: headers["x-reposcope-csrf"],
+    cookie: headers.cookie,
+    body,
+  };
+}
+
+function fixtureDeepRequest(value: unknown): DeepAnalysisRequest | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    typeof (value as { language?: unknown }).language !== "string"
+  ) {
+    return null;
+  }
+  const language = (value as { language: unknown }).language;
+  const repository = (value as { repository?: unknown }).repository;
+  if (
+    (language !== "en" && language !== "zh-CN") ||
+    typeof repository !== "object" ||
+    repository === null ||
+    Array.isArray(repository)
+  ) {
+    return null;
+  }
+  const candidate = repository as Record<string, unknown>;
+  if (
+    typeof candidate.owner !== "string" ||
+    typeof candidate.repo !== "string" ||
+    typeof candidate.commitSha !== "string"
+  ) {
+    return null;
+  }
+  return {
+    repository: {
+      owner: candidate.owner,
+      repo: candidate.repo,
+      commitSha: candidate.commitSha,
+    },
+    language,
+  };
+}
+
+function ndjson(events: readonly unknown[]): string {
+  return `${events.map((event) => JSON.stringify(event)).join("\n")}\n`;
+}
+
+/** Provides the production build's default static-only session state. */
+export async function installDisabledDeepSessionRoute(
+  context: BrowserContext,
+): Promise<void> {
+  await context.route(`${E2E_ORIGIN}/api/v1/session`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "cache-control": "no-store" },
+      body: JSON.stringify({ status: "disabled" }),
+    });
+  });
+}
+
+/**
+ * Installs a same-origin expert API double. It never reaches GitHub, Copilot,
+ * or any other external service and retains a browser-visible request ledger.
+ */
+export async function installDeepAnalysisRoutes(
+  context: BrowserContext,
+  page: Page,
+  options: DeepFixtureOptions = {},
+): Promise<DeepRequestLedger> {
+  const session = options.session ?? "ready";
+  const outcomes = [
+    ...(options.outcomes ?? ["success"]),
+  ] as DeepFixtureOutcome[];
+  const sessionRequests: DeepRequestRecord[] = [];
+  const authStarts: DeepRequestRecord[] = [];
+  const signOutRequests: DeepRequestRecord[] = [];
+  const analysisRequests: DeepRequestRecord[] = [];
+  const servedStages: string[][] = [];
+  const cancellations: string[] = [];
+  const routeFailures: string[] = [];
+  const pending = new Set<Promise<void>>();
+  const gates: Array<ReturnType<typeof deferred>> = [];
+
+  page.on("requestfailed", (request) => {
+    const url = new URL(request.url());
+    if (url.origin === E2E_ORIGIN && url.pathname === "/api/v1/deep-analysis") {
+      cancellations.push(request.failure()?.errorText ?? "request failed");
+    }
+  });
+
+  await context.route(`${E2E_ORIGIN}/api/v1/**`, async (route) => {
+    const operation = (async () => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const record = deepRequestRecord(request);
+
+      if (url.pathname === "/api/v1/session") {
+        sessionRequests.push(record);
+        if (request.method() !== "GET") {
+          routeFailures.push(`unexpected session method: ${request.method()}`);
+          await route.fulfill({ status: 405, body: "" });
+          return;
+        }
+        const body =
+          session === "ready"
+            ? { status: "ready", csrfToken: "fixture-csrf-token" }
+            : { status: session };
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: {
+            "cache-control": "no-store",
+            ...(session === "ready"
+              ? {
+                  "set-cookie":
+                    "reposcope_e2e_session=ready; Path=/; HttpOnly; SameSite=Strict",
+                }
+              : {}),
+          },
+          body: JSON.stringify(body),
+        });
+        return;
+      }
+
+      if (url.pathname === "/api/v1/auth/start") {
+        authStarts.push(record);
+        if (request.method() !== "GET") {
+          routeFailures.push(`unexpected auth method: ${request.method()}`);
+          await route.fulfill({ status: 405, body: "" });
+          return;
+        }
+        await route.fulfill({ status: 204, body: "" });
+        return;
+      }
+
+      if (url.pathname === "/api/v1/sign-out") {
+        signOutRequests.push(record);
+        await route.fulfill({
+          status: request.method() === "POST" ? 204 : 405,
+          body: "",
+        });
+        return;
+      }
+
+      if (url.pathname !== "/api/v1/deep-analysis") {
+        routeFailures.push(`unexpected expert API route: ${record.url}`);
+        await route.fulfill({ status: 404, body: "" });
+        return;
+      }
+
+      analysisRequests.push(record);
+      if (request.method() !== "POST") {
+        routeFailures.push(`unexpected analysis method: ${request.method()}`);
+        await route.fulfill({ status: 405, body: "" });
+        return;
+      }
+      const deepRequest = fixtureDeepRequest(record.body);
+      if (deepRequest === null) {
+        routeFailures.push("invalid expert-analysis fixture request body");
+        await route.fulfill({ status: 422, body: "" });
+        return;
+      }
+
+      const outcome = outcomes.shift() ?? "success";
+      if (outcome === "deferred-success") {
+        const gate = deferred();
+        gates.push(gate);
+        await gate.promise;
+      }
+      if (outcome === "rate-limit") {
+        await route.fulfill({
+          status: 429,
+          contentType: "application/json",
+          body: JSON.stringify({ error: { kind: "rate-limit" } }),
+        });
+        return;
+      }
+      if (outcome === "allowance-exhausted") {
+        servedStages.push([]);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/x-ndjson",
+          body: ndjson([
+            { type: "error", error: { kind: "allowance-exhausted" } },
+          ]),
+        });
+        return;
+      }
+
+      const report =
+        outcome === "invalid-terminal"
+          ? makeDeepReport({
+              ...deepRequest,
+              repository: {
+                ...deepRequest.repository,
+                repo: `${deepRequest.repository.repo}-stale`,
+              },
+            })
+          : makeDeepReport(deepRequest);
+      const events = successfulDeepEvents(deepRequest, report);
+      servedStages.push(
+        events.flatMap((event) =>
+          event.type === "stage" ? [event.stage] : [],
+        ),
+      );
+      await route.fulfill({
+        status: 200,
+        contentType: "application/x-ndjson",
+        headers: { "cache-control": "no-store" },
+        body: ndjson(events),
+      });
+    })().catch((error: unknown) => {
+      const failure = route.request().failure();
+      if (failure === null) {
+        routeFailures.push(
+          `expert API fixture failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    });
+    pending.add(operation);
+    try {
+      await operation;
+    } finally {
+      pending.delete(operation);
+    }
+  });
+
+  const releaseNext = (): void => {
+    gates.shift()?.resolve();
+  };
+  const releaseAll = (): void => {
+    for (const gate of gates.splice(0)) gate.resolve();
+  };
+
+  return {
+    sessionRequests: () => sessionRequests,
+    authStarts: () => authStarts,
+    signOutRequests: () => signOutRequests,
+    analysisRequests: () => analysisRequests,
+    servedStages: () => servedStages,
+    cancellations: () => cancellations,
+    releaseNext,
+    releaseAll,
+    assertComplete: async () => {
+      releaseAll();
+      await Promise.allSettled([...pending]);
+      if (routeFailures.length > 0) throw new Error(routeFailures.join("\n"));
+      if (pending.size > 0)
+        throw new Error("Expert API route handlers still pending");
+    },
+  };
+}
+
 export async function installExternalRequestGuard(
   context: BrowserContext,
 ): Promise<() => Promise<void>> {
@@ -541,9 +849,9 @@ export async function installExternalRequestGuard(
       if (
         url.protocol === "data:" ||
         url.protocol === "blob:" ||
-        (url.protocol === "http:" && url.host === "127.0.0.1:4173")
+        url.origin === E2E_ORIGIN
       ) {
-        await route.continue();
+        await route.fallback();
         return;
       }
 
