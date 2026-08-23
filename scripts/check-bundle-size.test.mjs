@@ -207,7 +207,9 @@ function filesUnder(root) {
 test("production output has exact CSP, local assets, and a complete subpath manifest", async () => {
   const output = mkdtempSync(join(tmpdir(), "reposcope-release-"));
   const previousBase = process.env.REPOSCOPE_BASE_PATH;
+  const previousApiOrigin = process.env.REPOSCOPE_API_ORIGIN;
   process.env.REPOSCOPE_BASE_PATH = "/reposcope/";
+  delete process.env.REPOSCOPE_API_ORIGIN;
   try {
     await build({
       configFile: resolve("vite.config.ts"),
@@ -323,6 +325,57 @@ test("production output has exact CSP, local assets, and a complete subpath mani
   } finally {
     if (previousBase === undefined) delete process.env.REPOSCOPE_BASE_PATH;
     else process.env.REPOSCOPE_BASE_PATH = previousBase;
+    if (previousApiOrigin === undefined)
+      delete process.env.REPOSCOPE_API_ORIGIN;
+    else process.env.REPOSCOPE_API_ORIGIN = previousApiOrigin;
+    rmSync(output, { recursive: true, force: true });
+  }
+});
+
+test("configured expert API extends only connect-src once", async () => {
+  const output = mkdtempSync(join(tmpdir(), "reposcope-api-csp-"));
+  const previousApiOrigin = process.env.REPOSCOPE_API_ORIGIN;
+  process.env.REPOSCOPE_API_ORIGIN = "https://api.reposcope.example";
+  try {
+    await build({
+      configFile: resolve("vite.config.ts"),
+      logLevel: "silent",
+      build: { outDir: output, emptyOutDir: true },
+    });
+
+    const html = String(readFileSync(join(output, "index.html"))).replaceAll(
+      "&#39;",
+      "'",
+    );
+    const [csp] = [
+      ...html.matchAll(
+        /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)">/giu,
+      ),
+    ];
+    assert.ok(csp);
+    assert.equal(
+      csp[1],
+      [
+        "default-src 'self'",
+        "connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://api.reposcope.example",
+        "img-src 'self' data:",
+        "style-src 'self'",
+        "script-src 'self'",
+        "worker-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "upgrade-insecure-requests",
+      ].join("; "),
+    );
+    assert.equal(
+      (csp[1].match(/https:\/\/api\.reposcope\.example/gu) ?? []).length,
+      1,
+    );
+  } finally {
+    if (previousApiOrigin === undefined)
+      delete process.env.REPOSCOPE_API_ORIGIN;
+    else process.env.REPOSCOPE_API_ORIGIN = previousApiOrigin;
     rmSync(output, { recursive: true, force: true });
   }
 });
@@ -358,6 +411,7 @@ test("release automation is pinned, least-privileged, and ordered", async () => 
     "pnpm format:check",
     "pnpm exec tsc -b",
     "pnpm test:coverage",
+    "pnpm test:server",
     "pnpm build",
     "pnpm check:bundle",
     "pnpm exec playwright install --with-deps chromium",
@@ -377,6 +431,7 @@ test("release automation is pinned, least-privileged, and ordered", async () => 
     "pnpm format:check",
     "pnpm exec tsc -b",
     "pnpm test:coverage",
+    "pnpm test:server",
     "pnpm build",
     "pnpm check:bundle",
     "pnpm exec playwright install --with-deps chromium",

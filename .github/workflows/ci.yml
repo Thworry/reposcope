@@ -31,6 +31,8 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm test:server
       - run: pnpm build
+        env:
+          REPOSCOPE_API_ORIGIN: ${{ vars.REPOSCOPE_API_ORIGIN }}
       - run: pnpm check:bundle
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test --project=desktop-chromium

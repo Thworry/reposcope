@@ -3,20 +3,33 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig, type Plugin, type ResolvedConfig } from "vite";
 
-export const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "connect-src 'self' https://api.github.com https://raw.githubusercontent.com",
-  "img-src 'self' data:",
-  "style-src 'self'",
-  "script-src 'self'",
-  "worker-src 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "upgrade-insecure-requests",
-].join("; ");
+import { parseDeepAnalysisApiOrigin } from "./src/features/deep-analysis/api-origin.ts";
 
-export function productionCsp(): Plugin {
+export function contentSecurityPolicy(apiOrigin: URL | null): string {
+  const connectSources = [
+    "'self'",
+    "https://api.github.com",
+    "https://raw.githubusercontent.com",
+  ];
+  if (apiOrigin !== null) connectSources.push(apiOrigin.origin);
+
+  return [
+    "default-src 'self'",
+    `connect-src ${connectSources.join(" ")}`,
+    "img-src 'self' data:",
+    "style-src 'self'",
+    "script-src 'self'",
+    "worker-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
+
+export const CONTENT_SECURITY_POLICY = contentSecurityPolicy(null);
+
+export function productionCsp(apiOrigin: URL | null = null): Plugin {
   return {
     name: "reposcope-production-csp",
     apply: "build",
@@ -28,7 +41,7 @@ export function productionCsp(): Plugin {
             tag: "meta",
             attrs: {
               "http-equiv": "Content-Security-Policy",
-              content: CONTENT_SECURITY_POLICY,
+              content: contentSecurityPolicy(apiOrigin),
             },
             injectTo: "head-prepend",
           },
@@ -132,53 +145,63 @@ function releaseManifest(): Plugin {
   };
 }
 
-export default defineConfig(({ command }) => ({
-  base:
-    command === "build"
-      ? releaseBasePath(process.env.REPOSCOPE_BASE_PATH)
-      : "/",
-  plugins: [react(), productionCsp(), releaseManifest()],
-  build: {
-    manifest: true,
-    rollupOptions: {
-      output: {
-        chunkFileNames: "assets/[name]-[hash].js",
-        entryFileNames: "assets/[name]-[hash].js",
+export default defineConfig(({ command, mode }) => {
+  const apiOrigin = parseDeepAnalysisApiOrigin(
+    process.env.REPOSCOPE_API_ORIGIN ?? "",
+    mode === "production" ? "production" : "development",
+  );
+
+  return {
+    base:
+      command === "build"
+        ? releaseBasePath(process.env.REPOSCOPE_BASE_PATH)
+        : "/",
+    define: {
+      __REPOSCOPE_API_ORIGIN__: JSON.stringify(apiOrigin?.origin ?? ""),
+    },
+    plugins: [react(), productionCsp(apiOrigin), releaseManifest()],
+    build: {
+      manifest: true,
+      rollupOptions: {
+        output: {
+          chunkFileNames: "assets/[name]-[hash].js",
+          entryFileNames: "assets/[name]-[hash].js",
+        },
       },
     },
-  },
-  worker: {
-    format: "es",
-    rollupOptions: {
-      output: {
-        chunkFileNames: "assets/[name]-[hash].js",
-        entryFileNames: "assets/[name]-[hash].js",
+    worker: {
+      format: "es",
+      rollupOptions: {
+        output: {
+          chunkFileNames: "assets/[name]-[hash].js",
+          entryFileNames: "assets/[name]-[hash].js",
+        },
       },
     },
-  },
-  test: {
-    environment: "jsdom",
-    globals: true,
-    include: ["src/**/*.test.{ts,tsx}"],
-    setupFiles: ["./src/test/setup.ts"],
-    coverage: {
-      provider: "v8",
-      all: true,
-      thresholds: {
-        statements: 90,
-        branches: 80,
-        functions: 90,
-        lines: 90,
+    test: {
+      environment: "jsdom",
+      globals: true,
+      include: ["src/**/*.test.{ts,tsx}"],
+      setupFiles: ["./src/test/setup.ts"],
+      coverage: {
+        provider: "v8",
+        all: true,
+        thresholds: {
+          statements: 90,
+          branches: 80,
+          functions: 90,
+          lines: 90,
+        },
+        include: ["src/**/*.{ts,tsx}"],
+        exclude: [
+          "src/main.tsx",
+          "src/**/*.test.{ts,tsx}",
+          "src/test/**",
+          "src/**/model.ts",
+          "src/**/raw-model.ts",
+          "src/**/protocol.ts",
+        ],
       },
-      include: ["src/**/*.{ts,tsx}"],
-      exclude: [
-        "src/main.tsx",
-        "src/**/*.test.{ts,tsx}",
-        "src/test/**",
-        "src/**/model.ts",
-        "src/**/raw-model.ts",
-        "src/**/protocol.ts",
-      ],
     },
-  },
-}));
+  };
+});

@@ -481,6 +481,14 @@ describe("open-source repository contract", () => {
     expect(check).toContain("pnpm typecheck:server");
     expect(ci).toContain("run: pnpm test:server");
     expect(pages).toContain("run: pnpm test:server");
+    expect(ci).toContain(
+      "REPOSCOPE_API_ORIGIN: ${{ vars.REPOSCOPE_API_ORIGIN }}",
+    );
+    expect(
+      pages.match(
+        /REPOSCOPE_API_ORIGIN: \$\{\{ vars\.REPOSCOPE_API_ORIGIN \}\}/gu,
+      ),
+    ).toHaveLength(2);
     expect(pages).toMatch(
       /uses: actions\/upload-pages-artifact@[^\n]+\n\s+with:\n\s+path: dist/u,
     );
