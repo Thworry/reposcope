@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { serve } from "@hono/node-server";
 
 import { createApp } from "./app.js";
+import { GitHubOAuthClient } from "./auth/github-oauth.js";
+import { AuthSessionStore } from "./auth/session-store.js";
 import { readServerConfig } from "./config.js";
 import type { AppLogger } from "./http/security.js";
 
@@ -25,15 +27,43 @@ function startServer(): void {
     return;
   }
 
+  const clock = { nowMs: Date.now };
+  const randomSource = {
+    bytes: (length: number) => Uint8Array.from(randomBytes(length)),
+  };
+  let sessionStore: AuthSessionStore | null = null;
+  let oauthClient: GitHubOAuthClient | null = null;
+  if (config.deepAnalysisEnabled) {
+    const { githubCallbackUrl, githubClientId, githubClientSecret } = config;
+    if (
+      githubClientId === null ||
+      githubClientSecret === null ||
+      githubCallbackUrl === null
+    ) {
+      logger.error("RepoScope authorization configuration is incomplete");
+      process.exitCode = 1;
+      return;
+    }
+    sessionStore = new AuthSessionStore({
+      clock,
+      randomSource,
+      ttlMs: config.sessionIdleMs,
+    });
+    oauthClient = new GitHubOAuthClient({
+      clientId: githubClientId,
+      clientSecret: githubClientSecret,
+      callbackUrl: githubCallbackUrl,
+      fetch,
+    });
+  }
+
   const app = createApp({
     config,
-    clock: { nowMs: Date.now },
-    randomSource: {
-      bytes: (length) => Uint8Array.from(randomBytes(length)),
-    },
+    clock,
+    randomSource,
     logger,
-    sessionStore: null,
-    oauthClient: null,
+    sessionStore,
+    oauthClient,
   });
   const server = serve(
     { fetch: app.fetch, hostname: config.host, port: config.port },

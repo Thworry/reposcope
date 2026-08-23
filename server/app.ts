@@ -1,5 +1,8 @@
 import { Hono } from "hono";
 
+import type { GitHubOAuth } from "./auth/github-oauth.js";
+import { installAuthRoutes } from "./auth/routes.js";
+import type { AuthSessionStore } from "./auth/session-store.js";
 import type { ServerConfig } from "./config.js";
 import {
   installHttpSecurity,
@@ -20,8 +23,8 @@ export interface AppDependencies {
   readonly clock: Clock;
   readonly randomSource: RandomSource;
   readonly logger: AppLogger;
-  readonly sessionStore: unknown;
-  readonly oauthClient: unknown;
+  readonly sessionStore: AuthSessionStore | null;
+  readonly oauthClient: GitHubOAuth | null;
 }
 
 export function createApp(dependencies: AppDependencies): Hono {
@@ -31,6 +34,13 @@ export function createApp(dependencies: AppDependencies): Hono {
     apiOrigin: dependencies.config.apiOrigin,
     frontendOrigin: dependencies.config.frontendOrigin,
     logger: dependencies.logger,
+  });
+
+  installAuthRoutes(app, {
+    config: dependencies.config,
+    logger: dependencies.logger,
+    sessionStore: dependencies.sessionStore,
+    oauthClient: dependencies.oauthClient,
   });
 
   app.get("/api/v1/health", (context) =>
