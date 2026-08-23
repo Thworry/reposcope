@@ -162,4 +162,24 @@ describe("ReportView", () => {
       /(?:reader-report|reader-chapter|technical-appendix|technical-overview)[^{]*\{[^}]*(?:position:\s*(?:fixed|sticky)|transition:|animation:)/isu,
     );
   });
+
+  it("places an optional expert briefing between repository facts and the deterministic dossier", () => {
+    const { container } = render(
+      <ReportView
+        report={report}
+        language="en"
+        onRefresh={vi.fn()}
+        expert={<section aria-label="Expert fixture">Expert fixture</section>}
+      />,
+    );
+
+    expect(
+      Array.from(container.querySelector(".report-view")?.children ?? []).map(
+        (node) => node.getAttribute("data-report-section"),
+      ),
+    ).toEqual(["summary", "expert", "reader", "technical-appendix"]);
+    expect(
+      screen.getByRole("region", { name: "Expert fixture" }),
+    ).toBeVisible();
+  });
 });

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 
 import { LanguageSwitcher } from "./components/language-switcher";
 import { ErrorPanel } from "./components/error-panel";
+import { ExpertAnalysisControl } from "./components/expert-analysis-control";
+import { ExpertReport } from "./components/expert-report";
 import { ReportView } from "./components/report-view";
 import { RepositoryForm } from "./components/repository-form";
 import { ScanProgress } from "./components/scan-progress";
 import { StatusAnnouncer } from "./components/status-announcer";
 import { useRepositoryAnalysis } from "./features/analysis/use-repository-analysis";
 import type { RepoRef, ScanPhase } from "./features/analysis/model";
+import { useDeepAnalysis } from "./features/deep-analysis/use-deep-analysis";
 import {
   parseShareSearch,
   toCanonicalRepositoryUrl,
@@ -55,7 +58,12 @@ function formatStaleTimestamp(value: string, language: "en" | "zh-CN"): string {
 export function App() {
   const { language, selectLanguage } = useLanguage();
   const analysis = useRepositoryAnalysis();
+  const deepAnalysis = useDeepAnalysis({
+    deterministicReport: analysis.report,
+    language,
+  });
   const copy = messages[language];
+  const expertConfigured = deepAnalysis.availability !== "disabled";
   const [sharedRef] = useState(() => parseShareSearch(window.location.search));
   const [initialValue] = useState(() =>
     sharedRef === null ? "" : toCanonicalRepositoryUrl(sharedRef),
@@ -149,11 +157,14 @@ export function App() {
             onAnalyze={analyzeManual}
           />
 
-          <aside className="privacy-note" aria-label={copy.privacy}>
+          <aside
+            className="privacy-note"
+            aria-label={expertConfigured ? copy.privacyOptional : copy.privacy}
+          >
             <span className="privacy-note__mark" aria-hidden="true">
-              {copy.privacyMark}
+              {expertConfigured ? copy.privacyOptionalMark : copy.privacyMark}
             </span>
-            <p>{copy.privacy}</p>
+            <p>{expertConfigured ? copy.privacyOptional : copy.privacy}</p>
             <a href="#methodology">{copy.methodology}</a>
           </aside>
 
@@ -174,7 +185,11 @@ export function App() {
                 <li>{copy.methodologyScope}</li>
                 <li>{copy.methodologySampling}</li>
                 <li>{copy.methodologyExclusions}</li>
-                <li>{copy.methodologyBoundary}</li>
+                <li>
+                  {expertConfigured
+                    ? copy.methodologyBoundaryOptional
+                    : copy.methodologyBoundary}
+                </li>
                 <li>{copy.methodologyLimitations}</li>
               </ul>
             </section>
@@ -216,6 +231,22 @@ export function App() {
           <ReportView
             report={analysis.report}
             language={language}
+            expert={
+              expertConfigured ? (
+                <>
+                  <ExpertAnalysisControl
+                    language={language}
+                    state={deepAnalysis}
+                  />
+                  {deepAnalysis.report === null ? null : (
+                    <ExpertReport
+                      report={deepAnalysis.report}
+                      language={language}
+                    />
+                  )}
+                </>
+              ) : null
+            }
             onRefresh={() => {
               void analysis.refresh();
             }}

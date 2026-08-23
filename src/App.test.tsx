@@ -21,9 +21,13 @@ import { buildFindings } from "./features/rules/findings";
 import { scoreProject } from "./features/rules/rules";
 import type { AnalysisReport, RepoRef } from "./features/analysis/model";
 import type { RepositoryAnalysisController } from "./features/analysis/use-repository-analysis";
+import type { UseDeepAnalysisResult } from "./features/deep-analysis/use-deep-analysis";
 import { App } from "./App";
 
-const { hookMock } = vi.hoisted(() => ({ hookMock: vi.fn() }));
+const { hookMock, deepHookMock } = vi.hoisted(() => ({
+  hookMock: vi.fn(),
+  deepHookMock: vi.fn(),
+}));
 
 const appCss = readFileSync(join(process.cwd(), "src/styles/app.css"), "utf8");
 const globalCss = readFileSync(
@@ -33,6 +37,10 @@ const globalCss = readFileSync(
 
 vi.mock("./features/analysis/use-repository-analysis", () => ({
   useRepositoryAnalysis: hookMock,
+}));
+
+vi.mock("./features/deep-analysis/use-deep-analysis", () => ({
+  useDeepAnalysis: deepHookMock,
 }));
 
 function validReport(ref: RepoRef): AnalysisReport {
@@ -74,6 +82,7 @@ function validReport(ref: RepoRef): AnalysisReport {
 }
 
 let controller: RepositoryAnalysisController;
+let deepState: UseDeepAnalysisResult;
 let analyzeMock: Mock<(ref: RepoRef) => Promise<void>>;
 let cancelMock: Mock<() => void>;
 
@@ -81,6 +90,7 @@ describe("App", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     hookMock.mockReset();
+    deepHookMock.mockReset();
     window.localStorage.clear();
     window.localStorage.setItem("reposcope:language", "en");
     window.history.replaceState(null, "", "/reposcope/");
@@ -97,6 +107,25 @@ describe("App", () => {
       reset: vi.fn(),
     };
     hookMock.mockImplementation(() => controller);
+    deepState = {
+      availability: "disabled",
+      status: "idle",
+      stage: null,
+      specialists: {
+        product: "pending",
+        "onboarding-architecture": "pending",
+        "trust-ecosystem": "pending",
+      },
+      report: null,
+      error: null,
+      authorize: vi.fn(),
+      generate: vi.fn().mockResolvedValue(undefined),
+      cancel: vi.fn(),
+      signOut: vi.fn().mockResolvedValue(undefined),
+      setAutomatic: vi.fn(),
+      automatic: false,
+    };
+    deepHookMock.mockImplementation(() => deepState);
   });
 
   it("renders the approved bilingual landing and changes language without analysis", async () => {
@@ -167,6 +196,26 @@ describe("App", () => {
     expect(appCss).toMatch(
       /\.primary-action,\s*\.secondary-action\s*\{[^}]*transition:\s*background-color/isu,
     );
+  });
+
+  it("replaces absolute local-only claims when optional expert mode is configured", () => {
+    deepState = { ...deepState, availability: "ready" };
+    render(<App />);
+
+    expect(
+      screen.getByText(
+        "The deterministic scan stays in this browser. An expert briefing runs only after authorization and sends selected public evidence to GitHub Copilot.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Repository source remains untrusted text and is never executed. The deterministic scan is local; only an authorized expert run sends selected public evidence to GitHub Copilot with zero tools.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText(/read-only\. no login or token/iu)).toBeNull();
+    expect(
+      screen.queryByText(/no login, token, backend, AI service/iu),
+    ).toBeNull();
   });
 
   it("gives native report controls the same visible three-pixel focus ring", () => {

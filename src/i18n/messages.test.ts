@@ -163,6 +163,43 @@ describe("bilingual message contract", () => {
     ]);
   });
 
+  it("keeps the expert disclosure, progress, chapters, and empty states bilingual", () => {
+    expect([
+      messages.en.deepDisclosureEvidence,
+      messages.en.deepDisclosureAllowance,
+      messages.en.deepDisclosureNoExecution,
+      messages.en.deepDisclosureFallback,
+    ]).toEqual([
+      "Selected text from this public repository—including README, documentation, manifests, and public GitHub facts—is sent to GitHub Copilot.",
+      "The analysis uses your GitHub Copilot entitlement and may count against its allowance.",
+      "RepoScope does not execute repository code, install dependencies, run commands, or give the panel tools.",
+      "If authorization or the panel fails, the deterministic browser report stays intact.",
+    ]);
+    expect([
+      messages.en.deepChapterOrientation,
+      messages.en.deepChapterFit,
+      messages.en.deepChapterSituations,
+      messages.en.deepChapterCapabilities,
+      messages.en.deepChapterArchitecture,
+      messages.en.deepChapterOnboarding,
+      messages.en.deepChapterTrust,
+      messages.en.deepChapterMaintenance,
+      messages.en.deepChapterAlternatives,
+      messages.en.deepChapterVerdict,
+    ]).toHaveLength(10);
+    expect(messages.en.deepProgressCacheHit).toMatch(/saved briefing/iu);
+    expect(messages["zh-CN"].deepProgressCacheHit).toMatch(/保存的简报/u);
+    expect(messages.en.deepAlternativesUnavailable).toMatch(
+      /no verified alternative/iu,
+    );
+    expect(messages["zh-CN"].deepAlternativesUnavailable).toMatch(
+      /没有可供核验的替代项目/u,
+    );
+    expect(Object.keys(messages.en).sort()).toEqual(
+      Object.keys(messages["zh-CN"]).sort(),
+    );
+  });
+
   it("freezes the README interpretation structure and commentary in both languages", () => {
     expect([
       messages.en.readerOrientationHeading,
