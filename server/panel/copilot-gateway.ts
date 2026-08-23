@@ -1171,7 +1171,7 @@ export class PanelModelGateway {
         useLoggedInUser: false,
         enableRemoteSessions: false,
         sessionIdleTimeoutSeconds: this.sessionIdleTimeoutSeconds,
-        logLevel: "error",
+        logLevel: "none",
         env: scrubCopilotRuntimeEnvironment(this.environment),
       });
       client = createdClient;

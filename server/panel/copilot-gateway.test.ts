@@ -247,7 +247,7 @@ describe("PanelModelGateway isolation and session config", () => {
       useLoggedInUser: false,
       enableRemoteSessions: false,
       sessionIdleTimeoutSeconds: 90,
-      logLevel: "error",
+      logLevel: "none",
       builtinPluginDirectories: [],
       env: { PATH: "/safe/bin", TMPDIR: "/safe/tmp", LANG: "C.UTF-8" },
     });
