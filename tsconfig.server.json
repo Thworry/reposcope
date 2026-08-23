@@ -27,7 +27,8 @@
     "server/**/*.ts",
     "src/features/analysis/model.ts",
     "src/features/analysis/project-brief-safety.ts",
-    "src/features/deep-analysis/**/*.ts",
+    "src/features/deep-analysis/model.ts",
+    "src/features/deep-analysis/guards.ts",
     "vitest.server.config.ts"
   ],
   "exclude": ["src/**/*.test.ts", "src/test/**"]
