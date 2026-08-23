@@ -3,7 +3,7 @@ module.exports = {
     collect: {
       numberOfRuns: 3,
       url: ["http://127.0.0.1:4173/"],
-      startServerCommand: "pnpm preview --host 127.0.0.1",
+      startServerCommand: "pnpm build && pnpm preview --host 127.0.0.1",
       startServerReadyPattern: "Local",
       startServerReadyTimeout: 120_000,
     },

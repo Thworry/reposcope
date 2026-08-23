@@ -455,6 +455,10 @@ test("release automation is pinned, least-privileged, and ordered", async () => 
 
   assert.equal(lighthouse.ci.collect.numberOfRuns, 3);
   assert.deepEqual(lighthouse.ci.collect.url, ["http://127.0.0.1:4173/"]);
+  assert.equal(
+    lighthouse.ci.collect.startServerCommand,
+    "pnpm build && pnpm preview --host 127.0.0.1",
+  );
   for (const category of [
     "performance",
     "accessibility",
