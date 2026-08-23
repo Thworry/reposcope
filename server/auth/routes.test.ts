@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createApp, type AppDependencies } from "../app.js";
 import { readServerConfig } from "../config.js";
-import { cookieNameFor } from "./cookies.js";
+import { ActiveRunRegistry } from "../http/active-runs.js";
+import { SlidingWindowRateLimiter } from "../http/rate-limit.js";
+import { cookieNameFor, readSessionCookie } from "./cookies.js";
 import type { GitHubOAuth } from "./github-oauth.js";
 import { AuthSessionStore } from "./session-store.js";
 
@@ -49,6 +51,9 @@ function makeDependencies(options?: {
             (() => Promise.resolve(`gho_${"a".repeat(36)}`)),
         }
       : null,
+    deepAnalysisService: null,
+    rateLimiter: new SlidingWindowRateLimiter({ nowMs: clock.nowMs }),
+    activeRuns: new ActiveRunRegistry(),
   };
 }
 
@@ -75,7 +80,8 @@ describe("auth routes", () => {
   });
 
   it("starts authorization with an HttpOnly cookie and exact base-path return", async () => {
-    const app = createApp(makeDependencies());
+    const dependencies = makeDependencies();
+    const app = createApp(dependencies);
     const start = await app.request(
       "/api/v1/auth/start?returnTo=%2Freposcope%2F%3Frepo%3Downer%252Frepo",
     );
@@ -83,6 +89,12 @@ describe("auth routes", () => {
     expect(start.status).toBe(302);
     expect(start.headers.get("set-cookie")).toContain("HttpOnly");
     expect(start.headers.get("set-cookie")).toContain("SameSite=Lax");
+    const pendingSessionId = readSessionCookie(
+      cookiePair(start),
+      cookieNameFor("test"),
+    );
+    const lease = dependencies.activeRuns.begin(pendingSessionId);
+    dependencies.rateLimiter.consume(pendingSessionId);
 
     const callback = await app.request(
       `/api/v1/auth/callback?code=x&state=${redirectState(start)}`,
@@ -94,6 +106,9 @@ describe("auth routes", () => {
     );
     expect(cookiePair(callback)).not.toBe(cookiePair(start));
     expect(await callback.text()).not.toContain("gho_");
+    expect(lease?.signal.aborted).toBe(true);
+    expect(dependencies.activeRuns.size).toBe(0);
+    expect(dependencies.rateLimiter.size).toBe(0);
   });
 
   it.each([
@@ -149,8 +164,16 @@ describe("auth routes", () => {
   });
 
   it("consumes state and clears the session when GitHub authorization is denied", async () => {
-    const app = createApp(makeDependencies());
+    const dependencies = makeDependencies();
+    const app = createApp(dependencies);
     const start = await app.request("/api/v1/auth/start");
+    const deniedSessionId = readSessionCookie(
+      cookiePair(start),
+      cookieNameFor("test"),
+    );
+    expect(deniedSessionId).not.toBeNull();
+    const lease = dependencies.activeRuns.begin(deniedSessionId);
+    dependencies.rateLimiter.consume(deniedSessionId);
     const response = await app.request(
       `/api/v1/auth/callback?error=access_denied&error_description=${encodeURIComponent("gho_do-not-reflect")}&state=${redirectState(start)}`,
       { headers: { Cookie: cookiePair(start) } },
@@ -159,6 +182,9 @@ describe("auth routes", () => {
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain("gho_");
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(lease?.signal.aborted).toBe(true);
+    expect(dependencies.activeRuns.size).toBe(0);
+    expect(dependencies.rateLimiter.size).toBe(0);
   });
 
   it("requires exact origin and CSRF on sign-out, then clears the session", async () => {
@@ -174,6 +200,10 @@ describe("auth routes", () => {
       headers: { Cookie: cookie },
     });
     const csrf = ((await session.json()) as { csrfToken: string }).csrfToken;
+    const sessionId = readSessionCookie(cookie, cookieNameFor("test"));
+    expect(sessionId).not.toBeNull();
+    const lease = dependencies.activeRuns.begin(sessionId);
+    dependencies.rateLimiter.consume(sessionId);
 
     for (const headers of [
       {
@@ -193,6 +223,8 @@ describe("auth routes", () => {
         headers,
       });
       expect(rejected.status).toBe(403);
+      expect(lease?.signal.aborted).toBe(false);
+      expect(dependencies.rateLimiter.size).toBe(1);
     }
 
     const signedOut = await app.request("/api/v1/sign-out", {
@@ -206,6 +238,9 @@ describe("auth routes", () => {
     expect(signedOut.status).toBe(204);
     expect(signedOut.headers.get("cache-control")).toBe("no-store");
     expect(signedOut.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(lease?.signal.aborted).toBe(true);
+    expect(dependencies.activeRuns.size).toBe(0);
+    expect(dependencies.rateLimiter.size).toBe(0);
 
     const after = await app.request("/api/v1/session", {
       headers: { Cookie: cookie },
@@ -220,6 +255,13 @@ describe("auth routes", () => {
     const dependencies = makeDependencies({ exchangeCode });
     const app = createApp(dependencies);
     const start = await app.request("/api/v1/auth/start");
+    const failedSessionId = readSessionCookie(
+      cookiePair(start),
+      cookieNameFor("test"),
+    );
+    expect(failedSessionId).not.toBeNull();
+    const lease = dependencies.activeRuns.begin(failedSessionId);
+    dependencies.rateLimiter.consume(failedSessionId);
     const response = await app.request(
       `/api/v1/auth/callback?code=callback-code&state=${redirectState(start)}`,
       { headers: { Cookie: cookiePair(start) } },
@@ -228,6 +270,8 @@ describe("auth routes", () => {
     expect(response.status).toBe(502);
     expect(await response.text()).not.toMatch(/gho_|callback-code/u);
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(lease?.signal.aborted).toBe(true);
+    expect(dependencies.rateLimiter.size).toBe(0);
     expect(
       JSON.stringify(vi.mocked(dependencies.logger.error).mock.calls),
     ).not.toMatch(/gho_|callback-code/u);

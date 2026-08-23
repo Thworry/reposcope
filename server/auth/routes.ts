@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import type { Context, Hono } from "hono";
 
 import type { ServerConfig } from "../config.js";
+import type { ActiveRunRegistry } from "../http/active-runs.js";
+import type { SlidingWindowRateLimiter } from "../http/rate-limit.js";
 import type { AppLogger } from "../http/security.js";
 import {
   cookieNameFor,
@@ -21,6 +23,8 @@ export interface AuthRouteDependencies {
   readonly logger: AppLogger;
   readonly sessionStore: AuthSessionStore | null;
   readonly oauthClient: GitHubOAuth | null;
+  readonly rateLimiter: SlidingWindowRateLimiter;
+  readonly activeRuns: ActiveRunRegistry;
 }
 
 export function installAuthRoutes(
@@ -34,6 +38,11 @@ export function installAuthRoutes(
   const cookieName = cookieNameFor(dependencies.config.environment);
   const secure = dependencies.config.environment === "production";
   const maxAgeSeconds = Math.floor(dependencies.config.sessionIdleMs / 1_000);
+  const terminateSession = (sessionId: string): void => {
+    dependencies.sessionStore?.deleteSession(sessionId);
+    dependencies.activeRuns.abort(sessionId);
+    dependencies.rateLimiter.delete(sessionId);
+  };
 
   app.get("/api/v1/session", (context) => {
     if (!enabled) {
@@ -128,7 +137,7 @@ export function installAuthRoutes(
       ) {
         return invalidRequest(context);
       }
-      dependencies.sessionStore.deleteSession(deniedSessionId);
+      terminateSession(deniedSessionId);
       context.header(
         "Set-Cookie",
         serializeClearedSessionCookie(cookieName, secure),
@@ -166,7 +175,7 @@ export function installAuthRoutes(
     try {
       githubToken = await dependencies.oauthClient.exchangeCode(codes[0] ?? "");
     } catch (error) {
-      dependencies.sessionStore.deleteSession(sessionId);
+      terminateSession(sessionId);
       context.header(
         "Set-Cookie",
         serializeClearedSessionCookie(cookieName, secure),
@@ -188,8 +197,15 @@ export function installAuthRoutes(
       githubToken,
     );
     if (rotated === null) {
+      terminateSession(sessionId);
+      context.header(
+        "Set-Cookie",
+        serializeClearedSessionCookie(cookieName, secure),
+      );
       return invalidRequest(context);
     }
+    dependencies.activeRuns.abort(sessionId);
+    dependencies.rateLimiter.delete(sessionId);
     context.header(
       "Set-Cookie",
       serializeSessionCookie(cookieName, rotated.id, maxAgeSeconds, secure),
@@ -224,7 +240,7 @@ export function installAuthRoutes(
     ) {
       return context.json({ error: { kind: "csrf-invalid" } } as const, 403);
     }
-    dependencies.sessionStore.deleteSession(session.id);
+    terminateSession(session.id);
     context.header(
       "Set-Cookie",
       serializeClearedSessionCookie(cookieName, secure),
@@ -285,6 +301,7 @@ function invalidRequest(context: Context): Response {
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
+  if (left.length > 512 || right.length > 512) return false;
   const leftBytes = Buffer.from(left);
   const rightBytes = Buffer.from(right);
   return (

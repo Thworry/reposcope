@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createApp, type AppDependencies } from "./app.js";
 import { readServerConfig } from "./config.js";
+import { ActiveRunRegistry } from "./http/active-runs.js";
+import { SlidingWindowRateLimiter } from "./http/rate-limit.js";
 
 function dependencies(deepAnalysisEnabled: boolean): AppDependencies {
   const credentialEnv = deepAnalysisEnabled
@@ -25,6 +27,9 @@ function dependencies(deepAnalysisEnabled: boolean): AppDependencies {
     logger: { error: vi.fn(), info: vi.fn() },
     sessionStore: null,
     oauthClient: null,
+    deepAnalysisService: null,
+    rateLimiter: new SlidingWindowRateLimiter({ nowMs: () => 1_000 }),
+    activeRuns: new ActiveRunRegistry(),
   };
 }
 
@@ -61,6 +66,20 @@ describe("createApp", () => {
 
     expect(session.headers.get("cache-control")).toBe("no-store");
     expect(authorization.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("installs the deep-analysis route and fails closed without its service", async () => {
+    const response = await createApp(dependencies(true)).request(
+      "/api/v1/deep-analysis",
+      {
+        method: "POST",
+        headers: { Origin: "https://thworry.github.io" },
+        body: "{}",
+      },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { kind: "disabled" } });
   });
 
   it("maps unknown routes to a safe JSON response", async () => {

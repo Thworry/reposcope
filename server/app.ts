@@ -5,6 +5,12 @@ import { installAuthRoutes } from "./auth/routes.js";
 import type { AuthSessionStore } from "./auth/session-store.js";
 import type { ServerConfig } from "./config.js";
 import {
+  installDeepAnalysisRoutes,
+  type DeepAnalysisRunner,
+} from "./deep-analysis/routes.js";
+import type { ActiveRunRegistry } from "./http/active-runs.js";
+import type { SlidingWindowRateLimiter } from "./http/rate-limit.js";
+import {
   installHttpSecurity,
   mapHttpError,
   type AppLogger,
@@ -25,6 +31,9 @@ export interface AppDependencies {
   readonly logger: AppLogger;
   readonly sessionStore: AuthSessionStore | null;
   readonly oauthClient: GitHubOAuth | null;
+  readonly deepAnalysisService: DeepAnalysisRunner | null;
+  readonly rateLimiter: SlidingWindowRateLimiter;
+  readonly activeRuns: ActiveRunRegistry;
 }
 
 export function createApp(dependencies: AppDependencies): Hono {
@@ -41,6 +50,16 @@ export function createApp(dependencies: AppDependencies): Hono {
     logger: dependencies.logger,
     sessionStore: dependencies.sessionStore,
     oauthClient: dependencies.oauthClient,
+    rateLimiter: dependencies.rateLimiter,
+    activeRuns: dependencies.activeRuns,
+  });
+
+  installDeepAnalysisRoutes(app, {
+    config: dependencies.config,
+    sessionStore: dependencies.sessionStore,
+    service: dependencies.deepAnalysisService,
+    rateLimiter: dependencies.rateLimiter,
+    activeRuns: dependencies.activeRuns,
   });
 
   app.get("/api/v1/health", (context) =>
