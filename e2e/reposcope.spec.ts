@@ -462,33 +462,53 @@ async function expectResponsiveTargets(
   for (const width of widths) {
     const overflow = await measureViewport(page, width);
     expect(overflow, `horizontal overflow at ${String(width)}px`).toBe(0);
-    const targets = page.locator("a, button, input, select, summary");
-    let smallestTarget = Number.POSITIVE_INFINITY;
-
-    for (let index = 0; index < (await targets.count()); index += 1) {
-      const target = targets.nth(index);
-      if (!(await target.isVisible())) continue;
-      const box = await target.evaluate((element) => {
+    const targetMeasurements = await page.evaluate(() => {
+      let smallestTarget = Number.POSITIVE_INFINITY;
+      const undersized: Array<{
+        width: number;
+        height: number;
+        markup: string;
+      }> = [];
+      for (const element of document.querySelectorAll(
+        "a, button, input, select, summary",
+      )) {
+        const elementRect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        if (
+          elementRect.width === 0 ||
+          elementRect.height === 0 ||
+          style.display === "none" ||
+          style.visibility === "hidden"
+        ) {
+          continue;
+        }
         const hitArea =
           element instanceof HTMLInputElement &&
           (element.type === "checkbox" || element.type === "radio")
             ? (element.closest("label") ?? element)
             : element;
         const rect = hitArea.getBoundingClientRect();
-        return { width: rect.width, height: rect.height };
-      });
-      expect(box, `missing target box at ${String(width)}px`).not.toBeNull();
-      smallestTarget = Math.min(smallestTarget, box.width, box.height);
-      expect(
-        box.width,
-        `${await target.evaluate((node) => node.outerHTML)} width at ${String(width)}px`,
-      ).toBeGreaterThanOrEqual(44);
-      expect(
-        box.height,
-        `${await target.evaluate((node) => node.outerHTML)} height at ${String(width)}px`,
-      ).toBeGreaterThanOrEqual(44);
-    }
-    measurements.push({ width, overflow, smallestTarget });
+        smallestTarget = Math.min(smallestTarget, rect.width, rect.height);
+        if (rect.width < 44 || rect.height < 44) {
+          undersized.push({
+            width: rect.width,
+            height: rect.height,
+            markup: element.outerHTML.slice(0, 240),
+          });
+        }
+      }
+      return { smallestTarget, undersized };
+    });
+    expect(
+      targetMeasurements.undersized,
+      `undersized targets at ${String(width)}px`,
+    ).toEqual([]);
+    expect(Number.isFinite(targetMeasurements.smallestTarget)).toBe(true);
+    measurements.push({
+      width,
+      overflow,
+      smallestTarget: targetMeasurements.smallestTarget,
+    });
   }
 
   const zoomEquivalentOverflow = await measureViewport(page, 188);
@@ -613,36 +633,39 @@ async function expectKeyboardFocus(page: Page): Promise<void> {
   expect(visited.size).toBeGreaterThanOrEqual(expectedCount);
 }
 
-function maximumDuration(value: string): number {
-  return Math.max(
-    ...value.split(",").map((duration) => {
-      const normalized = duration.trim();
-      const numeric = Number.parseFloat(normalized);
-      return normalized.endsWith("ms") ? numeric / 1000 : numeric;
-    }),
-  );
-}
-
 async function expectReducedMotion(page: Page): Promise<void> {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const durations = await page.locator("*").evaluateAll((elements) =>
-    elements
-      .filter(
-        (element) =>
-          element instanceof HTMLElement && element.getClientRects().length > 0,
-      )
-      .map((element) => {
-        const style = getComputedStyle(element);
-        return {
-          transition: style.transitionDuration,
-          animation: style.animationDuration,
-        };
-      }),
-  );
-  for (const duration of durations) {
-    expect(maximumDuration(duration.transition)).toBeLessThanOrEqual(0.001);
-    expect(maximumDuration(duration.animation)).toBeLessThanOrEqual(0.001);
-  }
+  const violations = await page.locator("*").evaluateAll((elements) => {
+    const maximumDuration = (value: string): number =>
+      Math.max(
+        ...value.split(",").map((duration) => {
+          const normalized = duration.trim();
+          const numeric = Number.parseFloat(normalized);
+          return normalized.endsWith("ms") ? numeric / 1000 : numeric;
+        }),
+      );
+    return elements.flatMap((element) => {
+      if (
+        !(element instanceof HTMLElement) ||
+        element.getClientRects().length === 0
+      ) {
+        return [];
+      }
+      const style = getComputedStyle(element);
+      const transition = maximumDuration(style.transitionDuration);
+      const animation = maximumDuration(style.animationDuration);
+      return transition > 0.001 || animation > 0.001
+        ? [
+            {
+              transition,
+              animation,
+              markup: element.outerHTML.slice(0, 240),
+            },
+          ]
+        : [];
+    });
+  });
+  expect(violations, "motion remains under reduced-motion").toEqual([]);
 }
 
 async function resetScreenshotState(page: Page): Promise<void> {
@@ -1698,6 +1721,7 @@ test("ready expert mode renders a sourced bilingual ten-chapter briefing without
   context,
   page,
 }, testInfo) => {
+  test.slow();
   const runtime = await monitorRuntime(context, page);
   const expert = await installDeepAnalysisRoutes(context, page, {
     session: "ready",
@@ -1815,7 +1839,7 @@ test("cancelled expert work cannot overwrite the automatically generated next re
     .getByRole("checkbox", {
       name: /Generate automatically for later repositories/u,
     })
-    .check();
+    .click();
   await expect(
     page.getByRole("heading", { name: "Expert panel in progress" }),
   ).toBeVisible();
