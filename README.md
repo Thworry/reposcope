@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-RepoScope produces explainable, deterministic quality reports for public GitHub repositories. It inspects documentation, operability evidence, code readability, complexity and structure, testing and automation, and maintenance health. The static application is bilingual and runs the analysis in a Web Worker on the visitor's device.
+RepoScope helps people understand an unfamiliar public GitHub repository before they invest time in it. Its bilingual, deterministic mode explains the README, project fit, broad architecture, setup path, risks, maintenance, alternatives, and supporting evidence in a Web Worker on the visitor's device. A separately deployed, explicitly authorized expert mode can add a deeper GitHub Copilot briefing without replacing the deterministic report.
 
 **Live site:** <https://thworry.github.io/reposcope/>
 
@@ -14,13 +14,14 @@ RepoScope is an evidence inspector, not a verdict. It does not run a repository,
 2. Paste one public URL in the form `https://github.com/owner/repository`.
 3. Choose **Analyze repository**. RepoScope handles one repository at a time.
 4. Start with the README-first evidence dossier and decision summary. Open **Technical evidence and methodology** only when you need the score, confidence, six dimensions, strengths, improvements, coverage, and rule-level evidence; it is closed by default.
-5. Use **English / 简体中文** to change the interface language. Switching language does not refetch data or recompute scores.
+5. When the site operator has configured expert mode, choose **Generate expert interpretation** to review the disclosure and authorize the RepoScope GitHub OAuth App. This step is optional; the deterministic report remains usable if it is skipped or fails.
+6. Use **English / 简体中文** to change the interface language. Switching language does not refetch deterministic data or recompute scores.
 
 A successful report has a share URL containing only the repository slug. A fresh scan makes exactly three unauthenticated, read-only GitHub REST requests, then bounded reads from immutable raw-file URLs pinned to the inspected commit.
 
 General inspection works for repositories in any language. Deep static metrics are available for JavaScript, TypeScript, and Python. When supported source does not meet the applicability threshold, readability and complexity are unavailable and the overall result is labeled **general-only** and **preliminary**.
 
-For any inspected public repository, the deterministic reader report keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. The report does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
+For any inspected public repository, the deterministic reader report keeps purpose and project-kind evidence distinct. Purpose evidence comes from the public GitHub description and preferred README. Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree. Evidence links are pinned to the inspected commit, and repository-authored purpose prose remains in its source language. This deterministic report does not use an AI service and is not personalized advice: it does not infer private requirements or claim that a repository is right for a particular user.
 
 See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architecture and threat boundaries](docs/architecture.md), and [version history](CHANGELOG.md).
 
@@ -38,13 +39,21 @@ Completed reports begin with a seven-region README-first evidence dossier for pe
 
 GitHub's `stargazers_count`, `subscribers_count`, and `forks_count` supply Stars, Watch, and Forks respectively; `subscribers_count` is labeled **Watch**. These figures describe public attention. Popularity is not proof of quality or safety.
 
-Repository-authored prose stays in its source language when the interface switches language. README interpretation is deterministic and does not use AI; RepoScope does not use an AI service anywhere in the scan. If no preferred README is found, the dossier says so. If a preferred README is known but was not fetched, the UI presents a partial README interpretation instead of filling gaps.
+Repository-authored prose stays in its source language when the interface switches language. README interpretation is deterministic and does not use AI; neither does the rest of the deterministic scan. If no preferred README is found, the dossier says so. If a preferred README is known but was not fetched, the UI presents a partial README interpretation instead of filling gaps. Optional expert mode is a second, clearly labeled interpretation layer and never changes these deterministic facts or scores.
 
 The dossier is followed by the project decision summary and six numbered, evidence-linked chapters covering project-fit cautions, reliability, broad architecture, installation and development, security and privacy, and maintenance and alternatives.
 
 The evidence status is one of **Sufficient evidence to continue evaluation**, **Key gaps require verification before use**, or **Public evidence is insufficient to judge**. These statuses are deterministic, non-scoring summaries of the inspected public evidence. They do not prove that a project is suitable, correct, secure, private, or safe.
 
 Repository-authored commands are displayed as inert text and are never run. Commands marked for review should be inspected before copying. Source captions link only to the immutable inspected commit. Use the GitHub alternative search as a starting point, then apply the same evidence checks to every candidate. The scoring report and detailed methodology remain available in the **Technical evidence and methodology** appendix, which is closed by default and can be opened without refetching or recomputing the repository.
+
+## Optional expert briefing
+
+When configured by the site operator, RepoScope can turn selected public evidence into a longer, human-readable second opinion. Three specialists cover product fit and scenarios, onboarding and broad architecture, and trust and ecosystem. A skeptic challenges unsupported claims before an editor assembles ten evidence-linked chapters. The final briefing emphasizes what the project does, who it is for, how to start, what remains unknown, security/privacy cautions, maintenance signals, and why someone might compare an alternative—not function-by-function code criticism.
+
+Expert mode requires explicit first-use consent and authorization through a RepoScope GitHub OAuth App with no requested scopes. The service uses the visitor's short-lived in-memory GitHub token and their own GitHub Copilot allowance; it does not use GitHub Models or a project-owned model credential. Selected public README, documentation, manifest, tree, release/activity, and alternative evidence is sent to zero-tool Copilot sessions. Repository code and commands remain untrusted text and are never executed.
+
+Every model-visible statement must cite admitted evidence. RepoScope rejects unknown references, fabricated alternatives, live popularity numbers inside narrative prose, unsafe command recommendations, and unsupported security/privacy assurances. Exact Stars, Watch, Forks, issues, push time, archive status, and license are refreshed and joined by the server after model output validation. A reduced or failed expert run never removes the deterministic report.
 
 ## Example report walkthrough
 
@@ -69,9 +78,11 @@ GitHub may also truncate a recursive tree or rate-limit unauthenticated requests
 
 ## Privacy
 
-RepoScope requires no login, GitHub token, account, backend, database, analytics, advertising, or AI service. Public repository data travels directly between the visitor's browser and GitHub. Analysis uses the visitor's device; the publisher's computer does not serve or analyze scans and may be offline.
+The deterministic static mode requires no login, GitHub token, account, backend, database, analytics, advertising, or AI service. Public repository data travels directly between the visitor's browser and GitHub, and analysis uses the visitor's device.
 
 Repository source is treated as untrusted text. RepoScope never executes, imports, evaluates, or renders it as HTML. Raw source bodies and raw GitHub responses are not persisted. A validated final report and normalized public metadata may be cached in `sessionStorage` for 15 minutes; the only persistent preference is `en` or `zh-CN` in local storage.
+
+Optional expert mode adds a TypeScript backend, GitHub authorization, GitHub Copilot processing, and a bounded SQLite cache. The OAuth token stays only in an opaque, `HttpOnly`, in-memory session for up to eight idle hours and is deleted on sign-out or restart. The narrative cache retains validated public-evidence interpretation for up to 30 days; a public alternative shortlist is cached for up to 24 hours. Raw README bodies, source code, model transcripts, prompts, tokens, live popularity counts, and private repositories are not stored. See the [deployment and data-flow contract](docs/deep-analysis-deployment.md).
 
 ## Install and run locally
 
@@ -83,6 +94,8 @@ pnpm dev
 ```
 
 Then open <http://localhost:5173/>. The Vite development server is local-only and must not be deployed as the public application.
+
+The default local build keeps expert mode disabled. To run the optional API, create a no-scope GitHub OAuth App, configure the exact same-site environment described in [docs/deep-analysis-deployment.md](docs/deep-analysis-deployment.md), and run `pnpm server:dev` in a separate process. Do not place the OAuth secret or a user GitHub token in a frontend environment variable.
 
 ## Development
 
@@ -106,7 +119,9 @@ The main areas are:
 
 - `src/features/github`, `repository`, and `scanner` for validated acquisition and deterministic selection;
 - `src/features/analyzers`, `rules`, and `worker` for bounded static analysis and scoring;
+- `src/features/deep-analysis` for the optional browser client, stream guard, and independent React state;
 - `src/components`, `i18n`, and `styles` for the bilingual report experience;
+- `server/github`, `evidence`, `panel`, `cache`, and `deep-analysis` for authorized evidence acquisition, zero-tool Copilot orchestration, strict validation, and bounded retention;
 - `e2e` and co-located tests for deterministic browser and module evidence; and
 - `.github/workflows` for CI and GitHub Pages deployment.
 
@@ -114,7 +129,7 @@ The detailed data flow, fixed endpoints, cache policy, CSP, and threat model are
 
 ## Deployment
 
-Pushes to `main` run CI and the pinned GitHub Pages workflow. The Pages artifact is a static Vite build with `REPOSCOPE_BASE_PATH=/<repository-name>/`; deployment uses GitHub Actions and requires no runtime secret.
+Pushes to `main` run CI and the pinned GitHub Pages workflow. Without `REPOSCOPE_API_ORIGIN`, the Pages artifact is a static Vite build with `REPOSCOPE_BASE_PATH=/<repository-name>/`; deployment uses GitHub Actions and requires no runtime secret.
 
 For a local subpath build:
 
@@ -123,7 +138,9 @@ REPOSCOPE_BASE_PATH=/reposcope/ pnpm build
 pnpm check:bundle
 ```
 
-Do not deploy the development server or add a token input, proxy, analytics endpoint, or remote runtime asset without an approved architecture, security, privacy, methodology, and bilingual-copy review.
+Expert mode is a separate opt-in deployment: host the supplied non-root container on a same-site custom API domain, keep its SQLite path on a persistent volume, keep OAuth credentials in the host secret store, and set the non-secret Pages variable `REPOSCOPE_API_ORIGIN` to that HTTPS origin. Follow the exact [expert-analysis deployment guide](docs/deep-analysis-deployment.md) and complete its human quality gate before enabling it publicly.
+
+Do not deploy the development server or add another token input, proxy, analytics endpoint, model provider, or remote runtime asset without an approved architecture, security, privacy, methodology, and bilingual-copy review.
 
 ## Contributing
 

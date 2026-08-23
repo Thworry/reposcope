@@ -25,6 +25,9 @@ const REQUIRED_FILES = [
   "GOVERNANCE.md",
   "docs/methodology.md",
   "docs/architecture.md",
+  "docs/deep-analysis-deployment.md",
+  "Dockerfile",
+  ".dockerignore",
   ".github/ISSUE_TEMPLATE/bug.yml",
   ".github/ISSUE_TEMPLATE/feature.yml",
   ".github/ISSUE_TEMPLATE/config.yml",
@@ -206,6 +209,10 @@ const EXACT_CSP =
 
 function read(path: string): string {
   return readFileSync(resolve(projectRoot, path), "utf8");
+}
+
+function compactWhitespace(value: string): string {
+  return value.replace(/\s+/gu, " ");
 }
 
 function documentedRuleRows(markdown: string): Map<string, string[]> {
@@ -493,6 +500,130 @@ describe("open-source repository contract", () => {
       /uses: actions\/upload-pages-artifact@[^\n]+\n\s+with:\n\s+path: dist/u,
     );
     expect(pages).not.toMatch(/path: server-dist/u);
+  });
+
+  it("documents both static and optional expert modes without hiding data flow", () => {
+    const english = read("README.md");
+    const chinese = read("README.zh-CN.md");
+
+    for (const [englishStatement, chineseStatement] of [
+      [
+        "The deterministic static mode requires no login",
+        "确定性静态模式不需要登录",
+      ],
+      [
+        "Optional expert mode adds a TypeScript backend",
+        "可选专家模式会增加 TypeScript 后端",
+      ],
+      ["explicit first-use consent", "首次使用前必须明确同意"],
+      [
+        "GitHub OAuth App with no requested scopes",
+        "不申请任何 scope 的 RepoScope GitHub OAuth App",
+      ],
+      [
+        "their own GitHub Copilot allowance",
+        "访问者自己的 GitHub Copilot 额度",
+      ],
+      ["does not use GitHub Models", "不使用 GitHub Models"],
+      [
+        "Repository code and commands remain untrusted text and are never executed",
+        "仓库代码和命令始终是不可信文本，绝不会被执行",
+      ],
+      ["never removes the deterministic report", "确定性报告仍会保留"],
+      ["up to 30 days", "最多缓存 30 天"],
+      ["up to 24 hours", "最多缓存 24 小时"],
+      ["model transcripts, prompts, tokens", "模型会话记录、提示词、令牌"],
+    ] as const) {
+      expect(english, englishStatement).toContain(englishStatement);
+      expect(chinese, chineseStatement).toContain(chineseStatement);
+    }
+  });
+
+  it("ships a least-privilege optional-service deployment contract", () => {
+    const dockerfile = read("Dockerfile");
+    const ignored = read(".dockerignore");
+    const deployment = read("docs/deep-analysis-deployment.md");
+    const deploymentProse = compactWhitespace(deployment);
+
+    expect(dockerfile).toContain("node:24.19.0-bookworm-slim");
+    expect(dockerfile).toContain("pnpm install --frozen-lockfile");
+    expect(dockerfile).toContain("USER reposcope:reposcope");
+    expect(dockerfile).toContain('VOLUME ["/data"]');
+    expect(dockerfile).toContain("HEALTHCHECK");
+    expect(dockerfile).toContain('CMD ["node", "server-dist/server/index.js"]');
+    for (const path of [
+      ".env",
+      ".env.*",
+      ".git",
+      "node_modules",
+      "coverage",
+      "e2e",
+    ]) {
+      expect(ignored).toContain(path);
+    }
+
+    for (const variable of [
+      "NODE_ENV",
+      "REPOSCOPE_FRONTEND_URL",
+      "REPOSCOPE_API_ORIGIN",
+      "REPOSCOPE_GITHUB_CLIENT_ID",
+      "REPOSCOPE_GITHUB_CLIENT_SECRET",
+      "REPOSCOPE_GITHUB_CALLBACK_URL",
+      "REPOSCOPE_HOST",
+      "REPOSCOPE_PORT",
+      "REPOSCOPE_CACHE_PATH",
+      "REPOSCOPE_BASE_PATH",
+    ]) {
+      expect(deployment, variable).toContain(variable);
+    }
+    for (const boundary of [
+      "no requested OAuth scopes",
+      "does not request private-repository access",
+      "same-site custom-domain pair",
+      "/api/v1/auth/callback",
+      "GitHub Models is not used",
+      "never run",
+      "only in an in-memory",
+      "Raw README bodies",
+      "rotate the client secret",
+      "external deployment operations",
+      "expert deployment remains blocked",
+    ]) {
+      expect(deploymentProse, boundary).toContain(boundary);
+    }
+    expect(deployment).not.toMatch(/gho_[A-Za-z0-9_]{20,}/u);
+    expect(deployment).not.toMatch(/github_pat_[A-Za-z0-9_]{20,}/u);
+  });
+
+  it("documents the optional expert trust boundary and quality gate", () => {
+    const architecture = read("docs/architecture.md");
+    const architectureProse = compactWhitespace(architecture);
+    const security = read("SECURITY.md");
+    const contributing = read("CONTRIBUTING.md");
+    const changelog = read("CHANGELOG.md");
+    const pullRequest = read(".github/PULL_REQUEST_TEMPLATE.md");
+
+    for (const statement of [
+      "three parallel zero-tool Copilot specialist sessions",
+      "one zero-tool skeptic session",
+      "one zero-tool editor session",
+      "one active run",
+      "five starts per rolling hour",
+      "30-day narrative cache key",
+      "24-hour alternative cache",
+      "Current Stars, Watch, Forks",
+      "GitHub Models itself is not used",
+      "provider's model behavior",
+      "dated passing two-reviewer quality scorecard",
+    ]) {
+      expect(architectureProse, statement).toContain(statement);
+    }
+    expect(security).toContain("OAuth state or CSRF bypass");
+    expect(security).toContain("prompt-injection acceptance");
+    expect(contributing).toContain("pnpm check:deep-analysis-eval");
+    expect(contributing).toContain("dated passing two-reviewer scorecard");
+    expect(changelog).toContain("optional GitHub-authorized expert briefing");
+    expect(pullRequest).toContain("zero-tool/no-plugin Copilot sessions");
   });
 
   it("documents public tree and dimension contracts without overclaiming", () => {
