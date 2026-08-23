@@ -468,6 +468,25 @@ describe("open-source repository contract", () => {
     );
   });
 
+  it("validates the optional server without changing the Pages artifact", () => {
+    const packageManifest = JSON.parse(read("package.json")) as {
+      scripts?: Record<string, unknown>;
+    };
+    const check = packageManifest.scripts?.check;
+    const ci = read(".github/workflows/ci.yml");
+    const pages = read(".github/workflows/pages.yml");
+
+    expect(check).toEqual(expect.any(String));
+    expect(check).toContain("pnpm test:server");
+    expect(check).toContain("pnpm typecheck:server");
+    expect(ci).toContain("run: pnpm test:server");
+    expect(pages).toContain("run: pnpm test:server");
+    expect(pages).toMatch(
+      /uses: actions\/upload-pages-artifact@[^\n]+\n\s+with:\n\s+path: dist/u,
+    );
+    expect(pages).not.toMatch(/path: server-dist/u);
+  });
+
   it("documents public tree and dimension contracts without overclaiming", () => {
     const model = read("src/features/analysis/model.ts");
 

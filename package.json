@@ -40,7 +40,7 @@
     "test:e2e": "playwright test",
     "check:bundle": "node --test scripts/check-bundle-size.test.mjs && node scripts/check-bundle-size.mjs",
     "check:lighthouse": "lhci autorun",
-    "check": "pnpm lint && pnpm format:check && pnpm test && pnpm build"
+    "check": "pnpm lint && pnpm format:check && pnpm test && pnpm test:server && pnpm typecheck:server && pnpm build"
   },
   "dependencies": {
     "@babel/parser": "8.0.4",
