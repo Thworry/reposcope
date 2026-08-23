@@ -40,7 +40,9 @@
     "test:e2e": "playwright test",
     "check:bundle": "node --test scripts/check-bundle-size.test.mjs && node scripts/check-bundle-size.mjs",
     "check:lighthouse": "lhci autorun",
-    "check": "pnpm lint && pnpm format:check && pnpm test && pnpm test:server && pnpm typecheck:server && pnpm build"
+    "check:deep-analysis-eval": "node --test scripts/check-deep-analysis-eval.test.mjs && node scripts/check-deep-analysis-eval.mjs",
+    "gate:deep-analysis": "node scripts/check-deep-analysis-eval.mjs --require-scorecard",
+    "check": "pnpm lint && pnpm format:check && pnpm test && pnpm test:server && pnpm typecheck:server && pnpm check:deep-analysis-eval && pnpm build"
   },
   "dependencies": {
     "@babel/parser": "8.0.4",

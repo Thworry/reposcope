@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "1.0.0",
+  "evidenceSchemaVersion": "1.0.0",
+  "promptVersion": "1.0.0",
+  "frozenAt": "2026-08-24",
+  "cases": [
+    {
+      "id": "reposcope-bilingual-app",
+      "source": {
+        "kind": "public-repository",
+        "owner": "Thworry",
+        "repo": "reposcope"
+      },
+      "languages": ["en", "zh-CN"],
+      "profiles": ["application", "multilingual", "maintained"]
+    },
+    {
+      "id": "react-mature-library",
+      "source": {
+        "kind": "public-repository",
+        "owner": "facebook",
+        "repo": "react"
+      },
+      "languages": ["en"],
+      "profiles": ["library", "mature", "large"]
+    },
+    {
+      "id": "flask-python-library",
+      "source": {
+        "kind": "public-repository",
+        "owner": "pallets",
+        "repo": "flask"
+      },
+      "languages": ["en"],
+      "profiles": ["library", "mature", "python"]
+    },
+    {
+      "id": "ripgrep-cli",
+      "source": {
+        "kind": "public-repository",
+        "owner": "BurntSushi",
+        "repo": "ripgrep"
+      },
+      "languages": ["en"],
+      "profiles": ["cli", "mature", "rust"]
+    },
+    {
+      "id": "neovim-desktop-tool",
+      "source": {
+        "kind": "public-repository",
+        "owner": "neovim",
+        "repo": "neovim"
+      },
+      "languages": ["en"],
+      "profiles": ["desktop-tool", "mature", "large"]
+    },
+    {
+      "id": "atom-archived-app",
+      "source": {
+        "kind": "public-repository",
+        "owner": "atom",
+        "repo": "atom"
+      },
+      "languages": ["en"],
+      "profiles": ["application", "archived", "large"]
+    },
+    {
+      "id": "is-odd-small-package",
+      "source": {
+        "kind": "public-repository",
+        "owner": "i-voted-for-trump",
+        "repo": "is-odd"
+      },
+      "languages": ["en"],
+      "profiles": ["library", "sparse", "small"]
+    },
+    {
+      "id": "ai-novel-assistant",
+      "source": {
+        "kind": "public-repository",
+        "owner": "ExplosiveCoderflome",
+        "repo": "AI-Novel-Writing-Assistant"
+      },
+      "languages": ["en", "zh-CN"],
+      "profiles": ["ai-product", "application", "multilingual"]
+    },
+    {
+      "id": "chatbox-ai-desktop",
+      "source": {
+        "kind": "public-repository",
+        "owner": "chatboxai",
+        "repo": "chatbox"
+      },
+      "languages": ["en", "zh-CN"],
+      "profiles": ["ai-product", "desktop-tool", "multilingual"]
+    },
+    {
+      "id": "996icu-community-project",
+      "source": {
+        "kind": "public-repository",
+        "owner": "996icu",
+        "repo": "996.ICU"
+      },
+      "languages": ["en", "zh-CN"],
+      "profiles": ["community", "multilingual", "non-application"]
+    },
+    {
+      "id": "realworld-reference-app",
+      "source": {
+        "kind": "public-repository",
+        "owner": "gothinkster",
+        "repo": "realworld"
+      },
+      "languages": ["en"],
+      "profiles": ["reference-project", "large", "ecosystem"]
+    },
+    {
+      "id": "hostile-readme-fixture",
+      "source": {
+        "kind": "adversarial-fixture",
+        "fixture": "prompt-injection-and-popularity-bait"
+      },
+      "languages": ["en", "zh-CN"],
+      "profiles": ["malicious-readme", "sparse", "security-boundary"]
+    }
+  ]
+}
