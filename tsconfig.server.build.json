@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.build.tsbuildinfo",
+    "noEmit": false
+  },
+  "include": [
+    "server/**/*.ts",
+    "src/features/analysis/model.ts",
+    "src/features/analysis/project-brief-safety.ts",
+    "src/features/deep-analysis/model.ts",
+    "src/features/deep-analysis/guards.ts"
+  ],
+  "exclude": ["server/**/*.test.ts", "src/**/*.test.ts", "src/test/**"]
+}

@@ -1,7 +1,7 @@
 import {
   containsCredentialLikeValue,
   isSafeProjectBriefPath,
-} from "../analysis/project-brief-safety";
+} from "../analysis/project-brief-safety.js";
 import {
   DEEP_CONFIDENCE,
   DEEP_ERROR_KINDS,
@@ -9,7 +9,7 @@ import {
   DEEP_REPORT_CAPS,
   DEEP_SPECIALIST_ROLES,
   DEEP_STAGES,
-} from "./model";
+} from "./model.js";
 import type {
   DeepAlternative,
   DeepAnalysisEvent,
@@ -20,7 +20,7 @@ import type {
   DeepRepositoryIdentity,
   DeepSpecialistRole,
   DeepStatement,
-} from "./model";
+} from "./model.js";
 
 const EVIDENCE_KINDS: ReadonlySet<string> = new Set([
   "github",

@@ -1,4 +1,4 @@
-import type { Language, RepoRef } from "../analysis/model";
+import type { Language, RepoRef } from "../analysis/model.js";
 
 export const DEEP_PROVENANCE = Object.freeze([
   "repository-claim",

@@ -33,7 +33,7 @@
     "test": "vitest run",
     "test:server": "vitest run --config vitest.server.config.ts",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
-    "build:server": "tsc -p tsconfig.server.json",
+    "build:server": "tsc -p tsconfig.server.build.json",
     "server:dev": "tsx watch server/index.ts",
     "server:start": "node server-dist/server/index.js",
     "test:coverage": "vitest run --coverage --maxWorkers=1 --no-file-parallelism",

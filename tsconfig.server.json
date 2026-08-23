@@ -19,13 +19,16 @@
     "verbatimModuleSyntax": true,
     "composite": true,
     "declaration": true,
+    "noEmit": true,
     "rootDir": ".",
     "outDir": "server-dist"
   },
   "include": [
     "server/**/*.ts",
+    "src/features/analysis/model.ts",
+    "src/features/analysis/project-brief-safety.ts",
     "src/features/deep-analysis/**/*.ts",
     "vitest.server.config.ts"
   ],
-  "exclude": ["server/**/*.test.ts", "src/**/*.test.ts", "src/test/**"]
+  "exclude": ["src/**/*.test.ts", "src/test/**"]
 }
