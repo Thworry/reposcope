@@ -158,6 +158,16 @@ in [`evals/deep-analysis/rubric.md`](../evals/deep-analysis/rubric.md). Run
 local redacted scorecard. With an absent or failing scorecard, expert deployment
 remains blocked; this is not a failure of the deterministic static product.
 
+The live SDK smoke is also opt-in. `pnpm smoke:copilot` refuses to run unless
+`REPOSCOPE_LIVE_COPILOT_SMOKE=1` and a supported user OAuth token is already
+present in `REPOSCOPE_LIVE_COPILOT_GITHUB_TOKEN`. It analyzes the fixed public
+RepoScope repository twice, verifies the second run is a validated cache hit,
+and prints only stage timing, cache status, and section counts. It never prints a
+token, prompt, repository body, model response, or committed result. Missing
+opt-in, an invalid token, a missing Copilot entitlement, a cleanup failure, or a
+failed assertion produces a redacted non-zero result. Do not substitute a
+project-owned credential.
+
 ## Credential incident response
 
 If the OAuth client secret or deployment environment may have been exposed:

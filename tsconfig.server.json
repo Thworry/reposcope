@@ -25,6 +25,7 @@
   },
   "include": [
     "server/**/*.ts",
+    "scripts/**/*.ts",
     "src/features/analysis/model.ts",
     "src/features/analysis/project-brief-safety.ts",
     "src/features/deep-analysis/model.ts",

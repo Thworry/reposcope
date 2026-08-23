@@ -42,6 +42,7 @@
     "check:lighthouse": "lhci autorun",
     "check:deep-analysis-eval": "node --test scripts/check-deep-analysis-eval.test.mjs && node scripts/check-deep-analysis-eval.mjs",
     "gate:deep-analysis": "node scripts/check-deep-analysis-eval.mjs --require-scorecard",
+    "smoke:copilot": "tsx scripts/smoke-copilot-panel.ts",
     "check": "pnpm lint && pnpm format:check && pnpm test && pnpm test:server && pnpm typecheck:server && pnpm check:deep-analysis-eval && pnpm build"
   },
   "dependencies": {

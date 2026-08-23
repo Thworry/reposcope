@@ -21,6 +21,7 @@ export default tseslint.config(
     files: [
       "src/**/*.{ts,tsx}",
       "e2e/**/*.ts",
+      "scripts/**/*.ts",
       "server/**/*.ts",
       "vitest.server.config.ts",
     ],
@@ -79,7 +80,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["server/**/*.ts", "vitest.server.config.ts"],
+    files: ["scripts/**/*.ts", "server/**/*.ts", "vitest.server.config.ts"],
     languageOptions: {
       globals: globals.node,
       parserOptions: {
