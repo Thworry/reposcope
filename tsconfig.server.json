@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.tsbuildinfo",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node", "vitest/globals"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "composite": true,
+    "declaration": true,
+    "rootDir": ".",
+    "outDir": "server-dist"
+  },
+  "include": [
+    "server/**/*.ts",
+    "src/features/deep-analysis/**/*.ts",
+    "vitest.server.config.ts"
+  ],
+  "exclude": ["server/**/*.test.ts", "src/**/*.test.ts", "src/test/**"]
+}
