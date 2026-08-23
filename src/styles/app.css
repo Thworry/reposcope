@@ -1778,6 +1778,17 @@ main {
   border-bottom: 1px solid var(--color-rule-strong);
 }
 
+.report-view__actions > .secondary-action,
+.copy-control,
+.copy-control button {
+  max-width: 100%;
+}
+
+.report-view__actions button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .report-view__actions button,
 .copy-control button,
 .error-panel button,
@@ -1787,16 +1798,22 @@ main {
 }
 
 .copy-control {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
 }
 
+.copy-control button {
+  flex: 0 1 auto;
+}
+
 .copy-control__status {
-  min-width: 4.5rem;
+  flex: 0 1 4.5rem;
+  min-width: 0;
   color: var(--color-muted);
   font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 20rem) {
@@ -1807,17 +1824,8 @@ main {
     max-width: 100%;
   }
 
-  .report-view__actions button {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-
-  .copy-control {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .copy-control__status {
-    min-width: 0;
+    flex-basis: 100%;
   }
 }
 

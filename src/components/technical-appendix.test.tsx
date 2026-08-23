@@ -1,3 +1,8 @@
+/// <reference types="node" />
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -156,5 +161,19 @@ describe("TechnicalAppendix", () => {
         container.querySelectorAll(`[data-report-section="${section}"]`),
       ).toHaveLength(1);
     }
+  });
+
+  it("lets enlarged appendix actions wrap within their reading column", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles/app.css"), "utf8");
+
+    expect(css).toMatch(
+      /\.report-view__actions\s*>\s*\.secondary-action,\s*\.copy-control,\s*\.copy-control button\s*\{[^}]*max-width:\s*100%/isu,
+    );
+    expect(css).toMatch(
+      /\.copy-control\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/isu,
+    );
+    expect(css).toMatch(
+      /\.copy-control__status\s*\{[^}]*flex:\s*0\s+1\s+4\.5rem[^}]*min-width:\s*0/isu,
+    );
   });
 });
