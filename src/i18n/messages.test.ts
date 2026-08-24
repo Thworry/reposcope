@@ -4,6 +4,11 @@ import { messages } from "./messages";
 import { getInitialLanguage } from "./use-language";
 import { RULE_IDS } from "../features/rules/rules";
 
+const placeholders = (value: string) =>
+  [...value.matchAll(/\{([A-Za-z][A-Za-z0-9]*)\}/gu)]
+    .map((match) => match[1])
+    .sort();
+
 describe("bilingual message contract", () => {
   it("keeps English and Chinese keys exhaustive and selects browser Chinese", () => {
     expect(Object.keys(messages.en).sort()).toEqual(
@@ -12,6 +17,107 @@ describe("bilingual message contract", () => {
     expect(getInitialLanguage(["zh-CN", "en"], null)).toBe("zh-CN");
     expect(getInitialLanguage(["fr-BE"], null)).toBe("en");
     expect(getInitialLanguage(["en"], "zh-CN")).toBe("zh-CN");
+  });
+
+  it("keeps placeholders identical across English and Chinese", () => {
+    for (const key of Object.keys(messages.en) as Array<
+      keyof typeof messages.en
+    >) {
+      expect(placeholders(messages["zh-CN"][key]), key).toEqual(
+        placeholders(messages.en[key]),
+      );
+    }
+  });
+
+  it("uses native Chinese copy and stable community terminology", () => {
+    expect(messages["zh-CN"]).toMatchObject({
+      heroTitle: "先看懂一个公开项目，再决定要不要用。",
+      privacy:
+        "不需要登录，也不用提供 GitHub 访问令牌。RepoScope 只读取 GitHub 上的公开信息，基础分析直接在当前浏览器中完成，不会发送到 RepoScope 服务器。",
+      progressWorking:
+        "这一阶段的耗时会随仓库大小变化，暂时无法准确估算剩余时间。",
+      reportOverallStrong: "依据较充分",
+      reportOverallSolid: "基础较扎实",
+      reportOverallNeedsAttention: "有几项需要关注",
+      reportOverallLimited: "现有依据有限",
+      reportConfidence: "分析把握度",
+      confidenceHigh: "把握较高",
+      confidenceMedium: "把握一般",
+      confidenceLow: "把握较低",
+      readerDecisionHeading: "是否值得继续了解",
+      readerTakeawayCapabilitiesHeading: "主要功能",
+      readerTakeawayWorkflowHeading: "怎么使用",
+      readerTakeawayArchitectureHeading: "代码大致怎么组织",
+      readerTakeawayRiskHeading: "使用前还要确认",
+      readerCommunityStars: "Star 数",
+      readerCommunityWatch: "Watch 数",
+      readerCommunityForks: "Fork 数",
+      readerCommunityOpenIssues: "未关闭的 Issue 和 PR",
+      readerCommunityFactAccessible: "{label}：{value}",
+      readerSignalStateSummary: "{signal}：{state}",
+      readerAlternativeSearchTerm: "在 GitHub 搜索“{term}”",
+      methodologyWeightItem: "{name}：{value}",
+      readerTakeawayWorkflow: "README 或仓库提供了{details}。",
+      readerTakeawayArchitecture: "仓库目录显示：{details}。",
+      readerTakeawayArchitectureKinds: "项目类型为{kinds}",
+      readerTakeawayArchitectureEcosystems: "主要使用{ecosystems}",
+      readerTakeawayArchitectureAreas: "源码主要分布在{areas}",
+      readerTakeawayRisk: "公开信息显示：{details}。",
+      readerTakeawayRiskLicense: "{state}许可证文件或 GitHub 识别信息",
+      readerTakeawayRiskSecurity: "{state}安全说明",
+      readerTakeawayRiskConfiguration: "{state}配置示例",
+      readerTakeawayBoundary:
+        "以上内容来自公开仓库信息，只适合用于初步判断，不代表项目已经过运行、安全或适用性验证。",
+      deepValueUnavailable: "暂无数据",
+      deepEvidenceGithub: "GitHub 公开信息",
+      deepEvidenceReadme: "README 原文：{path}",
+      deepEvidenceDocumentation: "项目文档：{path}",
+      deepEvidenceManifest: "项目清单：{path}",
+      deepEvidenceTree: "仓库目录",
+      deepEvidenceAlternative: "对比项目",
+      deepExpertHeading: "生成更深入的项目解读",
+      deepProgressHeading: "正在生成深入解读",
+      deepStageConsulting: "并行分析用途、上手方式和可靠性",
+      deepStageChallenging: "交叉核对初步结论",
+      deepDisagreements: "哪些结论仍需确认",
+    });
+
+    expect(messages.en).toMatchObject({
+      readerCommunityFactAccessible: "{label}: {value}",
+      readerSignalStateSummary: "{signal}: {state}",
+      readerAlternativeSearchTerm: "Search GitHub for: {term}",
+      methodologyWeightItem: "{name}: {value}",
+      readerTakeawayWorkflow: "The README or repository provides {details}.",
+      readerTakeawayArchitecture: "The repository suggests {details}.",
+      readerTakeawayRisk: "Public evidence shows {details}.",
+      readerTakeawayArchitectureKinds: "Project type: {kinds}",
+      readerTakeawayArchitectureEcosystems:
+        "Technology ecosystem: {ecosystems}",
+      readerTakeawayArchitectureAreas: "Source layout: {areas}",
+      readerTakeawayRiskLicense: "License information: {state}",
+      readerTakeawayRiskSecurity: "Security policy: {state}",
+      readerTakeawayRiskConfiguration: "Configuration examples: {state}",
+      deepEvidenceDocumentation: "Documentation: {path}",
+      deepEvidenceManifest: "Manifest: {path}",
+    });
+
+    const chineseCopy = Object.values(messages["zh-CN"]).join("\n");
+    for (const translatedPhrase of [
+      "证据档案",
+      "能力轮廓",
+      "实现轮廓",
+      "采用边界",
+      "宽泛",
+      "有边界",
+      "UTC 日",
+      "安全文本边界",
+      "确定性分析",
+      "Forks（派生）",
+      "—",
+      "–",
+    ]) {
+      expect(chineseCopy, translatedPhrase).not.toContain(translatedPhrase);
+    }
   });
 
   it("contains exhaustive bilingual evidence and recommendation templates", () => {
@@ -90,27 +196,27 @@ describe("bilingual message contract", () => {
       boundary: messages["zh-CN"].readerSecurityBoundary,
       appendix: messages["zh-CN"].technicalAppendixHeading,
     }).toEqual({
-      tagline: "看懂一个公开项目做什么、怎么使用，以及哪些事项必须核实。",
-      heroTitle: "在依赖一个公开项目之前，先真正看懂它。",
-      decision: "项目决策摘要",
-      continue: "有较充分证据，可以继续评估",
-      verify: "存在关键缺口，使用前需要核实",
-      insufficient: "公开证据不足，暂时无法判断",
-      purpose: "项目适用性注意事项",
-      reliability: "是否靠谱",
-      architecture: "整体如何运作",
-      gettingStarted: "安装、运行和二次开发",
-      security: "安全与隐私风险",
-      maintenance: "活跃度、维护状况和替代方案",
-      unavailable: "仓库未提供这项证据。",
-      stepUnavailable: "仓库未提供这一步骤。",
-      notEstablished: "无法从已扫描的公开证据中确认。",
-      review: "仓库提供的命令——运行前请先检查。",
+      tagline: "快速了解公开项目的用途、使用方法和采用前需要确认的事项。",
+      heroTitle: "先看懂一个公开项目，再决定要不要用。",
+      decision: "是否值得继续了解",
+      continue: "信息较完整，可以继续了解",
+      verify: "还有重要问题，使用前需要确认",
+      insufficient: "公开信息太少，暂时无法判断",
+      purpose: "这个项目适合做什么",
+      reliability: "项目是否靠谱",
+      architecture: "代码大致怎么组织",
+      gettingStarted: "如何安装、运行和二次开发",
+      security: "是否存在安全或隐私风险",
+      maintenance: "项目还在维护吗",
+      unavailable: "本次分析没有找到这方面的信息。",
+      stepUnavailable: "本次分析没有找到这一步的说明。",
+      notEstablished: "现有公开信息还无法确认。",
+      review: "这是仓库提供的命令。运行前请先确认它会安装什么、修改什么。",
       withheld:
-        "仓库提供了命令，但该内容未通过安全文本边界，因此 RepoScope 未复制。",
+        "这条命令可能包含敏感或异常内容，RepoScope 没有直接复制。请打开来源核对。",
       boundary:
-        "RepoScope 不会执行项目、扫描依赖漏洞、观察运行时流量、验证权限、检测恶意行为或证明隐私合规。",
-      appendix: "技术证据与方法",
+        "这份报告只分析公开文件，不会实际运行项目。因此，报告无法替你确认依赖漏洞、真实网络请求、权限使用、恶意行为或隐私合规情况。",
+      appendix: "技术附录与分析方法",
     });
   });
 
@@ -188,12 +294,12 @@ describe("bilingual message contract", () => {
       messages.en.deepChapterVerdict,
     ]).toHaveLength(10);
     expect(messages.en.deepProgressCacheHit).toMatch(/saved briefing/iu);
-    expect(messages["zh-CN"].deepProgressCacheHit).toMatch(/保存的简报/u);
+    expect(messages["zh-CN"].deepProgressCacheHit).toMatch(/之前生成的简报/u);
     expect(messages.en.deepAlternativesUnavailable).toMatch(
       /no verified alternative/iu,
     );
     expect(messages["zh-CN"].deepAlternativesUnavailable).toMatch(
-      /没有可供核验的替代项目/u,
+      /没有找到可以核对信息的替代项目/u,
     );
     expect(Object.keys(messages.en).sort()).toEqual(
       Object.keys(messages["zh-CN"]).sort(),
@@ -227,22 +333,24 @@ describe("bilingual message contract", () => {
       messages["zh-CN"].readerClaimObservationHeading,
       messages["zh-CN"].readerCommentaryHeading,
     ]).toEqual([
-      "项目定位",
-      "社区与维护事实",
-      "README 如何介绍项目",
-      "核心能力",
-      "README 中的工作流程",
-      "README 声明与仓库观察",
-      "RepoScope 解读",
+      "项目是做什么的",
+      "社区热度与维护数据",
+      "README 里怎么说",
+      "主要功能",
+      "README 给出的使用流程",
+      "README 的说法与仓库情况",
+      "RepoScope 怎么看",
     ]);
 
     expect(messages.en.readerArchitectureHeading).toBe("How it broadly works");
-    expect(messages["zh-CN"].readerArchitectureHeading).toBe("整体如何运作");
+    expect(messages["zh-CN"].readerArchitectureHeading).toBe(
+      "代码大致怎么组织",
+    );
     expect(messages.en.readerCommunityPopularity).toBe(
       "Popularity reflects attention, not proof of quality or safety.",
     );
     expect(messages["zh-CN"].readerCommunityPopularity).toBe(
-      "流行度反映关注程度，不能证明项目质量或安全性。",
+      "这些数字只能说明项目受关注的程度，不能直接证明质量或安全性。",
     );
   });
 });

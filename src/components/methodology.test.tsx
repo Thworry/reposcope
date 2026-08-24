@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { messages } from "../i18n/messages";
 import { Methodology } from "./methodology";
 
 describe("Methodology", () => {
@@ -26,5 +27,19 @@ describe("Methodology", () => {
       "href",
       "https://github.com/Thworry/reposcope/blob/v0.1.0/docs/methodology.md",
     );
+  });
+
+  it("renders Chinese weights as localized complete phrases", () => {
+    render(<Methodology rulesetVersion="1.0.0" language="zh-CN" />);
+
+    const region = screen.getByRole("region", {
+      name: messages["zh-CN"].methodologyRegion,
+    });
+    expect(region).toHaveTextContent("文档与上手体验：15");
+    for (const weight of region.querySelectorAll(
+      ".report-methodology__weights li",
+    )) {
+      expect(weight.textContent).not.toMatch(/[—–]/u);
+    }
   });
 });

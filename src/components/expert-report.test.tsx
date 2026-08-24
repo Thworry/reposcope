@@ -111,6 +111,62 @@ describe("ExpertReport", () => {
     }
   });
 
+  it("localizes expert evidence labels by kind and path in Chinese", () => {
+    const report = reportFixture();
+    report.evidence = [
+      ...report.evidence,
+      {
+        id: "ev-0005",
+        kind: "documentation",
+        label: "English documentation source — hidden",
+        path: "docs/architecture.md",
+        url: `https://github.com/example/project/blob/${"a".repeat(40)}/docs/architecture.md`,
+      },
+      {
+        id: "ev-0006",
+        kind: "tree",
+        label: "English tree source — hidden",
+        path: "src/features",
+        url: `https://github.com/example/project/tree/${"a".repeat(40)}/src/features`,
+      },
+    ];
+    render(<ExpertReport report={report} language="zh-CN" />);
+
+    expect(
+      screen.getAllByRole("link", { name: /2\. README 原文/u }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/README 原文/u).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/项目清单.*package\.json/u).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/项目文档.*docs\/architecture\.md/u).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/English .* source/u)).toBeNull();
+    expect(screen.queryByText("Preferred README")).toBeNull();
+    expect(screen.queryByText("Package manifest")).toBeNull();
+  });
+
+  it("uses localized unavailable text instead of dash placeholders", () => {
+    const report = reportFixture();
+    report.maintenance.community.pushedAt = null;
+    report.maintenance.community.license = null;
+    const alternative = report.alternatives[0];
+    if (alternative === undefined) throw new Error("Missing alternative");
+    alternative.github.pushedAt = null;
+    alternative.github.license = null;
+    const { container } = render(
+      <ExpertReport report={report} language="zh-CN" />,
+    );
+
+    expect(screen.getAllByText("暂无数据")).toHaveLength(4);
+    for (const value of container.querySelectorAll(
+      ".expert-community dd, .expert-alternative-facts dd",
+    )) {
+      expect(value).not.toHaveTextContent(/[—–]/u);
+    }
+  });
+
   it("keeps the evidence drawer closed until the reader asks for it", () => {
     render(<ExpertReport report={reportFixture()} language="en" />);
 

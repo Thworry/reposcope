@@ -1,6 +1,6 @@
 import type { Language } from "../features/analysis/model";
 import { DIMENSION_WEIGHTS } from "../features/rules/rules";
-import { messages } from "../i18n/messages";
+import { formatMessage, messages } from "../i18n/messages";
 
 interface MethodologyProps {
   rulesetVersion: "1.0.0";
@@ -40,7 +40,10 @@ export function Methodology({ rulesetVersion, language }: MethodologyProps) {
           <ul className="report-methodology__weights">
             {weights.map(([name, value]) => (
               <li key={name}>
-                {name}: {value}
+                {formatMessage(language, "methodologyWeightItem", {
+                  name,
+                  value,
+                })}
               </li>
             ))}
           </ul>

@@ -15,7 +15,7 @@ import type {
   SkepticalReview,
 } from "./model.js";
 
-export const PANEL_PROMPT_VERSION = "1.0.0" as const;
+export const PANEL_PROMPT_VERSION = "1.1.0" as const;
 export const PANEL_PROMPT_CODE_POINT_LIMIT = PANEL_LIMITS.promptCodePoints;
 export const PANEL_USER_BOUNDARIES = Object.freeze({
   evidenceStart: "<<<BEGIN_VERIFIED_EVIDENCE_PACK>>>",
@@ -94,7 +94,7 @@ function languageInstruction(language: string): string {
     return 'Write every human-readable field in English. Every unknown must be one uncertainty sentence starting exactly "Evidence does not establish "; append no second sentence or assurance.';
   }
   if (language === "zh-CN") {
-    return "Write every human-readable field in Simplified Chinese (zh-CN). Every unknown must be one uncertainty sentence starting exactly “现有证据无法确认”; append no second sentence or assurance.";
+    return "Write every human-readable field in natural Mainland Simplified Chinese (zh-CN). Use natural Chinese word order, familiar words, short active sentences, and Chinese punctuation. Do not translate English sentence structure word for word. Keep common technical terms in their conventional forms, including README, Star, Watch, Fork, Issue, PR, CI, API, CLI, RAG, TypeScript, and GitHub Copilot. Preserve project names, identifiers, commands, paths, versions, and quoted repository text exactly. Avoid marketing language, bureaucratic phrasing, noun stacks, repeated boilerplate, and repeated disclaimers. Every unknown must be one uncertainty sentence starting exactly “现有证据无法确认”; append no second sentence or assurance.";
   }
   throw new TypeError("invalid-panel-language");
 }
