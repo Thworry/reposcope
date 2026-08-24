@@ -1,6 +1,6 @@
 # Contributing to RepoScope
 
-Thank you for helping improve RepoScope. Contributions should preserve its narrow public contract: bilingual, deterministic, read-only inspection of public GitHub repositories in the visitor's browser.
+Thank you for helping improve RepoScope. Contributions must preserve its two explicit public contracts: bilingual, deterministic, read-only inspection of public GitHub repositories in the visitor's browser, plus an independently failing optional expert service that operates only after informed GitHub authorization.
 
 ## Before opening an issue
 
@@ -29,6 +29,9 @@ pnpm format
 pnpm lint
 pnpm format:check
 pnpm test:coverage
+pnpm test:server
+pnpm typecheck:server
+pnpm check:deep-analysis-eval
 pnpm build
 pnpm check:bundle
 pnpm exec playwright test
@@ -44,8 +47,11 @@ A pull request must update all affected contracts:
 - Application-owned copy remains semantically equivalent in English and Simplified Chinese.
 - Rule IDs, thresholds, weights, applicability, confidence, and precedence stay synchronized with [docs/methodology.md](docs/methodology.md) and tests.
 - Network, file, byte, concurrency, timeout, cache, and CSP limits stay synchronized with [docs/architecture.md](docs/architecture.md) and tests.
+- Optional-service changes keep OAuth no-scope, tokens memory-only, sessions opaque and CSRF-protected, one active run per session, Copilot sessions tool-free, provider errors redacted, and deterministic-report failure isolation.
+- Prompt, schema, evidence, cache, or model-allocation changes update their version decision and the frozen human-evaluation corpus. Expert mode must not be enabled publicly without a dated passing two-reviewer scorecard.
 - New interactions meet WCAG 2.2 AA for the implemented scope, including keyboard use, 44-by-44-pixel targets, visible 3-pixel focus, reduced motion, and responsive reflow.
 - Remote repository content remains untrusted text and never becomes executable code or HTML.
+- Tests and fixtures never call live GitHub or Copilot by default. The guarded live smoke requires an explicit opt-in and an existing user credential; it must never print, store, or commit that credential or model output.
 
 Changing the meaning of a published score requires a ruleset-version decision. Do not silently tune a threshold to improve a particular repository's result.
 

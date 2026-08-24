@@ -612,6 +612,18 @@ describe("project scoring", () => {
     analyzedAt: "2026-08-11T12:00:00Z",
   } as const;
 
+  it("produces identical scores without community metadata in its repository input", () => {
+    const { starsCount, watchersCount, forksCount, ...scoringRepository } =
+      input.repository;
+    void starsCount;
+    void watchersCount;
+    void forksCount;
+
+    expect(scoreProject({ ...input, repository: scoringRepository })).toEqual(
+      scoreProject(input),
+    );
+  });
+
   it("scores a perfect applicable fixture at 100", () => {
     const scored = scoreProject(input);
 

@@ -36,9 +36,18 @@ export interface RepositoryMetadata extends RepoRef {
   pushedAt: string;
   size: number;
   openIssuesCount: number;
+  starsCount: number;
+  watchersCount: number;
+  forksCount: number;
   topics: string[];
   licenseSpdxId: string | null;
 }
+
+/** Repository metadata admitted to deterministic scoring. Popularity is excluded. */
+export type ScoringRepositoryMetadata = Omit<
+  RepositoryMetadata,
+  "starsCount" | "watchersCount" | "forksCount"
+>;
 
 export interface RateLimitMetadata {
   remaining: number | null;
@@ -189,6 +198,223 @@ export interface ProjectBrief {
   excerpts: ProjectBriefExcerpt[];
   kinds: ProjectKindFact[];
   cautions: ProjectBriefCautionFact[];
+}
+
+export const READER_AVAILABILITY = Object.freeze([
+  "available",
+  "partial",
+  "unavailable",
+] as const);
+
+export type ReaderAvailability = (typeof READER_AVAILABILITY)[number];
+
+export const RELIABILITY_STATUSES = Object.freeze([
+  "continue-evaluation",
+  "verify-before-use",
+  "insufficient-evidence",
+] as const);
+
+export type ReliabilityStatus = (typeof RELIABILITY_STATUSES)[number];
+
+export const READER_SIGNAL_IDS = Object.freeze([
+  "archived",
+  "install",
+  "run",
+  "license",
+  "recent-activity",
+  "tests",
+  "ci",
+  "coverage",
+  "security-policy",
+  "version-history",
+  "contributing",
+  "issue-templates",
+  "dependency-updates",
+  "configuration",
+] as const);
+
+export type ReaderSignalId = (typeof READER_SIGNAL_IDS)[number];
+export type ReaderSignalState = "present" | "absent" | "unknown";
+
+export const READER_QUESTION_IDS = Object.freeze([
+  "license-compatibility",
+  "reproduce-install-run",
+  "runtime-data-flow",
+  "vulnerability-process",
+  "release-compatibility",
+] as const);
+
+export type ReaderQuestionId = (typeof READER_QUESTION_IDS)[number];
+
+/** Identifies the public evidence behind one reader-facing fact. */
+export interface ReaderEvidenceSource {
+  source:
+    | "github-metadata"
+    | "readme"
+    | "documentation"
+    | "manifest"
+    | "tree"
+    | "analysis";
+  path: string | null;
+}
+
+export interface ReaderTextFact extends ReaderEvidenceSource {
+  text: string;
+}
+
+export interface ReaderSignalFact extends ReaderEvidenceSource {
+  signal: ReaderSignalId;
+  state: ReaderSignalState;
+}
+
+export const READER_COMMAND_KINDS = Object.freeze([
+  "install",
+  "run",
+  "develop",
+  "test",
+  "build",
+] as const);
+
+export type ReaderCommandKind = (typeof READER_COMMAND_KINDS)[number];
+export type ReaderCommandDisposition = "ready" | "review" | "withheld";
+
+export interface ReaderCommandFact extends ReaderEvidenceSource {
+  kind: ReaderCommandKind;
+  command: string | null;
+  disposition: ReaderCommandDisposition;
+}
+
+export const READER_COMMENTARY_IDS = Object.freeze([
+  "readme-substantial-overview",
+  "readme-audience-or-use-cases-documented",
+  "readme-capabilities-documented",
+  "readme-workflow-documented",
+  "readme-onboarding-documented",
+  "readme-limitations-documented",
+  "readme-maturity-documented",
+  "readme-broad-structure-corroborated",
+  "readme-security-data-flow-unestablished",
+  "readme-limitations-unestablished",
+  "readme-maturity-unestablished",
+  "readme-broad-structure-needs-verification",
+  "readme-external-dependencies-declared",
+] as const);
+
+export type ReaderCommentaryId = (typeof READER_COMMENTARY_IDS)[number];
+
+export interface ReaderCapabilityGroup {
+  label: string;
+  facts: ReaderTextFact[];
+}
+
+export const READER_CONVENTIONAL_MANIFESTS = Object.freeze([
+  "build.gradle",
+  "build.gradle.kts",
+  "cargo.toml",
+  "composer.json",
+  "gemfile",
+  "go.mod",
+  "package.json",
+  "package.swift",
+  "pom.xml",
+  "pubspec.yaml",
+  "pyproject.toml",
+] as const);
+
+export type ReaderConventionalManifest =
+  (typeof READER_CONVENTIONAL_MANIFESTS)[number];
+
+export interface ReaderReadmeProfile {
+  availability: ReaderAvailability;
+  observedManifests: ReaderConventionalManifest[];
+  overview: ReaderTextFact[];
+  audiences: ReaderTextFact[];
+  problems: ReaderTextFact[];
+  useCases: ReaderTextFact[];
+  capabilityGroups: ReaderCapabilityGroup[];
+  workflow: ReaderTextFact[];
+  dependencies: ReaderTextFact[];
+  limitations: ReaderTextFact[];
+  maturity: ReaderTextFact[];
+  commentary: ReaderCommentaryId[];
+}
+
+export interface ReaderCommunityFacts {
+  starsCount: number;
+  watchersCount: number;
+  forksCount: number;
+}
+
+export const READER_ECOSYSTEMS = Object.freeze([
+  "javascript-typescript",
+  "python",
+  "go",
+  "rust",
+  "java-jvm",
+  "dotnet",
+  "ruby",
+  "php",
+  "swift",
+  "dart",
+  "other",
+] as const);
+
+export type ReaderEcosystem = (typeof READER_ECOSYSTEMS)[number];
+
+export const READER_ACTIVITY_BANDS = Object.freeze([
+  "within-180-days",
+  "181-365-days",
+  "over-365-days",
+] as const);
+
+export type ReaderActivityBand = (typeof READER_ACTIVITY_BANDS)[number];
+
+/**
+ * Bounded, deterministic evidence for the human-readable report. This value is
+ * intentionally independent from ruleset scoring.
+ */
+export interface ReaderReport {
+  community: ReaderCommunityFacts;
+  readme: ReaderReadmeProfile;
+  reliability: {
+    availability: ReaderAvailability;
+    status: ReliabilityStatus;
+    signals: ReaderSignalFact[];
+    questions: ReaderQuestionId[];
+  };
+  scenarios: {
+    availability: ReaderAvailability;
+    facts: ReaderTextFact[];
+  };
+  architecture: {
+    availability: ReaderAvailability;
+    excerpts: ReaderTextFact[];
+    documents: string[];
+    entryPoints: string[];
+    sourceAreas: string[];
+    ecosystems: ReaderEcosystem[];
+  };
+  gettingStarted: {
+    availability: ReaderAvailability;
+    commands: ReaderCommandFact[];
+  };
+  securityPrivacy: {
+    availability: ReaderAvailability;
+    signals: ReaderSignalFact[];
+    declarations: ReaderTextFact[];
+  };
+  maintenance: {
+    availability: ReaderAvailability;
+    signals: ReaderSignalFact[];
+    activity: {
+      elapsedUtcDays: number;
+      band: ReaderActivityBand;
+    };
+    openIssuesCount: number;
+  };
+  alternatives: {
+    searchTerms: string[];
+  };
 }
 
 /** Bounded documentation, operability, testing, and maintenance evidence. */
@@ -463,6 +689,7 @@ export interface AnalysisReport {
     analyzedAt: string;
   };
   projectBrief: ProjectBrief;
+  readerReport: ReaderReport;
   overall: OverallResult;
   confidence: ConfidenceResult;
   dimensions: DimensionResult[];

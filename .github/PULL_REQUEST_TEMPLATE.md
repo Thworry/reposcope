@@ -7,6 +7,7 @@ Describe the user-visible or technical change and the evidence that motivates it
 - Affected rule IDs/report areas:
 - Compatibility or ruleset-version impact:
 - Network, file, byte, timeout, cache, or CSP impact:
+- OAuth, session, Copilot, evidence, prompt, or expert-evaluation impact:
 
 ## Verification checklist
 
@@ -18,6 +19,8 @@ Describe the user-visible or technical change and the evidence that motivates it
 - [ ] The 200-file, 200-attempt, 10 MiB, 256 KiB, six-request, 15-second, and 90-second limits remain enforced or the approved contract change is fully tested and documented.
 - [ ] Keyboard access, 44-by-44-pixel targets, 3-pixel focus, reduced motion, responsive reflow, and accessible names remain covered where applicable.
 - [ ] Remote repository content remains untrusted text: no execution, remote import, HTML rendering, raw-source persistence, credential input, or broadened connect origin was introduced.
+- [ ] Optional expert changes preserve no-scope OAuth, memory-only tokens, CSRF, one active run per session, zero-tool/no-plugin Copilot sessions, typed/redacted errors, strict evidence references, bounded caches, and deterministic-report independence.
+- [ ] Prompt/schema/cache/model changes include the version and human-evaluation decision; expert mode is not presented as production-ready without a dated passing two-reviewer scorecard.
 - [ ] I included only public, non-sensitive fixtures and did not add credentials, tokens, private source, personal data, or vulnerability details.
 
 ## Gate evidence

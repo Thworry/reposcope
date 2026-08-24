@@ -410,6 +410,12 @@ describe("canonical file registry", () => {
       );
     }
     expect(isExcludedPath("src/VENDOR/file.ts")).toBe(true);
+    expect(isExcludedPath("src/ｖｅｎｄｏｒ/main.ts")).toBe(false);
+    expect(classifyFile("src/ｖｅｎｄｏｒ/main.ts", 10)).toMatchObject({
+      eligible: true,
+      language: "typescript",
+      category: "source",
+    });
     expect(isExcludedPath("src/vendorized/file.ts")).toBe(false);
     expect(classifyFile("web/app.min.js", 10).skipReason).toBe("excluded");
     expect(classifyFile("web/app-min.ts", 10).skipReason).toBe("excluded");

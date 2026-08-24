@@ -25,6 +25,9 @@ const REQUIRED_FILES = [
   "GOVERNANCE.md",
   "docs/methodology.md",
   "docs/architecture.md",
+  "docs/deep-analysis-deployment.md",
+  "Dockerfile",
+  ".dockerignore",
   ".github/ISSUE_TEMPLATE/bug.yml",
   ".github/ISSUE_TEMPLATE/feature.yml",
   ".github/ISSUE_TEMPLATE/config.yml",
@@ -178,7 +181,7 @@ const RULE_DOCUMENTATION = {
   "maintenance.activity": [
     "Not archived and `pushed_at` is within 180 exact UTC days",
     "2",
-    "181–365 days: 1",
+    "More than 180 and up to 365 days: 1",
   ],
   "maintenance.lockfile": ["Recognized dependency lockfile exists", "2", "—"],
   "maintenance.dependency-updates": [
@@ -206,6 +209,10 @@ const EXACT_CSP =
 
 function read(path: string): string {
   return readFileSync(resolve(projectRoot, path), "utf8");
+}
+
+function compactWhitespace(value: string): string {
+  return value.replace(/\s+/gu, " ");
 }
 
 function documentedRuleRows(markdown: string): Map<string, string[]> {
@@ -313,7 +320,7 @@ describe("open-source repository contract", () => {
       ["does not execute", "不会执行"],
       ["authenticate its behavior", "认证项目行为"],
       ["certify its correctness", "证明项目正确"],
-      ["project brief", "项目速览"],
+      ["reader report", "读者报告"],
       [
         "Purpose evidence comes from the public GitHub description and preferred README.",
         "用途证据来自公开 GitHub 仓库说明和首选 README。",
@@ -331,7 +338,118 @@ describe("open-source repository contract", () => {
     }
   });
 
-  it("publishes the exact v0.1.1 version history", () => {
+  it("publishes the bilingual README-first evidence-dossier contract", () => {
+    const english = read("README.md");
+    const chinese = read("README.zh-CN.md");
+
+    for (const statement of [
+      "eight-region README-first evidence dossier",
+      "Project orientation",
+      "Community and maintenance facts",
+      "Reader takeaways",
+      "What the README says",
+      "Core capabilities",
+      "up to nine capability areas",
+      "Documented workflow",
+      "README claims and repository observations",
+      "RepoScope commentary",
+      "Worth noting",
+      "Verify before relying on it",
+      "What this means in practice",
+      "`subscribers_count` is labeled **Watchers**",
+      "`open_issues_count` includes both issues and pull requests",
+      "Popularity is not proof of quality or safety.",
+      "does not use AI",
+      "partial README interpretation",
+      "Technical evidence and methodology",
+      "closed by default",
+    ]) {
+      expect(english).toContain(statement);
+    }
+    for (const statement of [
+      "由八个区域组成的 README 优先证据档案",
+      "项目定位",
+      "社区与维护事实",
+      "读者结论",
+      "README 如何介绍项目",
+      "核心能力",
+      "最多九个能力分组",
+      "README 中的工作流程",
+      "README 声明与仓库观察",
+      "RepoScope 解读",
+      "值得注意",
+      "依赖前需要核实",
+      "对实际使用意味着什么",
+      "`subscribers_count` 标记为 **Watchers**",
+      "`open_issues_count` 同时包含 Issue 与 PR",
+      "流行度不能证明项目质量或安全性。",
+      "不使用 AI",
+      "README 解读会标记为部分可用",
+      "技术证据与方法",
+      "默认关闭",
+    ]) {
+      expect(chinese).toContain(statement);
+    }
+    expect(english).toContain(
+      "**Project orientation** presents the public repository description and bounded project brief",
+    );
+    expect(english).toContain(
+      "**What the README says** organizes bounded README overview, audience, problem, use-case",
+    );
+    expect(chinese).toContain("**项目定位**：展示公开仓库说明和有界的项目简介");
+    expect(chinese).toContain(
+      "**README 如何介绍项目**：按原始语言组织 README 的概览、目标读者、待解决问题、使用场景",
+    );
+    expect(chinese).not.toContain("依赖前请核实");
+    expect(chinese).not.toContain("这在实际中意味着什么");
+  });
+
+  it("documents bounded README interpretation without changing score or assurance claims", () => {
+    const methodology = read("docs/methodology.md");
+
+    for (const statement of [
+      "README interpretation is deterministic and does not use AI.",
+      "installation, run, license evidence, recent activity",
+      "The dossier presents eight regions in this order: project orientation; community and maintenance facts; reader takeaways",
+      "`subscribers_count` is the GitHub source for **Watchers**",
+      "GitHub `open_issues_count` combines issues and pull requests",
+      "This signal records evidence existence, not license compatibility",
+      "Popularity is attention evidence, not quality or safety evidence.",
+      "overview 4; audiences 4; problems 4; use cases 4; capability groups 9 with 6 facts each; workflow 8; dependencies 8; limitations 6; maturity 6",
+      "**Worth noting**",
+      "**Verify before relying on it**",
+      "**What this means in practice**",
+      "preferred README is missing",
+      "preferred README was identified but not fetched",
+      "does not change dimension scores, rule applicability, thresholds, weights, confidence, or findings",
+      "does not prove suitability or safety",
+    ]) {
+      expect(methodology).toContain(statement);
+    }
+  });
+
+  it("documents the real README-report assembly and rendering order", () => {
+    const architecture = read("docs/architecture.md");
+    const pipeline =
+      "GitHub metadata and immutable tree evidence → preferred README selection and a single bounded safe scan → README interpretation and broad repository corroboration → unchanged scoring over a separate input → combined strict report guard → snapshot-validated session cache → React README-first UI and closed technical appendix";
+
+    expect(architecture).toContain(pipeline);
+
+    for (const statement of [
+      "general evidence and the project brief are derived",
+      "deep analyzers finish and coverage is finalized",
+      "the bounded README-first reader report is derived",
+      "the isolated scoring input is scored without community popularity counts or reader evidence",
+      "the complete report is strictly cloned and validated",
+      "the README evidence dossier renders before the decision summary and six reader chapters",
+      "the eight-region README evidence dossier",
+      "src/components/readme-interpretation.tsx",
+    ]) {
+      expect(architecture).toContain(statement);
+    }
+  });
+
+  it("publishes the current version history", () => {
     const changelog = read("CHANGELOG.md");
     const packageManifest = JSON.parse(read("package.json")) as {
       version?: unknown;
@@ -341,11 +459,20 @@ describe("open-source repository contract", () => {
     expect(changelog).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
     expect(changelog).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
     expect(changelog).toContain(
-      "Added a deterministic, evidence-linked project brief so users can quickly understand the stated purpose and likely kind of any inspected public repository.",
+      "Added a deterministic, evidence-linked README-first evidence dossier with seven ordered interpretation regions, followed by the project decision summary and six human reader chapters; a closed technical appendix keeps full evidence and methodology.",
     );
-    expect(changelog).toContain("does not use an AI service");
-    expect(changelog).toContain("not personalized advice");
-    expect(changelog).toContain(`ruleset \`${RULESET_VERSION}\``);
+    expect(changelog).not.toContain(
+      "decision-first reader report covering purpose",
+    );
+    expect(changelog).toContain("closed technical appendix");
+    expect(changelog).toContain("immutable source links");
+    const dossierEntry = changelog
+      .split("\n")
+      .find((line) => line.includes("README-first evidence dossier"));
+    expect(dossierEntry).toBeDefined();
+    expect(dossierEntry ?? "").not.toMatch(
+      /AI|security|scor|ruleset|threshold|weight/iu,
+    );
     expect(packageManifest.version).toBe("0.1.1");
   });
 
@@ -357,6 +484,157 @@ describe("open-source repository contract", () => {
     expect(packageManifest.scripts?.["test:coverage"]).toBe(
       "vitest run --coverage --maxWorkers=1 --no-file-parallelism",
     );
+  });
+
+  it("validates the optional server without changing the Pages artifact", () => {
+    const packageManifest = JSON.parse(read("package.json")) as {
+      scripts?: Record<string, unknown>;
+    };
+    const check = packageManifest.scripts?.check;
+    const ci = read(".github/workflows/ci.yml");
+    const pages = read(".github/workflows/pages.yml");
+
+    expect(check).toEqual(expect.any(String));
+    expect(check).toContain("pnpm test:server");
+    expect(check).toContain("pnpm typecheck:server");
+    expect(ci).toContain("run: pnpm test:server");
+    expect(pages).toContain("run: pnpm test:server");
+    expect(ci).toContain(
+      "REPOSCOPE_API_ORIGIN: ${{ vars.REPOSCOPE_API_ORIGIN }}",
+    );
+    expect(
+      pages.match(
+        /REPOSCOPE_API_ORIGIN: \$\{\{ vars\.REPOSCOPE_API_ORIGIN \}\}/gu,
+      ),
+    ).toHaveLength(2);
+    expect(pages).toMatch(
+      /uses: actions\/upload-pages-artifact@[^\n]+\n\s+with:\n\s+path: dist/u,
+    );
+    expect(pages).not.toMatch(/path: server-dist/u);
+  });
+
+  it("documents both static and optional expert modes without hiding data flow", () => {
+    const english = read("README.md");
+    const chinese = read("README.zh-CN.md");
+
+    for (const [englishStatement, chineseStatement] of [
+      [
+        "The deterministic static mode requires no login",
+        "确定性静态模式不需要登录",
+      ],
+      [
+        "Optional expert mode adds a TypeScript backend",
+        "可选专家模式会增加 TypeScript 后端",
+      ],
+      ["explicit first-use consent", "首次使用前必须明确同意"],
+      [
+        "GitHub OAuth App with no requested scopes",
+        "不申请任何 scope 的 RepoScope GitHub OAuth App",
+      ],
+      [
+        "their own GitHub Copilot allowance",
+        "访问者自己的 GitHub Copilot 额度",
+      ],
+      ["does not use GitHub Models", "不使用 GitHub Models"],
+      [
+        "Repository code and commands remain untrusted text and are never executed",
+        "仓库代码和命令始终是不可信文本，绝不会被执行",
+      ],
+      ["never removes the deterministic report", "确定性报告仍会保留"],
+      ["up to 30 days", "最多缓存 30 天"],
+      ["up to 24 hours", "最多缓存 24 小时"],
+      ["model transcripts, prompts, tokens", "模型会话记录、提示词、令牌"],
+    ] as const) {
+      expect(english, englishStatement).toContain(englishStatement);
+      expect(chinese, chineseStatement).toContain(chineseStatement);
+    }
+  });
+
+  it("ships a least-privilege optional-service deployment contract", () => {
+    const dockerfile = read("Dockerfile");
+    const ignored = read(".dockerignore");
+    const deployment = read("docs/deep-analysis-deployment.md");
+    const deploymentProse = compactWhitespace(deployment);
+
+    expect(dockerfile).toContain("node:24.19.0-bookworm-slim");
+    expect(dockerfile).toContain("pnpm install --frozen-lockfile");
+    expect(dockerfile).toContain("USER reposcope:reposcope");
+    expect(dockerfile).toContain('VOLUME ["/data"]');
+    expect(dockerfile).toContain("HEALTHCHECK");
+    expect(dockerfile).toContain('CMD ["node", "server-dist/server/index.js"]');
+    for (const path of [
+      ".env",
+      ".env.*",
+      ".git",
+      "node_modules",
+      "coverage",
+      "e2e",
+    ]) {
+      expect(ignored).toContain(path);
+    }
+
+    for (const variable of [
+      "NODE_ENV",
+      "REPOSCOPE_FRONTEND_URL",
+      "REPOSCOPE_API_ORIGIN",
+      "REPOSCOPE_GITHUB_CLIENT_ID",
+      "REPOSCOPE_GITHUB_CLIENT_SECRET",
+      "REPOSCOPE_GITHUB_CALLBACK_URL",
+      "REPOSCOPE_HOST",
+      "REPOSCOPE_PORT",
+      "REPOSCOPE_CACHE_PATH",
+      "REPOSCOPE_BASE_PATH",
+    ]) {
+      expect(deployment, variable).toContain(variable);
+    }
+    for (const boundary of [
+      "no requested OAuth scopes",
+      "does not request private-repository access",
+      "same-site custom-domain pair",
+      "/api/v1/auth/callback",
+      "GitHub Models is not used",
+      "never run",
+      "only in an in-memory",
+      "Raw README bodies",
+      "rotate the client secret",
+      "external deployment operations",
+      "expert deployment remains blocked",
+    ]) {
+      expect(deploymentProse, boundary).toContain(boundary);
+    }
+    expect(deployment).not.toMatch(/gho_[A-Za-z0-9_]{20,}/u);
+    expect(deployment).not.toMatch(/github_pat_[A-Za-z0-9_]{20,}/u);
+  });
+
+  it("documents the optional expert trust boundary and quality gate", () => {
+    const architecture = read("docs/architecture.md");
+    const architectureProse = compactWhitespace(architecture);
+    const security = read("SECURITY.md");
+    const contributing = read("CONTRIBUTING.md");
+    const changelog = read("CHANGELOG.md");
+    const pullRequest = read(".github/PULL_REQUEST_TEMPLATE.md");
+
+    for (const statement of [
+      "three parallel zero-tool Copilot specialist sessions",
+      "one zero-tool skeptic session",
+      "one zero-tool editor session",
+      "one active run",
+      "five starts per rolling hour",
+      "30-day narrative cache key",
+      "24-hour alternative cache",
+      "Current Stars, Watch, Forks",
+      "GitHub Models itself is not used",
+      "provider's model behavior",
+      "dated passing two-reviewer quality scorecard",
+    ]) {
+      expect(architectureProse, statement).toContain(statement);
+    }
+    expect(security).toContain("OAuth state or CSRF bypass");
+    expect(security).toContain("prompt-injection acceptance");
+    expect(contributing).toContain("pnpm check:deep-analysis-eval");
+    expect(contributing).toContain("dated passing two-reviewer scorecard");
+    expect(changelog).toContain("optional GitHub-authorized expert briefing");
+    expect(pullRequest).toContain("zero-tool/no-plugin Copilot sessions");
   });
 
   it("documents public tree and dimension contracts without overclaiming", () => {
@@ -417,6 +695,24 @@ describe("open-source repository contract", () => {
     expect(methodology).toContain(
       "Two or more such directories: `failed` with 0 points.",
     );
+  });
+
+  it("documents the non-scoring reader judgement and exact activity boundary", () => {
+    const methodology = read("docs/methodology.md");
+
+    for (const status of [
+      "Sufficient evidence to continue evaluation",
+      "Key gaps require verification before use",
+      "Public evidence is insufficient to judge",
+    ]) {
+      expect(methodology).toContain(status);
+    }
+    expect(methodology).toContain("180 exact UTC days");
+    expect(methodology).toContain("more than 180 and up to 365 days");
+    expect(methodology).toContain("超过 180 日且不超过 365 日");
+    expect(methodology).toContain("more than 365 days");
+    expect(methodology).toContain("non-scoring");
+    expect(methodology).toContain("does not prove suitability or safety");
   });
 
   it("documents the fixed architecture, limits, cache, CSP, and threats", () => {
@@ -492,6 +788,47 @@ describe("open-source repository contract", () => {
     ] as const) {
       expect(architecture).toContain(dependencyArrow);
     }
+  });
+
+  it("documents the reader analyzer, strict boundary, cache, and UI appendix", () => {
+    const architecture = read("docs/architecture.md");
+
+    for (const modulePath of [
+      "src/features/analyzers/reader-report.ts",
+      "src/features/analyzers/reader-report/markdown.ts",
+      "src/features/analyzers/reader-report/commands.ts",
+      "src/features/worker/analysis.worker.ts",
+      "src/features/analysis/guards.ts",
+      "src/features/cache/report-cache.ts",
+      "src/components/reader-report.tsx",
+      "src/components/technical-appendix.tsx",
+    ]) {
+      expect(architecture).toContain(modulePath);
+    }
+    expect(architecture).toContain(
+      "coverage and static analysis complete before the non-scoring reader report is derived",
+    );
+    expect(architecture).toContain(
+      "reader report remains outside the unchanged scoring inputs",
+    );
+    expect(architecture).toContain(
+      "scoring then runs from those unchanged inputs",
+    );
+    expect(architecture).toContain(
+      "strictly validated before it reaches the cache or UI",
+    );
+    expect(architecture).toContain("closed technical appendix");
+  });
+
+  it("records the README-first UI without claiming a scoring change", () => {
+    const changelog = read("CHANGELOG.md");
+    const dossierEntry = changelog
+      .split("\n")
+      .find((line) => line.includes("README-first evidence dossier"));
+
+    expect(dossierEntry).toBeDefined();
+    expect(dossierEntry ?? "").toContain("closed technical appendix");
+    expect(dossierEntry ?? "").not.toMatch(/ruleset|scor|threshold|weight/iu);
   });
 
   it("routes vulnerability reports privately", () => {

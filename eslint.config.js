@@ -11,13 +11,20 @@ export default tseslint.config(
       "dist/**",
       "node_modules/**",
       "playwright-report/**",
+      "server-dist/**",
       "test-results/**",
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked.map((config) => ({
     ...config,
-    files: ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
+    files: [
+      "src/**/*.{ts,tsx}",
+      "e2e/**/*.ts",
+      "scripts/**/*.ts",
+      "server/**/*.ts",
+      "vitest.server.config.ts",
+    ],
   })),
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
@@ -64,6 +71,16 @@ export default tseslint.config(
   },
   {
     files: ["e2e/**/*.ts"],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    files: ["scripts/**/*.ts", "server/**/*.ts", "vitest.server.config.ts"],
     languageOptions: {
       globals: globals.node,
       parserOptions: {

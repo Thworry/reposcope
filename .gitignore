@@ -1,6 +1,9 @@
 /node_modules
 /dist
+/server-dist
 /coverage
 /playwright-report
 /test-results
 /.lighthouseci
+/.superpowers
+/.codex/deepseek-worker/runs

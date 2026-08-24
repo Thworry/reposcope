@@ -286,6 +286,9 @@ function guardRepository(
   const pushedAt = assertTimestamp(readString(value, "pushed_at"));
   const size = readNonNegativeInteger(value, "size");
   const openIssuesCount = readNonNegativeInteger(value, "open_issues_count");
+  const starsCount = readNonNegativeInteger(value, "stargazers_count");
+  const watchersCount = readNonNegativeInteger(value, "subscribers_count");
+  const forksCount = readNonNegativeInteger(value, "forks_count");
 
   if (!hasOwn(value, "topics")) {
     return invalidResponse();
@@ -345,6 +348,9 @@ function guardRepository(
     pushedAt,
     size,
     openIssuesCount,
+    starsCount,
+    watchersCount,
+    forksCount,
     topics,
     licenseSpdxId,
   };

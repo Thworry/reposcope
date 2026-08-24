@@ -82,12 +82,14 @@ function cancellableResponse(
   };
 }
 
-function successfulSnapshotFetch() {
+function successfulSnapshotFetch(
+  repositoryResponse: unknown = VALID_REPOSITORY_RESPONSE,
+) {
   return vi
     .fn<FetchImplementation>()
     .mockResolvedValueOnce(
       jsonResponse(
-        VALID_REPOSITORY_RESPONSE,
+        repositoryResponse,
         {},
         {
           remaining: "59",
@@ -128,6 +130,12 @@ describe("fetchRepositorySnapshot", () => {
 
     const snapshot = await fetchRepositorySnapshot(ref, signal, fetchMock);
 
+    expect(VALID_REPOSITORY_RESPONSE).toMatchObject({
+      stargazers_count: 1_284,
+      subscribers_count: 37,
+      forks_count: 146,
+    });
+
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "https://api.github.com/repos/owner/repo",
       "https://api.github.com/repos/owner/repo/commits/main",
@@ -159,6 +167,9 @@ describe("fetchRepositorySnapshot", () => {
         pushedAt: "2026-08-01T12:00:00Z",
         size: 512,
         openIssuesCount: 3,
+        starsCount: 1_284,
+        watchersCount: 37,
+        forksCount: 146,
         topics: ["quality", "typescript"],
         licenseSpdxId: "MIT",
       },
@@ -190,6 +201,66 @@ describe("fetchRepositorySnapshot", () => {
       rateLimit: {
         remaining: 57,
         resetAt: new Date(1_786_500_060_000).toISOString(),
+      },
+    });
+  });
+
+  it.each(
+    (["stargazers_count", "subscribers_count", "forks_count"] as const).flatMap(
+      (field) =>
+        [
+          undefined,
+          -1,
+          1.5,
+          Number.POSITIVE_INFINITY,
+          Number.MAX_SAFE_INTEGER + 1,
+        ].map((value) => [field, value] as const),
+    ),
+  )("rejects invalid community count %s=%s", async (field, value) => {
+    const fetchMock = successfulSnapshotFetch({
+      ...VALID_REPOSITORY_RESPONSE,
+      [field]: value,
+    });
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).rejects.toMatchObject({ kind: "invalid-response" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([0, Number.MAX_SAFE_INTEGER])(
+    "accepts community counts at safe integer boundary %s",
+    async (value) => {
+      const fetchMock = successfulSnapshotFetch({
+        ...VALID_REPOSITORY_RESPONSE,
+        stargazers_count: value,
+        subscribers_count: value,
+        forks_count: value,
+      });
+
+      await expect(
+        fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+      ).resolves.toMatchObject({
+        repository: {
+          starsCount: value,
+          watchersCount: value,
+          forksCount: value,
+        },
+      });
+    },
+  );
+
+  it("uses subscribers_count for watches and ignores the historical watchers_count alias", async () => {
+    const fetchMock = successfulSnapshotFetch({
+      ...VALID_REPOSITORY_RESPONSE,
+      watchers_count: 9_999,
+    });
+
+    await expect(
+      fetchRepositorySnapshot(ref, new AbortController().signal, fetchMock),
+    ).resolves.toMatchObject({
+      repository: {
+        watchersCount: 37,
       },
     });
   });

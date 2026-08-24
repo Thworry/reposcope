@@ -7,6 +7,7 @@ import {
   perfectGeneralMetrics,
   perfectLanguageAnalysis,
   perfectProjectBrief,
+  perfectReaderReport,
   perfectRepository,
 } from "../../test/fixtures/metrics";
 import { buildFindings } from "../rules/findings";
@@ -43,6 +44,7 @@ function validReport(): AnalysisReport {
       analyzedAt,
     },
     projectBrief: perfectProjectBrief,
+    readerReport: structuredClone(perfectReaderReport),
     overall: scored.overall,
     confidence: scored.confidence,
     dimensions: scored.dimensions,

@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { AnalysisReport, RuleResult } from "../features/analysis/model";
-import { perfectProjectBrief } from "../test/fixtures/metrics";
+import {
+  perfectProjectBrief,
+  perfectReaderReport,
+} from "../test/fixtures/metrics";
 import { EvidenceExplorer } from "./evidence-explorer";
 
 function rule(
@@ -61,6 +64,7 @@ const report = {
     analyzedAt: "2026-08-11T12:00:00.000Z",
   },
   projectBrief: perfectProjectBrief,
+  readerReport: structuredClone(perfectReaderReport),
   overall: {
     score: 50,
     label: "needs-attention",

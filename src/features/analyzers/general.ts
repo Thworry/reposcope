@@ -21,6 +21,10 @@ import {
   toPathComparisonKey,
 } from "../scanner/file-registry";
 import { findMarkdownEvidence } from "./line-metrics";
+import {
+  compareReadmePaths,
+  isCanonicalReadmePath,
+} from "./reader-report/readme-policy";
 
 export interface StructuredManifestEvidence {
   hasStructuredEntryPoint: boolean;
@@ -341,7 +345,7 @@ function scopedDocument(
   );
 }
 
-function isReadme(path: string): boolean {
+function isLegacyScoringReadme(path: string): boolean {
   return scopedDocument(path, ["", ".github"], ["readme"]);
 }
 
@@ -482,7 +486,15 @@ export function preferredReadme(
   files: readonly FetchedTextFile[],
 ): FetchedTextFile | undefined {
   return [...files]
-    .filter((file) => isReadme(file.path))
+    .filter((file) => isCanonicalReadmePath(file.path))
+    .sort((left, right) => compareReadmePaths(left.path, right.path))[0];
+}
+
+function preferredScoringReadme(
+  files: readonly FetchedTextFile[],
+): FetchedTextFile | undefined {
+  return [...files]
+    .filter((file) => isLegacyScoringReadme(file.path))
     .sort((left, right) => {
       const leftRoot = directory(left.path) === "" ? 0 : 1;
       const rightRoot = directory(right.path) === "" ? 0 : 1;
@@ -723,7 +735,7 @@ export function analyzeGeneralRepository(
   );
   const paths = positiveTreeFiles.map((file) => file.path);
   const pathKeys = paths.map(toPathComparisonKey);
-  const readme = preferredReadme(positiveFetchedFiles);
+  const readme = preferredScoringReadme(positiveFetchedFiles);
   const markdown = findMarkdownEvidence(readme?.text ?? "");
   const structured = emptyStructuredEvidence();
   const parseFailures: GeneralMetrics["parseFailures"] = [];
@@ -780,7 +792,7 @@ export function analyzeGeneralRepository(
   const hasTreeTestConfiguration = paths.some(isTestConfig);
 
   return {
-    hasReadme: paths.some(isReadme),
+    hasReadme: paths.some(isLegacyScoringReadme),
     installHeading: markdown.installHeading,
     installCommand: markdown.installCommand,
     usageHeading: markdown.usageHeading,

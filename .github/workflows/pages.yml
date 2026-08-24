@@ -31,7 +31,10 @@ jobs:
       - run: pnpm format:check
       - run: pnpm exec tsc -b
       - run: pnpm test:coverage
+      - run: pnpm test:server
       - run: pnpm build
+        env:
+          REPOSCOPE_API_ORIGIN: ${{ vars.REPOSCOPE_API_ORIGIN }}
       - run: pnpm check:bundle
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm exec playwright test --project=desktop-chromium
@@ -40,6 +43,7 @@ jobs:
         run: pnpm build
         env:
           REPOSCOPE_BASE_PATH: /${{ github.event.repository.name }}/
+          REPOSCOPE_API_ORIGIN: ${{ vars.REPOSCOPE_API_ORIGIN }}
       - run: pnpm check:bundle
       - uses: actions/configure-pages@v6.0.0
       - uses: actions/upload-pages-artifact@v5.0.0
