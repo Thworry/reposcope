@@ -58,6 +58,7 @@ describe("ExpertReport", () => {
       stars: 12_345,
       watchers: 67,
       forks: 890,
+      openIssues: 95,
     };
     render(<ExpertReport report={report} language="en" />);
 
@@ -68,6 +69,10 @@ describe("ExpertReport", () => {
     expect(within(chapter as HTMLElement).getByText("12,345")).toBeVisible();
     expect(within(chapter as HTMLElement).getByText("67")).toBeVisible();
     expect(within(chapter as HTMLElement).getByText("890")).toBeVisible();
+    expect(
+      within(chapter as HTMLElement).getByText("Open issues and PRs"),
+    ).toBeVisible();
+    expect(within(chapter as HTMLElement).getByText("95")).toBeVisible();
     expect(chapter).toHaveTextContent(
       "Popularity indicates attention—not reliability, security, or suitability.",
     );

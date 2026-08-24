@@ -409,6 +409,7 @@ describe("open-source repository contract", () => {
 
     for (const statement of [
       "README interpretation is deterministic and does not use AI.",
+      "installation, run, license evidence, recent activity",
       "The dossier presents eight regions in this order: project orientation; community and maintenance facts; reader takeaways",
       "`subscribers_count` is the GitHub source for **Watchers**",
       "GitHub `open_issues_count` combines issues and pull requests",

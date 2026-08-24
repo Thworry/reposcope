@@ -8,7 +8,7 @@ All rules are deterministic. Threshold comparisons use unrounded counts and exac
 
 The README-first evidence dossier is a deterministic, non-scoring view of the same immutable public evidence used by the technical report. README interpretation is deterministic and does not use AI. It does not change dimension scores, rule applicability, thresholds, weights, confidence, or findings. Its evidence status is exactly one of:
 
-- **Sufficient evidence to continue evaluation** when installation, run, recognized license, recent activity, and automated verification evidence are present and the repository is not archived;
+- **Sufficient evidence to continue evaluation** when installation, run, license evidence, recent activity, and automated verification evidence are present and the repository is not archived;
 - **Key gaps require verification before use** when decisive evidence is established but at least one required signal is absent; or
 - **Public evidence is insufficient to judge** when decisive evidence is unknown or the scan has only metadata-level evidence.
 
