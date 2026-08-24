@@ -47,7 +47,7 @@ import {
 
 const DAY_MS = 86_400_000;
 const MAX_ARCHITECTURE_DOCUMENTS = 3;
-const MAX_ARCHITECTURE_EXCERPTS = 2;
+const MAX_ARCHITECTURE_EXCERPTS = 8;
 const MAX_ENTRY_POINTS = 4;
 const MAX_SOURCE_AREAS = 5;
 const MAX_SECURITY_DECLARATIONS = 3;
@@ -617,7 +617,7 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
     manifestReaderCommands(input),
   );
   const scenarios = collectTextFacts(
-    readmeEvidence.scenarios.filter(
+    [...readmeEvidence.readme.useCases, ...readmeEvidence.scenarios].filter(
       ({ text }) => !purposeKeys.has(canonicalText(text)),
     ),
     3,
@@ -692,12 +692,11 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
   const architectureCount =
     architectureExcerpts.length +
     architectureDocuments.length +
-    structure.entryPoints.length +
     structure.sourceAreas.length +
     structure.ecosystems.length;
   const securityCount =
     securityDeclarations.length +
-    securitySignals.filter(({ state }) => state === "present").length;
+    securitySignals.filter(({ state }) => state !== "unknown").length;
   const maintenanceCount =
     1 + maintenanceSignals.filter(({ state }) => state === "present").length;
 
@@ -734,7 +733,10 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
       ecosystems: structure.ecosystems,
     },
     gettingStarted: {
-      availability: deriveReaderAvailability(commands.length, complete),
+      availability: deriveReaderAvailability(
+        commands.length + readmeProfile.dependencies.length,
+        complete,
+      ),
       commands,
     },
     securityPrivacy: {

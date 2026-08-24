@@ -15,6 +15,10 @@ import { scoreProject } from "../rules/rules";
 import type { AnalysisReport, ProjectBrief, ReaderReport } from "./model";
 import { isAnalysisReport } from "./guards";
 import { unavailableReaderReport } from "../analyzers/reader-report";
+import {
+  deriveReaderQuestions,
+  deriveReliabilityStatus,
+} from "./reader-report-policy";
 
 export function validReport(): AnalysisReport & { readerReport: ReaderReport } {
   const analyzedAt = "2026-08-11T12:00:00.000Z";
@@ -963,10 +967,10 @@ describe("isAnalysisReport", () => {
       );
     });
     expectReaderMutationRejected((reader) => {
-      reader.architecture.excerpts.push(
-        structuredClone(required(reader.architecture.excerpts[0])),
-        structuredClone(required(reader.architecture.excerpts[0])),
-      );
+      reader.architecture.excerpts = Array.from({ length: 9 }, (_, index) => ({
+        ...structuredClone(required(reader.architecture.excerpts[0])),
+        text: `Architecture evidence ${String(index + 1)}`,
+      }));
     });
     expectReaderMutationRejected((reader) => {
       reader.architecture.documents = ["a.md", "b.md", "c.md", "d.md"];
@@ -998,6 +1002,60 @@ describe("isAnalysisReport", () => {
         required(reader.scenarios.facts[0]).text = text;
       });
     }
+  });
+
+  it("accepts eight broad architecture facts and ignores hidden entry points for availability", () => {
+    const bounded = cloneReport();
+    bounded.readerReport.architecture.excerpts = Array.from(
+      { length: 8 },
+      (_, index) => ({
+        ...structuredClone(
+          required(bounded.readerReport.architecture.excerpts[0]),
+        ),
+        text: `Architecture evidence ${String(index + 1)}`,
+      }),
+    );
+    expect(isAnalysisReport(bounded)).toBe(true);
+
+    const entryPointOnly = cloneReport();
+    entryPointOnly.readerReport.architecture = {
+      availability: "unavailable",
+      excerpts: [],
+      documents: [],
+      entryPoints: ["src/index.ts"],
+      sourceAreas: [],
+      ecosystems: [],
+    };
+    expect(isAnalysisReport(entryPointOnly)).toBe(true);
+  });
+
+  it("treats complete absent security signals as evaluated evidence", () => {
+    const report = cloneReport();
+    const securitySignals = new Set([
+      "license",
+      "security-policy",
+      "configuration",
+    ]);
+    for (const signal of report.readerReport.reliability.signals) {
+      if (securitySignals.has(signal.signal)) signal.state = "absent";
+    }
+    for (const signal of report.readerReport.securityPrivacy.signals) {
+      signal.state = "absent";
+    }
+    for (const signal of report.readerReport.maintenance.signals) {
+      if (signal.signal === "security-policy") signal.state = "absent";
+    }
+    report.readerReport.securityPrivacy.declarations = [];
+    report.readerReport.securityPrivacy.availability = "available";
+    report.readerReport.reliability.status = deriveReliabilityStatus(
+      report.readerReport.reliability.signals,
+    );
+    report.readerReport.reliability.questions = deriveReaderQuestions(
+      report.readerReport.reliability.status,
+      report.readerReport.reliability.signals,
+    );
+
+    expect(isAnalysisReport(report)).toBe(true);
   });
 
   it("rejects a scenario duplicated from retained purpose evidence", () => {
@@ -1211,9 +1269,38 @@ describe("isAnalysisReport", () => {
       "runtime-data-flow",
     ];
     report.readerReport.gettingStarted.commands = [];
+    report.readerReport.readme.dependencies = [];
+    report.readerReport.readme.commentary =
+      report.readerReport.readme.commentary.filter(
+        (commentary) => commentary !== "readme-external-dependencies-declared",
+      );
     report.readerReport.gettingStarted.availability = "unavailable";
 
     expect(isAnalysisReport(report)).toBe(true);
+  });
+
+  it("counts README requirements as getting-started evidence", () => {
+    const report = cloneReport();
+    report.readerReport.gettingStarted.commands = [];
+    for (const signal of report.readerReport.reliability.signals) {
+      if (signal.signal === "install" || signal.signal === "run") {
+        signal.state = "absent";
+      }
+    }
+    report.readerReport.reliability.status = deriveReliabilityStatus(
+      report.readerReport.reliability.signals,
+    );
+    report.readerReport.reliability.questions = deriveReaderQuestions(
+      report.readerReport.reliability.status,
+      report.readerReport.reliability.signals,
+    );
+    report.readerReport.gettingStarted.availability = "available";
+
+    expect(report.readerReport.readme.dependencies.length).toBeGreaterThan(0);
+    expect(isAnalysisReport(report)).toBe(true);
+
+    report.readerReport.gettingStarted.availability = "unavailable";
+    expect(isAnalysisReport(report)).toBe(false);
   });
 
   it("accepts only the canonical unavailable reader fallback", () => {

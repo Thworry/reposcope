@@ -1207,7 +1207,7 @@ function validReaderReport(
     ]) ||
     !validReaderTextFacts(
       value.architecture.excerpts,
-      2,
+      8,
       new Set(["readme", "documentation"]),
     ) ||
     !validSortedReaderPaths(value.architecture.documents, 3) ||
@@ -1369,12 +1369,11 @@ function validReaderReport(
   const architectureCount =
     reader.architecture.excerpts.length +
     reader.architecture.documents.length +
-    reader.architecture.entryPoints.length +
     reader.architecture.sourceAreas.length +
     reader.architecture.ecosystems.length;
   const securityCount =
     reader.securityPrivacy.declarations.length +
-    reader.securityPrivacy.signals.filter(({ state }) => state === "present")
+    reader.securityPrivacy.signals.filter(({ state }) => state !== "unknown")
       .length;
   const maintenanceCount =
     1 +
@@ -1397,7 +1396,7 @@ function validReaderReport(
     ) &&
     validReaderAvailability(
       reader.gettingStarted.availability,
-      reader.gettingStarted.commands.length,
+      reader.gettingStarted.commands.length + readme.dependencies.length,
       complete,
       unavailableFallback,
     ) &&

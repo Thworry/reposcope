@@ -73,7 +73,7 @@ describe("extractReaderMarkdownEvidence", () => {
       audiences: 4,
       problems: 4,
       useCases: 4,
-      capabilityGroups: 6,
+      capabilityGroups: 9,
       capabilityFacts: 6,
       workflow: 8,
       dependencies: 8,
@@ -85,40 +85,101 @@ describe("extractReaderMarkdownEvidence", () => {
         "overview",
         "introduction",
         "about",
+        "project overview",
+        "project introduction",
+        "project positioning",
         "简介",
         "项目介绍",
+        "项目简介",
+        "项目定位",
         "概述",
       ],
-      audiences: ["who is this for", "audience", "适合谁", "目标用户"],
-      problems: ["problem", "why", "motivation", "解决的问题", "为什么"],
+      audiences: [
+        "who is this for",
+        "audience",
+        "intended users",
+        "target users",
+        "适合谁",
+        "适用人群",
+        "目标用户",
+      ],
+      problems: [
+        "problem",
+        "why",
+        "motivation",
+        "pain points",
+        "problems solved",
+        "解决的问题",
+        "要解决的问题",
+        "痛点",
+        "为什么",
+      ],
       useCases: [
         "use cases",
+        "typical use cases",
+        "when to use",
+        "scenarios",
         "business scenarios",
         "用途",
+        "典型场景",
+        "业务场景",
         "适用场景",
         "使用场景",
       ],
-      capabilities: ["features", "capabilities", "功能", "特性", "核心能力"],
+      capabilities: [
+        "features",
+        "key features",
+        "core features",
+        "what it does",
+        "what you can do",
+        "capabilities",
+        "功能",
+        "特性",
+        "核心能力",
+        "主要功能",
+        "功能概览",
+        "现在已经能做什么",
+      ],
       workflow: [
         "workflow",
+        "typical workflow",
+        "usage workflow",
+        "typical usage path",
+        "user journey",
         "how it works",
         "core concepts",
         "流程",
         "工作流",
         "工作原理",
         "核心概念",
+        "典型使用路径",
+        "使用流程",
+        "操作流程",
       ],
       dependencies: [
         "requirements",
+        "system requirements",
+        "setup requirements",
         "prerequisites",
         "installation",
+        "installation and setup",
         "deployment",
         "providers",
         "integrations",
         "configuration",
+        "environment variables",
+        "environment configuration",
+        "environment variable configuration",
+        "configure environment variables",
         "依赖",
         "环境要求",
+        "环境变量",
+        "环境配置",
+        "环境变量配置",
+        "配置环境变量",
+        "前置条件",
         "安装",
+        "安装与准备",
         "部署",
         "模型服务",
         "集成",
@@ -126,24 +187,54 @@ describe("extractReaderMarkdownEvidence", () => {
       ],
       limitations: [
         "limitations",
+        "caveats",
+        "constraints",
         "known issues",
+        "important notes",
+        "disclaimer",
+        "license",
+        "licensing",
         "security",
+        "security and privacy",
         "privacy",
+        "risks",
         "data handling",
         "限制",
+        "注意事项",
         "已知问题",
+        "说明",
+        "重要说明",
+        "补充说明",
+        "许可证",
+        "许可协议",
         "安全",
+        "安全与隐私",
         "隐私",
+        "风险",
         "数据处理",
       ],
       maturity: [
         "roadmap",
+        "project roadmap",
+        "current roadmap",
+        "latest update",
+        "latest updates",
+        "recent updates",
+        "updates",
         "status",
+        "current status",
+        "maintenance status",
         "migration",
         "preview",
         "beta",
         "路线图",
+        "当前路线图",
+        "最新更新",
+        "最近更新",
+        "更新记录",
         "项目状态",
+        "当前状态",
+        "维护状态",
         "迁移",
         "预览",
         "测试版",
@@ -276,6 +367,389 @@ An end-to-end workspace for long-form fiction.
       limitations: [fact("协作编辑仍在测试", "README.zh-CN.md")],
       maturity: [fact("公开预览阶段", "README.zh-CN.md")],
     });
+  });
+
+  it("extracts a short real-world README shape with decorated headings and explicit command priority", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `# AI Story Workbench
+
+## ✨ 项目简介
+
+这是一个帮助创作者完成长篇故事的本地工作台。
+
+适合新手作者，也适合研究 Agent 工作流的开发者。
+
+## 项目定位
+
+- 如果你想验证 AI 如何参与整本小说生产，可以从这里开始。
+
+## 现在已经能做什么
+
+### 1. 自动规划
+- 从一句灵感生成整本方向。
+### 2. 创作中枢
+- 统一承载规划与任务状态。
+### 3. 章节生产
+- 串联生成、审核和修复。
+### 4. 拆书分析
+- 把分析结果沉淀为长期资产。
+### 5. 写法引擎
+- 保存并复用写法规则。
+### 6. 知识召回
+- 将知识库召回到后续创作。
+### 7. 衍生内容
+- 从成稿延展漫画和短剧。
+### 8. 公开文档
+- 提供产品说明和恢复手册。
+### 9. 模型路由与本地运行
+- 支持按任务选择模型并在本地运行。
+
+## 典型使用路径
+
+1. 输入一句灵感。
+2. 进入 \`项目设定\` 确认方向。
+3. 在 \`本书世界\` 补齐舞台边界。
+4. 使用 \`角色准备\` 建立角色网。
+5. 绑定知识库与写法资产。
+6. 进入 \`章节执行\` 逐章审核和修复。
+7. 启动整本生产并查看状态。
+
+## 最新更新
+
+### 2026-08-16
+
+- 桌面版更新至 \`0.4.13\`。
+
+## 快速开始
+
+\`pnpm dev:desktop\`
+
+### 环境要求
+
+- Node.js \`>=20.19\`
+- 至少一组可用的模型 API Key。
+
+### 1. 安装依赖
+
+\`pnpm install\`
+
+桌面运行时首次下载需要可访问分发源的网络环境。
+
+### 2. 配置环境变量
+
+- 服务端配置从 \`server/.env\` 读取。
+- 将 \`RAG_ENABLED\` 设为 false 可以先不接检索服务。
+- 模型 API Key 可以在设置页配置，无需写入前端环境变量。
+
+### 3. 启动开发环境
+
+\`pnpm dev\`
+
+## 技术栈与架构
+
+| 层级 | 技术 |
+| --- | --- |
+| 前端 | React 与 Vite |
+| 后端 | Express 与 Prisma |
+| AI 编排 | LangChain 与 LangGraph |
+| 数据库 | SQLite |
+| RAG | Qdrant |
+| 工程形态 | pnpm workspace Monorepo |
+
+### 当前系统关注点
+
+- 更细的说明请看 [架构文档](./docs/architecture.md)。
+- \`Creative Hub\` 负责统一创作中枢与任务运行时。
+- \`Production Pipeline\` 负责长篇生产主链。
+- \`Style Engine\` 负责长期写法资产。
+
+## 当前路线图
+
+- 改进可恢复的长链路任务。
+
+## 说明
+
+- 这是一个持续快速迭代的系统，功能边界仍在演化。
+
+## License
+
+- 本项目采用双许可证授权模式：
+- 服务型商用须取得商业授权。
+`,
+      ),
+    );
+
+    expect(result.readme.audiences.map(({ text }) => text)).toEqual([
+      "适合新手作者，也适合研究 Agent 工作流的开发者。",
+    ]);
+    expect(result.readme.useCases.map(({ text }) => text)).toEqual([
+      "如果你想验证 AI 如何参与整本小说生产，可以从这里开始。",
+    ]);
+    expect(result.readme.capabilityGroups).toHaveLength(9);
+    expect(result.readme.capabilityGroups.map(({ label }) => label)).toEqual([
+      "1. 自动规划",
+      "2. 创作中枢",
+      "3. 章节生产",
+      "4. 拆书分析",
+      "5. 写法引擎",
+      "6. 知识召回",
+      "7. 衍生内容",
+      "8. 公开文档",
+      "9. 模型路由与本地运行",
+    ]);
+    expect(result.readme.workflow.map(({ text }) => text)).toEqual([
+      "输入一句灵感。",
+      "进入 项目设定 确认方向。",
+      "在 本书世界 补齐舞台边界。",
+      "使用 角色准备 建立角色网。",
+      "绑定知识库与写法资产。",
+      "进入 章节执行 逐章审核和修复。",
+      "启动整本生产并查看状态。",
+    ]);
+    expect(result.readme.dependencies.map(({ text }) => text)).toEqual([
+      "Node.js >=20.19",
+      "至少一组可用的模型 API Key。",
+      "服务端配置从 server/.env 读取。",
+      "将 RAG_ENABLED 设为 false 可以先不接检索服务。",
+      "模型 API Key 可以在设置页配置，无需写入前端环境变量。",
+    ]);
+    expect(JSON.stringify(result.readme.dependencies)).not.toContain("0.4.13");
+    expect(result.architecture.map(({ text }) => text)).toEqual([
+      "前端 — React 与 Vite",
+      "后端 — Express 与 Prisma",
+      "AI 编排 — LangChain 与 LangGraph",
+      "数据库 — SQLite",
+      "RAG — Qdrant",
+      "工程形态 — pnpm workspace Monorepo",
+      "Creative Hub 负责统一创作中枢与任务运行时。",
+      "Production Pipeline 负责长篇生产主链。",
+    ]);
+    expect(
+      result.commands.map(({ kind, command }) => ({ kind, command })),
+    ).toEqual([
+      { kind: "install", command: "pnpm install" },
+      { kind: "run", command: "pnpm dev" },
+    ]);
+    expect(result.readme.limitations.map(({ text }) => text)).toEqual([
+      "桌面运行时首次下载需要可访问分发源的网络环境。",
+      "这是一个持续快速迭代的系统，功能边界仍在演化。",
+      "服务型商用须取得商业授权。",
+    ]);
+    expect(result.readme.maturity).toEqual([
+      fact("2026-08-16"),
+      fact("桌面版更新至 0.4.13。"),
+      fact("改进可恢复的长链路任务。"),
+    ]);
+  });
+
+  it("prefers informative positioning, routes real problems and use cases, and ignores contribution invitations", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `# Story System
+
+## Project introduction
+
+The core approach is:
+
+- Turn a short premise into a recoverable writing plan.
+- Keep chapter review and revision in one workflow.
+- Reuse world and character context across chapters.
+- Export completed work into other formats.
+
+## Project positioning
+
+Many chat-style writing tools are hard to use for long projects because the story gradually drifts out of shape.
+
+This repository is a director-style long-form production system.
+
+- 想把世界观、角色、知识库和章节修复串成一套稳定工作流。
+
+## Contributing
+
+If you want to contribute to this project, open an issue or pull request.
+`,
+      ),
+    ).readme;
+
+    expect(result.overview.map(({ text }) => text)).toEqual([
+      "This repository is a director-style long-form production system.",
+      "Turn a short premise into a recoverable writing plan.",
+      "Keep chapter review and revision in one workflow.",
+      "Reuse world and character context across chapters.",
+    ]);
+    expect(result.problems.map(({ text }) => text)).toEqual([
+      "Many chat-style writing tools are hard to use for long projects because the story gradually drifts out of shape.",
+    ]);
+    expect(result.useCases.map(({ text }) => text)).toEqual([
+      "想把世界观、角色、知识库和章节修复串成一套稳定工作流。",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("contribute");
+    expect(JSON.stringify(result)).not.toContain("The core approach is");
+  });
+
+  it("routes negated audience and use-case language to limitations", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Overview
+
+适合个人作者验证本地工作流。
+
+如果你需要可恢复的批量任务，可以从这里开始。
+
+## Audience
+
+- 不适合用于生产环境。
+- Not designed for production workloads.
+
+## Use cases
+
+- 不适用于处理受监管的机密数据。
+`,
+      ),
+    ).readme;
+
+    expect(result.audiences).toEqual([fact("适合个人作者验证本地工作流。")]);
+    expect(result.useCases).toEqual([
+      fact("如果你需要可恢复的批量任务，可以从这里开始。"),
+    ]);
+    expect(result.limitations).toEqual([
+      fact("不适合用于生产环境。"),
+      fact("Not designed for production workloads."),
+      fact("不适用于处理受监管的机密数据。"),
+    ]);
+  });
+
+  it("merges indented dependency continuations and deduplicates repeated runtime requirements", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Requirements
+
+- Node.js \`^20.19.0 || ^22.12.0 || >=24.0.0\`
+  Recommended: use the current 20.19 LTS release.
+- pnpm \`>=10.6\`
+  Recommended: use the version declared by the repository.
+- At least one model provider API Key.
+  It can also be configured after the application starts.
+- Qdrant is optional unless retrieval is enabled.
+- Prisma also requires Node \`^20.19.0 || ^22.12.0 || >=24.0.0\`.
+`,
+      ),
+    ).readme.dependencies.map(({ text }) => text);
+
+    expect(result).toEqual([
+      "Node.js ^20.19.0 || ^22.12.0 || >=24.0.0 — Recommended: use the current 20.19 LTS release.",
+      "pnpm >=10.6 — Recommended: use the version declared by the repository.",
+      "At least one model provider API Key. — It can also be configured after the application starts.",
+      "Qdrant is optional unless retrieval is enabled.",
+    ]);
+  });
+
+  it("extracts bounded environment configuration summaries without admitting credentials or commands", () => {
+    const credential = `ghp_${"a".repeat(36)}`;
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Environment variables
+
+- Server settings are read from \`server/.env\`.
+- Browser overrides are read from \`client/.env.local\`.
+- \`RAG_ENABLED\`
+  Set it to false when retrieval is not needed.
+- \`DATABASE_URL\` selects the local database.
+- \`QDRANT_URL\` identifies the optional vector service.
+- \`QDRANT_API_KEY\` is only needed with the vector service.
+- \`MODEL_PROVIDER\` supplies the startup default.
+- \`VITE_API_BASE_URL\` overrides automatic API discovery.
+- \`LOG_LEVEL\` controls diagnostic verbosity.
+- Never publish \`OPENAI_API_KEY=${credential}\`.
+- Run \`pnpm install\`.
+`,
+      ),
+    );
+
+    expect(result.readme.dependencies).toHaveLength(
+      README_PROFILE_CAPS.dependencies,
+    );
+    expect(result.readme.dependencies.map(({ text }) => text)).toEqual([
+      "Server settings are read from server/.env.",
+      "Browser overrides are read from client/.env.local.",
+      "RAG_ENABLED — Set it to false when retrieval is not needed.",
+      "DATABASE_URL selects the local database.",
+      "QDRANT_URL identifies the optional vector service.",
+      "QDRANT_API_KEY is only needed with the vector service.",
+      "MODEL_PROVIDER supplies the startup default.",
+      "VITE_API_BASE_URL overrides automatic API discovery.",
+    ]);
+    expect(result.commands).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(credential);
+    expect(JSON.stringify(result.readme.dependencies)).not.toContain(
+      "pnpm install",
+    );
+  });
+
+  it("keeps explicit command priority through ordinary platform subheadings", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Quick Start
+
+\`pnpm dev:desktop\`
+
+### Installation
+
+#### Windows
+
+\`npm install\`
+
+### Start Development
+
+#### macOS and Linux
+
+\`pnpm dev\`
+`,
+      ),
+    );
+
+    expect(
+      result.commands.map(({ kind, command }) => ({ kind, command })),
+    ).toEqual([
+      { kind: "install", command: "npm install" },
+      { kind: "run", command: "pnpm dev" },
+    ]);
+  });
+
+  it.each([
+    ["raw URL", "https://secret.invalid/path"],
+    ["fullwidth URL", "ｈｔｔｐｓ：／／secret.invalid/path"],
+    ["credential", `ghp_${"a".repeat(36)}`],
+    ["control", "unsafe\u0000label"],
+    ["bidi", "unsafe\u202elabel"],
+    ["malformed UTF-16", "unsafe\ud800label"],
+    ["command", "pnpm install"],
+    ["overlong", "界".repeat(481)],
+  ])(
+    "rejects an unsafe inline-code %s without exposing it as workflow prose",
+    (_label, inline) => {
+      const result = extractReaderMarkdownEvidence(
+        fetched("README.md", `## Workflow\n\n1. Open \`${inline}\` safely.`),
+      );
+
+      expect(result.readme.workflow).toEqual([]);
+      expect(result.commands).toEqual([]);
+    },
+  );
+
+  it("fails closed for an unbalanced inline-code run", () => {
+    expect(
+      extractReaderMarkdownEvidence(
+        fetched("README.md", "## Workflow\n\n1. Open `Project Setup safely."),
+      ),
+    ).toEqual(emptyEvidence());
   });
 
   it("admits bounded two-cell table facts and skips header, separator, and wider rows", () => {
@@ -1351,6 +1825,7 @@ Fourth declaration.
     expect(result.architecture.map(({ text }) => text)).toEqual([
       "First architecture paragraph.",
       "Second architecture paragraph.",
+      "Third architecture paragraph.",
     ]);
     expect(result.securityPrivacy.map(({ text }) => text)).toEqual([
       "First declaration.",
@@ -2192,7 +2667,10 @@ Go to the project page for details.
         ),
       ).readme.capabilityGroups.map(({ label }) => label),
     ).toEqual(
-      Array.from({ length: 6 }, (_, index) => `Group ${String(index)}`),
+      Array.from(
+        { length: README_PROFILE_CAPS.capabilityGroups },
+        (_, index) => `Group ${String(index)}`,
+      ),
     );
     expect(
       extractReaderMarkdownEvidence(

@@ -653,11 +653,13 @@ describe("buildReadmeProfile", () => {
           audiences: facts("Audience", 5),
           problems: facts("Problem", 5),
           useCases: facts("Use", 5),
-          capabilityGroups: Array.from({ length: 7 }, (_, index) =>
-            group(
-              `Group ${String(index + 1)}`,
-              ...facts(`Capability ${String(index + 1)}`, 7),
-            ),
+          capabilityGroups: Array.from(
+            { length: README_PROFILE_CAPS.capabilityGroups + 1 },
+            (_, index) =>
+              group(
+                `Group ${String(index + 1)}`,
+                ...facts(`Capability ${String(index + 1)}`, 7),
+              ),
           ),
           workflow: facts("Step", 9),
           dependencies: facts("Dependency", 9),

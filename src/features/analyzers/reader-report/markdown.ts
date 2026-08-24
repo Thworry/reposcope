@@ -17,6 +17,7 @@ import {
 import {
   README_PROFILE_CAPS,
   isCanonicalReadmePath,
+  normalizeReadmeHeading,
   readmeCommandKind,
   readmeLegacySection,
   readmeProfileSection,
@@ -28,6 +29,9 @@ const MAX_MARKDOWN_BYTES = 256 * 1024;
 const MAX_PROSE_CODE_POINTS = 480;
 const MAX_HTML_DEPTH = 128;
 const MAX_LINK_SCAN = 2_048;
+const MAX_INLINE_CODE_SPANS = 64;
+const MAX_INLINE_CODE_POINTS = 480;
+const MAX_INLINE_CODE_SOURCE_UNITS = 4_096;
 
 export const READER_MARKDOWN_PENDING_CAPABILITY_LIMITS = Object.freeze({
   maxGroups: 128,
@@ -54,17 +58,10 @@ const DEPENDENCY_CANDIDATE_CAP =
 const LIMITATION_CANDIDATE_CAP =
   DEPENDENCY_CANDIDATE_CAP + README_PROFILE_CAPS.limitations;
 const PROFILE_CANDIDATE_CAPS = Object.freeze({
-  overview: README_PROFILE_CAPS.overview,
-  audiences: README_PROFILE_CAPS.overview + README_PROFILE_CAPS.audiences,
-  problems:
-    README_PROFILE_CAPS.overview +
-    README_PROFILE_CAPS.audiences +
-    README_PROFILE_CAPS.problems,
-  useCases:
-    README_PROFILE_CAPS.overview +
-    README_PROFILE_CAPS.audiences +
-    README_PROFILE_CAPS.problems +
-    README_PROFILE_CAPS.useCases,
+  overview: README_PROFILE_CAPS.overview * 4,
+  audiences: README_PROFILE_CAPS.audiences * 4,
+  problems: README_PROFILE_CAPS.problems * 4,
+  useCases: README_PROFILE_CAPS.useCases * 4,
   workflow: WORKFLOW_CANDIDATE_CAP,
   dependencies: DEPENDENCY_CANDIDATE_CAP,
   limitations: LIMITATION_CANDIDATE_CAP,
@@ -115,6 +112,7 @@ interface FenceState {
   marker: "`" | "~";
   length: number;
   kind: ReaderCommandKind | null;
+  commandPriority: number;
   indentedWrapper: boolean;
 }
 
@@ -156,7 +154,13 @@ interface HeadingFrame {
   profileSection: ReadmeProfileSection | null;
   legacySection: ProseSection | null;
   commandKind: ReaderCommandKind | null;
+  commandPriority: number;
   label: string | null;
+}
+
+interface InlineCodeView {
+  value: string;
+  spans: string[];
 }
 
 interface ParagraphState {
@@ -260,10 +264,7 @@ function canonicalText(value: string): string {
 }
 
 function headingName(value: string): string {
-  return canonicalText(value)
-    .replace(/\s+#+\s*$/u, "")
-    .replace(/[?？:：]+$/u, "")
-    .toLocaleLowerCase("en-US");
+  return normalizeReadmeHeading(value);
 }
 
 function activeLegacySection(
@@ -278,13 +279,26 @@ function activeLegacySection(
   return null;
 }
 
-function activeCommandKind(
-  stack: readonly HeadingFrame[],
-): ReaderCommandKind | null {
-  for (let index = stack.length - 1; index >= 0; index -= 1) {
-    const kind = stack[index]?.commandKind;
+const BROAD_COMMAND_HEADINGS = new Set([
+  "usage",
+  "quick start",
+  "使用",
+  "快速开始",
+]);
 
-    if (kind !== null && kind !== undefined) return kind;
+function activeCommandContext(
+  stack: readonly HeadingFrame[],
+): { kind: ReaderCommandKind; priority: number } | null {
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    const frame = stack[index];
+    const kind = frame?.commandKind;
+
+    if (kind !== null && kind !== undefined) {
+      return {
+        kind,
+        priority: frame?.commandPriority ?? 1,
+      };
+    }
   }
 
   return null;
@@ -331,10 +345,11 @@ function parseAtxHeading(
 
   if (match === null) return null;
   const value = match[2] ?? "";
+  const label = safeHeadingLabel(value);
   return {
     level: match[1]?.length ?? 1,
-    name: headingName(value),
-    label: safeHeadingLabel(value),
+    name: label === null ? "" : headingName(label),
+    label,
   };
 }
 
@@ -353,6 +368,7 @@ function parseFence(line: string): FenceState | null {
     marker: markerRun[0] as "`" | "~",
     length: markerRun.length,
     kind: null,
+    commandPriority: 0,
     indentedWrapper: false,
   };
 }
@@ -631,6 +647,61 @@ function containsMarkdownLink(value: string): boolean {
   return false;
 }
 
+function closingBacktickRun(
+  value: string,
+  marker: string,
+  start: number,
+): number {
+  let candidate = value.indexOf(marker, start);
+
+  while (candidate >= 0) {
+    if (
+      value[candidate - 1] !== "`" &&
+      value[candidate + marker.length] !== "`"
+    ) {
+      return candidate;
+    }
+    candidate = value.indexOf(marker, candidate + marker.length);
+  }
+
+  return -1;
+}
+
+function escapeMarkdownLiteral(value: string): string {
+  return value.replace(/[\\*_~]/gu, "\\$&");
+}
+
+function inlineCodeView(value: string): InlineCodeView | null {
+  if (value.length > MAX_INLINE_CODE_SOURCE_UNITS) return null;
+  const visible: string[] = [];
+  const spans: string[] = [];
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character !== "`") {
+      if (character !== undefined) visible.push(character);
+      continue;
+    }
+
+    let runEnd = index + 1;
+    while (value[runEnd] === "`") runEnd += 1;
+    const marker = value.slice(index, runEnd);
+    const closing = closingBacktickRun(value, marker, runEnd);
+
+    if (closing < 0 || spans.length >= MAX_INLINE_CODE_SPANS) return null;
+    const rawSpan = value.slice(runEnd, closing);
+    const span = rawSpan.trim();
+    if (span.length === 0 || Array.from(span).length > MAX_INLINE_CODE_POINTS) {
+      return null;
+    }
+    visible.push(escapeMarkdownLiteral(span));
+    spans.push(span);
+    index = closing + marker.length - 1;
+  }
+
+  return { value: visible.join(""), spans };
+}
+
 function visibleProfileProse(value: string): string | null {
   const normalized = value.normalize("NFKC");
 
@@ -644,11 +715,17 @@ function visibleProfileProse(value: string): string | null {
     }
   }
 
-  const normalizedVisible = visibleProse(normalized);
+  const originalInline = inlineCodeView(value);
+  const normalizedInline = inlineCodeView(normalized);
+  if (originalInline === null || normalizedInline === null) return null;
+
+  const normalizedVisible = visibleProse(normalizedInline.value);
   if (normalizedVisible === null) return null;
 
   const visible =
-    normalized === value ? normalizedVisible : visibleProse(value);
+    normalized === value
+      ? normalizedVisible
+      : visibleProse(originalInline.value);
   if (visible === null) return null;
   for (const view of [visible, visible.normalize("NFKC")]) {
     if (
@@ -723,15 +800,7 @@ function twoCellTableFact(line: string): string | null {
 }
 
 function inlineCommands(line: string): string[] {
-  const commands: string[] = [];
-  const expression = /`([^`\n]+)`/gu;
-
-  for (const match of line.matchAll(expression)) {
-    const command = match[1];
-    if (command !== undefined) commands.push(command);
-  }
-
-  return commands;
+  return inlineCodeView(line)?.spans ?? [];
 }
 
 function looksLikeDocumentedCommand(line: string): boolean {
@@ -786,6 +855,188 @@ function looksLikeFallbackOrientation(line: string): boolean {
     /\b(?:application|framework|library|platform|project|repository|service|tool|workspace)\b/iu.test(
       text,
     ) || /(?:应用|工具|平台|项目|服务|框架|用于|帮助|是一个)/u.test(text)
+  );
+}
+
+type RoutedNarrativeSection =
+  "audiences" | "problems" | "useCases" | "limitations";
+
+function isContributionInvitation(text: string): boolean {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+
+  return (
+    /(?:参与|贡献)(?:这个|本|该)?项目|欢迎.{0,24}(?:贡献|提交)|提交.{0,16}(?:issue|pull request|pr)/iu.test(
+      normalized,
+    ) ||
+    /\b(?:contribut(?:e|ing|ion)|open (?:an )?(?:issue|pull request)|submit (?:an )?(?:issue|pull request))\b/u.test(
+      normalized,
+    )
+  );
+}
+
+function isPureProfileLeadIn(text: string): boolean {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+
+  if (!/[:：]$/u.test(normalized) || Array.from(normalized).length > 120) {
+    return false;
+  }
+
+  return (
+    /^(?:(?:它|其|本项目|该项目|这个项目|项目)的?)?(?:核心|主要|关键)?(?:做法|能力|功能|特性|特点|流程|内容|方向|产品判断)(?:是|包括|如下)[:：]$/u.test(
+      normalized,
+    ) ||
+    /^(?:如果|若).*(?:如下|下面|这类|这些).*[:：]$/u.test(normalized) ||
+    /^(?:the )?(?:core |main |key )?(?:approach|capabilities|features|workflow|contents?|direction)(?: is| are| include| includes| as follows)?\s*[:：]$/u.test(
+      normalized,
+    ) ||
+    /^(?:本|该|这个)?项目采用.{0,24}(?:授权|许可)(?:模式|方式)[:：]$/u.test(
+      normalized,
+    ) ||
+    /^(?:先|首先)?(?:复制|创建|配置).{0,60}(?:示例|配置|环境变量|文件)[:：]$/u.test(
+      normalized,
+    ) ||
+    /^(?:the )?(?:license|licensing) (?:model|mode) (?:is|includes)\s*[:：]$/u.test(
+      normalized,
+    ) ||
+    /^(?:first,?\s*)?(?:copy|create|configure).{0,60}(?:example|configuration|environment variables?|files?)\s*[:：]$/u.test(
+      normalized,
+    )
+  );
+}
+
+function isDocumentationPointer(text: string): boolean {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+
+  return (
+    /^(?:更多|更细|详情|详细|请|可以).{0,40}(?:参阅|查看|阅读|看).{0,80}(?:文档|说明|readme|docs?\/)/iu.test(
+      normalized,
+    ) ||
+    /^(?:for (?:more|further) (?:details|information)|see|read|learn more).{0,100}(?:documentation|docs?\/|readme)/u.test(
+      normalized,
+    )
+  );
+}
+
+function isExplicitLimitation(text: string): boolean {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+
+  return (
+    /(?:不|并不|并非|不是)(?:适合|适用|推荐|建议)(?:用于|作为)?|不面向/u.test(
+      normalized,
+    ) ||
+    /(?:需要|要求).{0,32}(?:网络|联网|代理|镜像)|(?:网络|联网).{0,32}(?:需要|要求|受限)|(?:无法|不能).{0,24}(?:访问|连接|下载)/u.test(
+      normalized,
+    ) ||
+    /(?:须|需要|必须).{0,24}(?:商业授权|商业许可)|功能边界.{0,20}(?:演化|变化)|持续(?:快速)?迭代/u.test(
+      normalized,
+    ) ||
+    /\bnot (?:designed|intended|suitable|recommended) for\b/u.test(
+      normalized,
+    ) ||
+    /\b(?:not for|should not be used for|do not use (?:it )?for)\b/u.test(
+      normalized,
+    ) ||
+    /\brequires?.{0,32}(?:network|internet) access\b|\b(?:network|internet) access (?:is )?required\b/u.test(
+      normalized,
+    ) ||
+    /\bcannot (?:access|connect|download)\b|\bcommercial (?:license|authorization) (?:is )?required\b/u.test(
+      normalized,
+    ) ||
+    /\b(?:rapidly evolving|under active development)\b/u.test(normalized)
+  );
+}
+
+function routedNarrativeSection(text: string): RoutedNarrativeSection | null {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+
+  if (isExplicitLimitation(text)) return "limitations";
+
+  if (
+    /(?:适合|面向|目标用户|目标人群|适用人群)/u.test(normalized) ||
+    /\b(?:built|designed|intended) for\b/u.test(normalized) ||
+    /\btarget (?:audience|users?)\b/u.test(normalized)
+  ) {
+    return "audiences";
+  }
+  if (
+    /(?:如果你想|如果你需要|想验证|想研究|适用于|使用场景)/u.test(normalized) ||
+    /^(?:想|希望)(?:把|将|通过)/u.test(normalized) ||
+    /\b(?:when to use|if you (?:want|need)|use cases?)\b/u.test(normalized)
+  ) {
+    return "useCases";
+  }
+  if (
+    /(?:痛点|难以|困难|解决(?:了|的)?(?:问题|难题)|容易[^。！？]{0,40}(?:失败|冲突|失控|发散|偏离|混乱)|越[^。！？]{0,16}越(?:散|乱|偏))/u.test(
+      normalized,
+    ) ||
+    /\b(?:pain points?|problems? solved|struggl(?:e|es|ing)|difficult to|hard to)\b/u.test(
+      normalized,
+    )
+  ) {
+    return "problems";
+  }
+
+  return null;
+}
+
+function overviewFactPriority(text: string): number {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+
+  if (
+    /(?:这是一个|(?:本|该|这个)?(?:项目|仓库|工具|系统|平台).{0,24}(?:是|用于|提供|帮助))/u.test(
+      normalized,
+    ) ||
+    /\b(?:this|the) (?:project|repository|tool|application|system|workspace|service) (?:is|provides|offers|helps)\b/u.test(
+      normalized,
+    )
+  ) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function documentedRuntimeIdentity(text: string): string | null {
+  const normalized = canonicalText(text).toLocaleLowerCase("en-US");
+  const runtime =
+    /\b(bun|deno|go|java|node(?:\.js)?|npm|php|pnpm|python|ruby|rust|swift|yarn)\b/u.exec(
+      normalized,
+    );
+
+  if (runtime === null) return null;
+  const tail = normalized.slice(runtime.index + runtime[0].length);
+  const versions =
+    tail.match(/(?:[~^]|[<>]=?|v)?\s*\d+(?:\.\d+){0,2}(?:\.x)?/gu) ?? [];
+  if (versions.length === 0) return null;
+
+  const runtimeName = runtime[0] === "node.js" ? "node" : runtime[0];
+
+  return `${runtimeName}:${versions
+    .slice(0, 3)
+    .map((version) => version.replace(/\s+/gu, ""))
+    .join("|")}`;
+}
+
+function dependencyFactPriority(text: string): number {
+  if (documentedRuntimeIdentity(text) !== null) return 4;
+
+  const normalized = canonicalText(text);
+  if (
+    /(?:api key|密钥|秘钥)/iu.test(normalized) ||
+    /(?:^|[^\p{L}\p{N}])(?:[A-Z][A-Z0-9]*_[A-Z0-9_]+)(?:$|[^\p{L}\p{N}])/u.test(
+      normalized,
+    ) ||
+    /(?:[\w.-]+\/)?\.env(?:\.[\w-]+)*/iu.test(normalized)
+  ) {
+    return 3;
+  }
+
+  return 1;
+}
+
+function isDatedMaturityHeading(value: string): boolean {
+  return /^(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/u.test(
+    value.normalize("NFKC").trim(),
   );
 }
 
@@ -965,10 +1216,13 @@ export function extractReaderMarkdownEvidence(
   const fallbackSeen = new Set<string>();
   const caps: Readonly<Record<ProseSection, number>> = {
     scenarios: 3,
-    architecture: 2,
+    architecture: 8,
     securityPrivacy: 3,
   };
-  const commands = new Map<ReaderCommandKind, ReaderCommandFact>();
+  const commands = new Map<
+    ReaderCommandKind,
+    { fact: ReaderCommandFact; priority: number }
+  >();
   const scenarioExclusions = new Set(
     [...(options.scenarioExclusions ?? [])].map(canonicalText),
   );
@@ -983,12 +1237,21 @@ export function extractReaderMarkdownEvidence(
   let doctype: DoctypeState | null = null;
   let htmlBlock: HtmlBlockState | null = null;
   let malformedBlock = false;
+  let dependencyContinuationIndex: number | null = null;
   const overviewHeadingLevels = new Set<number>();
 
   const addProse = (section: ProseSection, candidate: string): void => {
-    const text = visibleProse(candidate);
+    const text =
+      section === "architecture"
+        ? visibleProfileProse(candidate)
+        : visibleProse(candidate);
 
-    if (text === null) return;
+    if (
+      text === null ||
+      (section === "architecture" && isDocumentationPointer(text))
+    ) {
+      return;
+    }
     const key = canonicalText(text);
     if (
       (section === "scenarios" && scenarioExclusions.has(key)) ||
@@ -1007,17 +1270,59 @@ export function extractReaderMarkdownEvidence(
   ): void => {
     const text = visibleProfileProse(candidate);
 
-    if (text === null) return;
-    const key = canonicalText(text);
     if (
-      scenarioExclusions.has(key) ||
-      evidence.readme[section].length >= PROFILE_CANDIDATE_CAPS[section] ||
-      readmeSeen[section].has(key)
+      text === null ||
+      isContributionInvitation(text) ||
+      isPureProfileLeadIn(text)
     ) {
       return;
     }
-    readmeSeen[section].add(key);
-    evidence.readme[section].push({ source, path: file.path, text });
+    const routedSection = routedNarrativeSection(text);
+    const targetSection =
+      routedSection === "limitations"
+        ? routedSection
+        : section === "overview"
+          ? (routedSection ?? section)
+          : section;
+    const key = canonicalText(text);
+    if (
+      scenarioExclusions.has(key) ||
+      evidence.readme[targetSection].length >=
+        PROFILE_CANDIDATE_CAPS[targetSection] ||
+      readmeSeen[targetSection].has(key)
+    ) {
+      return;
+    }
+    readmeSeen[targetSection].add(key);
+    evidence.readme[targetSection].push({ source, path: file.path, text });
+  };
+
+  const appendDependencyContinuation = (
+    index: number,
+    candidate: string,
+  ): number | null => {
+    const current = evidence.readme.dependencies[index];
+    const continuation = visibleProfileProse(candidate);
+    if (current === undefined || continuation === null) return null;
+    const combined = visibleProse(
+      escapeMarkdownLiteral(`${current.text} — ${continuation}`),
+    );
+    if (combined === null) return null;
+    const oldKey = canonicalText(current.text);
+    const newKey = canonicalText(combined);
+    if (newKey !== oldKey && readmeSeen.dependencies.has(newKey)) return null;
+
+    readmeSeen.dependencies.delete(oldKey);
+    readmeSeen.dependencies.add(newKey);
+    current.text = combined;
+    return index;
+  };
+
+  const rememberDependencyListFact = (beforeLength: number): void => {
+    dependencyContinuationIndex =
+      evidence.readme.dependencies.length > beforeLength
+        ? evidence.readme.dependencies.length - 1
+        : null;
   };
 
   const addCapabilityFact = (label: string, candidate: string): void => {
@@ -1090,7 +1395,18 @@ export function extractReaderMarkdownEvidence(
       return;
     }
     const text = visibleProfileProse(candidate);
-    if (text === null) return;
+    if (
+      text === null ||
+      isContributionInvitation(text) ||
+      isPureProfileLeadIn(text)
+    ) {
+      return;
+    }
+    const routedSection = routedNarrativeSection(text);
+    if (routedSection !== null) {
+      addReadmeFact(routedSection, text);
+      return;
+    }
     const key = canonicalText(text);
     if (scenarioExclusions.has(key) || fallbackSeen.has(key)) return;
     fallbackSeen.add(key);
@@ -1171,16 +1487,25 @@ export function extractReaderMarkdownEvidence(
     if (!paragraph.invalid) paragraph.parts.push(text);
   };
 
-  const addCommand = (kind: ReaderCommandKind, candidate: string): void => {
+  const addCommand = (
+    kind: ReaderCommandKind,
+    candidate: string,
+    contextualPriority: number,
+  ): void => {
     const normalized = candidate
       .normalize("NFKC")
       .trim()
       .replace(/^[$>](?:\s+|$)/u, "")
       .trim();
     const resolvedKind = documentedCommandKind(candidate, kind);
+    const priority =
+      resolvedKind === kind
+        ? contextualPriority
+        : Math.min(contextualPriority, 1);
+    const existing = commands.get(resolvedKind);
 
     if (
-      commands.has(resolvedKind) ||
+      (existing !== undefined && existing.priority >= priority) ||
       normalized.startsWith("#") ||
       /^(?:`{3,}|~{3,})/u.test(normalized)
     ) {
@@ -1189,11 +1514,14 @@ export function extractReaderMarkdownEvidence(
     const disposition = documentedCommandDisposition(candidate);
     if (disposition === null) return;
     commands.set(resolvedKind, {
-      source,
-      path: file.path,
-      kind: resolvedKind,
-      command: disposition === "withheld" ? null : normalized,
-      disposition,
+      priority,
+      fact: {
+        source,
+        path: file.path,
+        kind: resolvedKind,
+        command: disposition === "withheld" ? null : normalized,
+        disposition,
+      },
     });
   };
 
@@ -1203,19 +1531,35 @@ export function extractReaderMarkdownEvidence(
     label: string | null,
   ): void => {
     flushParagraph();
+    const nestedUnderMaturity = headings.some(
+      (frame) => frame.level < level && frame.profileSection === "maturity",
+    );
     while ((headings.at(-1)?.level ?? 0) >= level) headings.pop();
     const profileSection = readmeProfileSection(name);
+    const commandKind = readmeCommandKind(name);
+    if (
+      profileSection === null &&
+      nestedUnderMaturity &&
+      label !== null &&
+      isDatedMaturityHeading(label)
+    ) {
+      addReadmeFact("maturity", label);
+    }
     if (profileSection === "overview") overviewHeadingLevels.add(level);
     headings.push({
       level,
       profileSection,
       legacySection: readmeLegacySection(name),
-      commandKind: readmeCommandKind(name),
+      commandKind,
+      commandPriority:
+        commandKind === null ? 0 : BROAD_COMMAND_HEADINGS.has(name) ? 1 : 2,
       label,
     });
   };
 
   for (let index = 0; index < lines.length; index += 1) {
+    const priorDependencyContinuationIndex = dependencyContinuationIndex;
+    dependencyContinuationIndex = null;
     let line = lines[index] ?? "";
     let trimmed = line.trim();
 
@@ -1228,7 +1572,7 @@ export function extractReaderMarkdownEvidence(
       ) {
         fence = null;
       } else if (fence.kind !== null && trimmed.length > 0) {
-        addCommand(fence.kind, trimmed);
+        addCommand(fence.kind, trimmed, fence.commandPriority);
       }
       continue;
     }
@@ -1301,7 +1645,9 @@ export function extractReaderMarkdownEvidence(
       const openingFence = parseFence(line);
       if (openingFence !== null) {
         flushParagraph();
-        openingFence.kind = activeCommandKind(headings);
+        const commandContext = activeCommandContext(headings);
+        openingFence.kind = commandContext?.kind ?? null;
+        openingFence.commandPriority = commandContext?.priority ?? 0;
         fence = openingFence;
         continue;
       }
@@ -1391,10 +1737,11 @@ export function extractReaderMarkdownEvidence(
     const underlineLevel =
       nextLine === undefined ? null : setextLevel(nextLine);
     if (trimmed.length > 0 && underlineLevel !== null) {
+      const label = safeHeadingLabel(trimmed);
       enterHeading(
         underlineLevel,
-        headingName(trimmed),
-        safeHeadingLabel(trimmed),
+        label === null ? "" : headingName(label),
+        label,
       );
       index += 1;
       continue;
@@ -1406,7 +1753,9 @@ export function extractReaderMarkdownEvidence(
     }
     const legacySection = activeLegacySection(headings);
     const profile = activeProfileContext(headings);
-    const commandKind = activeCommandKind(headings);
+    const commandContext = activeCommandContext(headings);
+    const commandKind = commandContext?.kind ?? null;
+    const commandPriority = commandContext?.priority ?? 0;
     const item = listItem(line);
     const candidate = item ?? trimmed;
     const target = {
@@ -1447,19 +1796,51 @@ export function extractReaderMarkdownEvidence(
           { ...target, legacySection: null, fallback: false },
           tableFact,
         );
+      } else if (tableFact !== null && legacySection === "architecture") {
+        addProse("architecture", tableFact);
       }
+      continue;
+    }
+    const indentedDependencyContinuation =
+      priorDependencyContinuationIndex !== null &&
+      item === null &&
+      /^(?: {2,3}|\t)\S/u.test(line) &&
+      (profile?.section === "dependencies" || commandKind !== null) &&
+      documentedCommandDisposition(candidate) === null &&
+      !looksLikeDocumentedCommand(candidate);
+    if (indentedDependencyContinuation) {
+      flushParagraph();
+      const continuationIndex = appendDependencyContinuation(
+        priorDependencyContinuationIndex,
+        candidate,
+      );
+      if (continuationIndex !== null) {
+        dependencyContinuationIndex = continuationIndex;
+        continue;
+      }
+    }
+    if (isExplicitLimitation(candidate)) {
+      flushParagraph();
+      addReadmeFact("limitations", candidate);
       continue;
     }
     const inline = inlineCommands(line);
     let admittedCommand = false;
+    let admittedRuntimeRequirement = false;
 
     for (const command of inline) {
       const disposition = documentedCommandDisposition(command);
-      if (disposition === null && isDocumentedRuntimeRequirement(command)) {
-        addReadmeFact("dependencies", command);
+      if (
+        disposition === null &&
+        isDocumentedRuntimeRequirement(command) &&
+        (commandKind !== null || profile?.section === "dependencies")
+      ) {
+        admittedRuntimeRequirement = true;
       } else if (disposition !== null) {
         admittedCommand = true;
-        if (commandKind !== null) addCommand(commandKind, command);
+        if (commandKind !== null) {
+          addCommand(commandKind, command, commandPriority);
+        }
       }
     }
     const plainCommandContext =
@@ -1473,7 +1854,16 @@ export function extractReaderMarkdownEvidence(
 
     if (plainDisposition !== null) {
       admittedCommand = true;
-      if (commandKind !== null) addCommand(commandKind, candidate);
+      if (commandKind !== null) {
+        addCommand(commandKind, candidate, commandPriority);
+      }
+    }
+    if (admittedRuntimeRequirement && !admittedCommand) {
+      flushParagraph();
+      const beforeLength = evidence.readme.dependencies.length;
+      addReadmeFact("dependencies", candidate);
+      if (item !== null) rememberDependencyListFact(beforeLength);
+      continue;
     }
     if (
       !admittedCommand &&
@@ -1481,7 +1871,9 @@ export function extractReaderMarkdownEvidence(
       (commandKind !== null || profile?.section === "dependencies")
     ) {
       flushParagraph();
+      const beforeLength = evidence.readme.dependencies.length;
       addReadmeFact("dependencies", candidate);
+      if (item !== null) rememberDependencyListFact(beforeLength);
       continue;
     }
     if (
@@ -1495,7 +1887,7 @@ export function extractReaderMarkdownEvidence(
       flushParagraph();
       continue;
     }
-    if (admittedCommand || inline.length > 0) {
+    if (admittedCommand) {
       flushParagraph();
       continue;
     }
@@ -1504,7 +1896,6 @@ export function extractReaderMarkdownEvidence(
       isReferenceDefinition(line) ||
       trimmed.startsWith("![") ||
       trimmed.startsWith("<") ||
-      trimmed.includes("`") ||
       /^(?: {4}|\t)/u.test(line)
     ) {
       flushParagraph();
@@ -1513,7 +1904,11 @@ export function extractReaderMarkdownEvidence(
 
     if (item !== null) {
       flushParagraph();
+      const beforeLength = evidence.readme.dependencies.length;
       addParagraphCandidate({ ...target, fallback: false }, item);
+      if (target.profileSection === "dependencies") {
+        rememberDependencyListFact(beforeLength);
+      }
     } else {
       addParagraphLine(target, line);
     }
@@ -1540,12 +1935,45 @@ export function extractReaderMarkdownEvidence(
   }
 
   const profileSeen = new Set(scenarioExclusions);
+  const dependencyRuntimeSeen = new Set<string>();
   const finalizeFacts = (section: ProfileTextSection): void => {
     const finalized: ReaderTextFact[] = [];
-    for (const fact of evidence.readme[section]) {
+    const sourceFacts = evidence.readme[section];
+    const candidates =
+      section === "overview" ||
+      (section === "dependencies" &&
+        sourceFacts.length > README_PROFILE_CAPS.dependencies)
+        ? sourceFacts
+            .map((fact, index) => ({ fact, index }))
+            .sort((left, right) => {
+              const priority = (fact: ReaderTextFact): number =>
+                section === "overview"
+                  ? overviewFactPriority(fact.text)
+                  : dependencyFactPriority(fact.text);
+
+              return (
+                priority(right.fact) - priority(left.fact) ||
+                left.index - right.index
+              );
+            })
+            .map(({ fact }) => fact)
+        : sourceFacts;
+    for (const fact of candidates) {
       const key = canonicalText(fact.text);
-      if (profileSeen.has(key)) continue;
+      const runtimeIdentity =
+        section === "dependencies"
+          ? documentedRuntimeIdentity(fact.text)
+          : null;
+      if (
+        profileSeen.has(key) ||
+        (runtimeIdentity !== null && dependencyRuntimeSeen.has(runtimeIdentity))
+      ) {
+        continue;
+      }
       profileSeen.add(key);
+      if (runtimeIdentity !== null) {
+        dependencyRuntimeSeen.add(runtimeIdentity);
+      }
       finalized.push(fact);
       if (finalized.length >= README_PROFILE_CAPS[section]) break;
     }
@@ -1598,8 +2026,8 @@ export function extractReaderMarkdownEvidence(
   }
 
   evidence.commands = READER_COMMAND_KINDS.flatMap((kind) => {
-    const fact = commands.get(kind);
-    return fact === undefined ? [] : [fact];
+    const command = commands.get(kind);
+    return command === undefined ? [] : [command.fact];
   });
   return evidence;
 }

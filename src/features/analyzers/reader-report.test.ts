@@ -273,6 +273,7 @@ describe("analyzeReaderReport", () => {
     expect(report.securityPrivacy.declarations.map(({ text }) => text)).toEqual(
       ["Configuration values remain outside the checked-in source."],
     );
+    expect(report.securityPrivacy.availability).toBe("available");
     expect(report.maintenance.activity).toEqual({
       elapsedUtcDays: 10,
       band: "within-180-days",
@@ -294,6 +295,27 @@ describe("analyzeReaderReport", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("treats README requirements as getting-started evidence without reusable commands", () => {
+    const input = withReadmeText(
+      completeInput(),
+      `# Fixture\n\n## Requirements\n\nNode.js 24 or later.\n`,
+    );
+    input.files = input.files.filter(({ path }) => path !== "package.json");
+    input.tree.files = input.tree.files.filter(
+      ({ path }) => path !== "package.json",
+    );
+
+    const report = analyzeReaderReport(input);
+
+    expect(report.readme.dependencies).toMatchObject([
+      { text: "Node.js 24 or later." },
+    ]);
+    expect(report.gettingStarted).toEqual({
+      availability: "available",
+      commands: [],
+    });
   });
 
   it.each([
@@ -391,6 +413,26 @@ describe("analyzeReaderReport", () => {
     expect(signalState(report, "run")).toBe("present");
     expect(signalState(report, "license")).toBe("present");
     expect(signalState(report, "tests")).toBe("present");
+  });
+
+  it("treats explicitly absent security signals as evaluated under complete coverage", () => {
+    const input = withoutOnboarding(completeInput());
+    input.general = {
+      ...input.general,
+      hasLicenseFile: false,
+      apiLicenseDetected: false,
+      hasSecurityPolicy: false,
+      hasConfigurationEvidence: false,
+    };
+    const report = analyzeReaderReport(input);
+
+    expect(report.securityPrivacy.signals.map(({ state }) => state)).toEqual([
+      "absent",
+      "absent",
+      "absent",
+    ]);
+    expect(report.securityPrivacy.declarations).toEqual([]);
+    expect(report.securityPrivacy.availability).toBe("available");
   });
 
   it.each(["package.json", "go.mod"])(
@@ -727,7 +769,7 @@ describe("analyzeReaderReport", () => {
     }
   });
 
-  it("collects recognized documents in path order and caps reader prose", () => {
+  it("collects recognized documents in path order and keeps bounded reader prose", () => {
     const input = completeInput();
     const documents = [
       readerFile(
@@ -757,7 +799,7 @@ describe("analyzeReaderReport", () => {
       "docs/architecture-a.md",
       "docs/architecture-z.md",
     ]);
-    expect(report.architecture.excerpts).toHaveLength(2);
+    expect(report.architecture.excerpts).toHaveLength(3);
     expect(report.architecture.excerpts[0]?.source).toBe("readme");
     expect(report.securityPrivacy.declarations).toHaveLength(3);
     expect(report.securityPrivacy.declarations.map(({ path }) => path)).toEqual(
@@ -941,6 +983,31 @@ Hidden README security provenance.
     expect(report.scenarios.facts.map(({ text }) => text)).toEqual([
       "A distinct reader scenario.",
     ]);
+  });
+
+  it("promotes routed README use cases into the practical scenario chapter", () => {
+    const input = completeInput();
+    const readme = readerFile(
+      "README.md",
+      `## Project positioning
+
+This is a bounded project explanation.
+
+- If you want to validate an end-to-end workflow before adoption.
+- If you need to compare the documented project with your business process.
+`,
+    );
+    input.files = [
+      readme,
+      ...input.files.filter(({ path }) => path !== "README.md"),
+    ];
+
+    const report = analyzeReaderReport(input);
+    expect(report.readme.useCases.map(({ text }) => text)).toEqual([
+      "If you want to validate an end-to-end workflow before adoption.",
+      "If you need to compare the documented project with your business process.",
+    ]);
+    expect(report.scenarios.facts).toEqual(report.readme.useCases);
   });
 
   it("removes purpose duplicates before applying the final three-scenario cap", () => {
