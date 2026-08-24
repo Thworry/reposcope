@@ -239,6 +239,7 @@ async function expectReport(page: Page, name = "owner/repo"): Promise<void> {
 const READER_REGION_ORDER = [
   "orientation",
   "community",
+  "takeaways",
   "readme-narrative",
   "capabilities",
   "workflow",
@@ -257,6 +258,7 @@ const READER_REGION_ORDER = [
 const ENGLISH_READER_HEADINGS = [
   "Project orientation",
   "Community and maintenance facts",
+  "Reader takeaways",
   "What the README says",
   "Core capabilities",
   "Documented workflow",
@@ -274,6 +276,7 @@ const ENGLISH_READER_HEADINGS = [
 const CHINESE_READER_HEADINGS = [
   "项目定位",
   "社区与维护事实",
+  "读者结论",
   "README 如何介绍项目",
   "核心能力",
   "README 中的工作流程",
@@ -1027,11 +1030,15 @@ test("Fiction Workbench exposes the complete README-first human dossier", async 
     ),
   ).toEqual([
     { term: "Stars", accessibleValue: "Stars: 1,284", exactValue: "1284" },
-    { term: "Watch", accessibleValue: "Watch: 37", exactValue: "37" },
+    {
+      term: "Watchers",
+      accessibleValue: "Watchers: 37",
+      exactValue: "37",
+    },
     { term: "Forks", accessibleValue: "Forks: 146", exactValue: "146" },
     {
-      term: "Open issues",
-      accessibleValue: "Open issues: 23",
+      term: "Open issues and PRs",
+      accessibleValue: "Open issues and PRs: 23",
       exactValue: "23",
     },
     {
@@ -1041,7 +1048,7 @@ test("Fiction Workbench exposes the complete README-first human dossier", async 
     },
     {
       term: "License",
-      accessibleValue: "License: Recognized",
+      accessibleValue: "License: Evidence found",
       exactValue: "present",
     },
   ]);
@@ -1140,11 +1147,22 @@ test("Fiction Workbench exposes the complete README-first human dossier", async 
   const alternatives = page.getByRole("link", {
     name: "Search GitHub repositories using these evidence terms",
   });
-  await expect(alternatives).toHaveAttribute(
-    "href",
-    "https://github.com/search?q=topic%3Aapplication%20topic%3Afixture%20topic%3Aquality&type=repositories",
-  );
-  await expect(alternatives).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(alternatives).toHaveCount(3);
+  expect(
+    await alternatives.evaluateAll((links) =>
+      links.map((link) => link.getAttribute("href")),
+    ),
+  ).toEqual([
+    "https://github.com/search?q=application%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+    "https://github.com/search?q=fixture%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+    "https://github.com/search?q=quality%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+  ]);
+  for (let index = 0; index < (await alternatives.count()); index += 1) {
+    await expect(alternatives.nth(index)).toHaveAttribute(
+      "rel",
+      "noopener noreferrer",
+    );
+  }
 
   const sourceLinks = page.locator(".reader-report__source[href]");
   for (let index = 0; index < (await sourceLinks.count()); index += 1) {
@@ -1256,9 +1274,16 @@ test("archived stale evidence requires verification and stays factual", async ({
   await expect(maintenance).toContainText("over 365 days");
   const decision = readerSection(page, "decision-summary");
   await expect(decision).toContainText(
-    "Is the last supported release compatible with the intended platform?",
+    "Is the license compatible with the intended use?",
   );
   await expect(decision).toContainText(
+    "Can the documented install and start path be reproduced in an isolated environment?",
+  );
+  const reliability = readerSection(page, "reliability");
+  await expect(reliability).toContainText(
+    "Is the last supported release compatible with the intended platform?",
+  );
+  await expect(reliability).toContainText(
     "Which data leaves the local environment at runtime?",
   );
   await expectAppendixClosed(page);
@@ -1385,10 +1410,9 @@ test("minimal evidence leads with an honest insufficient-evidence report", async
     }),
   ).toBeVisible();
   await expect(
-    readerSection(page, "architecture").getByText(
-      "Repository does not provide this evidence.",
-      { exact: true },
-    ),
+    readerSection(page, "architecture").getByText("JavaScript / TypeScript", {
+      exact: true,
+    }),
   ).toHaveCount(1);
   await expectAppendixClosed(page);
   const appendix = await openTechnicalAppendix(page);
@@ -1433,7 +1457,9 @@ test("truncated trees expose partial reader sections and technical scope", async
       partialSections
         .nth(index)
         .locator(":scope > .reader-report__availability"),
-    ).toHaveText("Not established from the scanned public evidence.");
+    ).toHaveText(
+      "The scan was incomplete. The evidence below is retained, but this chapter may omit relevant files.",
+    );
   }
   await expectAppendixClosed(page);
   const appendix = await openTechnicalAppendix(page);
@@ -1566,7 +1592,7 @@ test("hostile repository strings stay inert text", async ({
   const controlledAlternativeHref =
     await controlledAlternative.getAttribute("href");
   expect(controlledAlternativeHref).toBe(
-    "https://github.com/search?q=topic%3Aapplication&type=repositories",
+    "https://github.com/search?q=application%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
   );
   await expect(controlledAlternative).toHaveAttribute(
     "rel",

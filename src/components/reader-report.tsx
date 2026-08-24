@@ -1,4 +1,4 @@
-import { useId, type ReactElement, type ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 
 import {
   READER_COMMAND_KINDS,
@@ -6,9 +6,11 @@ import {
   type Language,
   type ProjectBriefCaution,
   type ProjectBriefExcerpt,
+  type ProjectKind,
   type ReaderActivityBand,
   type ReaderAvailability,
   type ReaderCommandKind,
+  type ReaderEcosystem,
   type ReaderEvidenceSource,
   type ReaderQuestionId,
   type ReaderSignalFact,
@@ -94,6 +96,29 @@ const CAUTION_KEYS = {
   "entry-point-evidence-absent": "projectCautionEntryPointEvidenceAbsent",
 } as const satisfies Record<ProjectBriefCaution, AppMessageKey>;
 
+const KIND_KEYS = {
+  application: "projectKindApplication",
+  "command-line-tool": "projectKindCommandLineTool",
+  library: "projectKindLibrary",
+  plugin: "projectKindPlugin",
+  template: "projectKindTemplate",
+  documentation: "projectKindDocumentation",
+} as const satisfies Record<ProjectKind, AppMessageKey>;
+
+const ECOSYSTEM_KEYS = {
+  "javascript-typescript": "readerEcosystemJavaScript",
+  python: "readerEcosystemPython",
+  go: "readerEcosystemGo",
+  rust: "readerEcosystemRust",
+  "java-jvm": "readerEcosystemJava",
+  dotnet: "readerEcosystemDotNet",
+  ruby: "readerEcosystemRuby",
+  php: "readerEcosystemPhp",
+  swift: "readerEcosystemSwift",
+  dart: "readerEcosystemDart",
+  other: "readerEcosystemOther",
+} as const satisfies Record<ReaderEcosystem, AppMessageKey>;
+
 const COMPARISON_KEYS = [
   "readerComparisonPurpose",
   "readerComparisonLicense",
@@ -105,15 +130,35 @@ const COMPARISON_KEYS = [
   "readerComparisonOperations",
 ] as const satisfies readonly AppMessageKey[];
 
-const DECISION_SIGNAL_IDS = new Set<ReaderSignalId>([
+const DECISION_SIGNAL_PRIORITY = [
   "archived",
-  "install",
-  "run",
   "license",
   "recent-activity",
   "tests",
   "ci",
-]);
+] as const satisfies readonly ReaderSignalId[];
+
+const READER_SECTION_IDS = {
+  readme: "reader-readme",
+  decision: "reader-decision",
+  purpose: "reader-purpose",
+  reliability: "reader-reliability",
+  architecture: "reader-architecture",
+  gettingStarted: "reader-getting-started",
+  security: "reader-security",
+  maintenance: "reader-maintenance",
+} as const;
+
+const READER_NAVIGATION_ITEMS = [
+  [READER_SECTION_IDS.readme, "readerInterpretationTitle"],
+  [READER_SECTION_IDS.decision, "readerDecisionHeading"],
+  [READER_SECTION_IDS.purpose, "readerPurposeHeading"],
+  [READER_SECTION_IDS.reliability, "readerReliabilityHeading"],
+  [READER_SECTION_IDS.architecture, "readerArchitectureHeading"],
+  [READER_SECTION_IDS.gettingStarted, "readerGettingStartedHeading"],
+  [READER_SECTION_IDS.security, "readerSecurityHeading"],
+  [READER_SECTION_IDS.maintenance, "readerMaintenanceHeading"],
+] as const satisfies readonly (readonly [string, AppMessageKey])[];
 
 function formatDate(value: string, language: Language): string {
   const date = new Date(value);
@@ -125,6 +170,10 @@ function formatDate(value: string, language: Language): string {
     day: "numeric",
     timeZone: "UTC",
   }).format(date);
+}
+
+function canonicalFactKey(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
 }
 
 function AvailabilityNotice({
@@ -141,7 +190,7 @@ function AvailabilityNotice({
       {
         messages[language][
           availability === "partial"
-            ? "readerNotEstablished"
+            ? "readerPartialEvidence"
             : "readerUnavailable"
         ]
       }
@@ -237,20 +286,46 @@ function SignalList({
   context: SourceContext;
 }): ReactElement {
   const copy = messages[context.language];
+  const signalGroups: Array<{
+    key: string;
+    source: ReaderSignalFact;
+    signals: ReaderSignalFact[];
+  }> = [];
+
+  for (const fact of signals) {
+    const key = `${fact.source}:${fact.path ?? ""}`;
+    const group = signalGroups.find((candidate) => candidate.key === key);
+    if (group === undefined) {
+      signalGroups.push({ key, source: fact, signals: [fact] });
+    } else {
+      group.signals.push(fact);
+    }
+  }
 
   return (
-    <ul className="reader-report__evidence-list">
-      {signals.map((fact) => (
-        <li key={fact.signal} data-signal-state={fact.state}>
-          <span>
-            <strong>{copy[SIGNAL_KEYS[fact.signal]]}</strong>
-            {" — "}
-            {copy[SIGNAL_STATE_KEYS[fact.state]]}
-          </span>
-          <ReaderEvidenceCaption evidence={fact} context={context} />
-        </li>
+    <div className="reader-report__signal-list">
+      {signalGroups.map((group) => (
+        <div className="reader-report__signal-group" key={group.key}>
+          <ul className="reader-report__evidence-list">
+            {group.signals.map((fact) => (
+              <li key={fact.signal} data-signal-state={fact.state}>
+                <span>
+                  <strong>{copy[SIGNAL_KEYS[fact.signal]]}</strong>
+                  {" — "}
+                  {copy[SIGNAL_STATE_KEYS[fact.state]]}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p
+            className="reader-report__signal-sources"
+            data-reader-signal-sources
+          >
+            <ReaderEvidenceCaption evidence={group.source} context={context} />
+          </p>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -343,7 +418,6 @@ function AlternativeComparison({
 }): ReactElement {
   const copy = messages[language];
   const terms = report.readerReport.alternatives.searchTerms;
-  const query = terms.map((term) => `topic:${term}`).join(" ");
 
   return (
     <div className="reader-report__alternatives">
@@ -355,14 +429,20 @@ function AlternativeComparison({
         ))}
       </ul>
       {terms.length > 0 ? (
-        <a
-          className="reader-report__search"
-          href={`https://github.com/search?q=${encodeURIComponent(query)}&type=repositories`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {copy.readerAlternativeSearch}
-        </a>
+        <ul aria-label={copy.readerAlternativeSearch}>
+          {terms.map((term) => (
+            <li key={term}>
+              <a
+                className="reader-report__search"
+                href={`https://github.com/search?q=${encodeURIComponent(`${term} in:name,description,readme archived:false`)}&type=repositories`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {copy.readerAlternativeSearch}: {term}
+              </a>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );
@@ -372,7 +452,6 @@ export function ReaderReportView({
   report,
   language,
 }: ReaderReportViewProps): ReactElement {
-  const id = useId();
   const copy = messages[language];
   const reader = report.readerReport;
   const context: SourceContext = {
@@ -381,242 +460,398 @@ export function ReaderReportView({
     commitSha: report.repository.commitSha,
     language,
   };
-  const decisiveSignals = reader.reliability.signals.filter((fact) =>
-    DECISION_SIGNAL_IDS.has(fact.signal),
-  );
+  const decisiveSignals = DECISION_SIGNAL_PRIORITY.flatMap((signal) => {
+    const fact = reader.reliability.signals.find(
+      (candidate) => candidate.signal === signal,
+    );
+    return fact === undefined ? [] : [fact];
+  }).slice(0, 3);
   const quickCommands = (["install", "run"] as const).flatMap((kind) => {
     const fact = reader.gettingStarted.commands.find(
       (command) => command.kind === kind && command.command !== null,
     );
     return fact === undefined ? [] : [fact];
   });
+  const orientationKeys = new Set(
+    report.projectBrief.excerpts.map(({ text }) => canonicalFactKey(text)),
+  );
+  const seenScenarioKeys = new Set<string>();
+  const scenarios = reader.scenarios.facts.filter(({ text }) => {
+    const key = canonicalFactKey(text);
+    if (orientationKeys.has(key) || seenScenarioKeys.has(key)) return false;
+    seenScenarioKeys.add(key);
+    return true;
+  });
+  const seenKinds = new Set<ProjectKind>();
+  const projectKinds = report.projectBrief.kinds.filter(({ kind }) => {
+    if (seenKinds.has(kind)) return false;
+    seenKinds.add(kind);
+    return true;
+  });
+  const hasBroadArchitectureEvidence =
+    reader.architecture.excerpts.length > 0 ||
+    reader.architecture.documents.length > 0 ||
+    reader.architecture.sourceAreas.length > 0 ||
+    reader.architecture.ecosystems.length > 0;
+  const architectureExcerptPaths = new Set(
+    reader.architecture.excerpts.flatMap(({ path }) =>
+      path === null ? [] : [path],
+    ),
+  );
+  const architectureDocuments = reader.architecture.documents.filter(
+    (path) => !architectureExcerptPaths.has(path),
+  );
 
   return (
     <div className="reader-report">
-      <ReadmeInterpretationView report={report} language={language} />
-
-      <section
-        className="reader-report__decision"
-        role="region"
-        aria-labelledby={`${id}-decision`}
-        data-reader-section="decision-summary"
+      <nav
+        className="reader-report__navigation"
+        aria-label={copy.readerNavigationLabel}
       >
-        <p className="section-index">{copy.readerDecisionIndex}</p>
-        <h3 id={`${id}-decision`}>{copy.readerDecisionHeading}</h3>
+        <p>{copy.readerNavigationHeading}</p>
+        <ol>
+          {READER_NAVIGATION_ITEMS.map(([target, label]) => (
+            <li key={target}>
+              <a href={`#${target}`}>{copy[label]}</a>
+            </li>
+          ))}
+        </ol>
+      </nav>
 
-        <div className="reader-report__decision-item">
-          <h4>{copy.readerEvidenceStatus}</h4>
-          <StatusBlock status={reader.reliability.status} language={language} />
-          <SignalList signals={decisiveSignals} context={context} />
-        </div>
+      <div className="reader-report__content">
+        <ReadmeInterpretationView
+          id={READER_SECTION_IDS.readme}
+          report={report}
+          language={language}
+        />
 
-        <div className="reader-report__decision-item">
-          <h4>{copy.readerQuestionsHeading}</h4>
-          <QuestionList
-            questions={reader.reliability.questions.slice(0, 4)}
-            language={language}
-          />
-        </div>
+        <section
+          className="reader-report__decision"
+          role="region"
+          aria-labelledby={READER_SECTION_IDS.decision}
+          data-reader-section="decision-summary"
+        >
+          <p className="section-index">{copy.readerDecisionIndex}</p>
+          <h3 id={READER_SECTION_IDS.decision}>{copy.readerDecisionHeading}</h3>
 
-        {quickCommands.length > 0 ? (
           <div className="reader-report__decision-item">
-            <h4>{copy.readerQuickStartHeading}</h4>
-            <ul className="reader-report__quick-commands">
-              {quickCommands.map((fact) => (
-                <li key={fact.kind} data-command-disposition={fact.disposition}>
-                  <strong>{copy[COMMAND_KEYS[fact.kind]]}</strong>
-                  <code>{fact.command}</code>
-                  {fact.disposition === "review" ? (
-                    <p>{copy.readerCommandReview}</p>
-                  ) : null}
-                  <ReaderReportSource evidence={fact} {...context} />
-                </li>
-              ))}
-            </ul>
+            <h4>{copy.readerEvidenceStatus}</h4>
+            <StatusBlock
+              status={reader.reliability.status}
+              language={language}
+            />
+            <SignalList signals={decisiveSignals} context={context} />
           </div>
-        ) : null}
-      </section>
 
-      <Chapter
-        number={1}
-        section="project-fit-cautions"
-        headingId={`${id}-purpose`}
-        heading={copy.readerPurposeHeading}
-        language={language}
-      >
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerCautionsHeading}</h4>
-          {report.projectBrief.cautions.length === 0 ? (
-            <p>{copy.projectBriefNoCautions}</p>
-          ) : (
-            <ul className="reader-report__evidence-list">
-              {report.projectBrief.cautions.map((fact) => (
-                <li key={fact.caution}>
-                  <span>{copy[CAUTION_KEYS[fact.caution]]}</span>
-                  <ReaderEvidenceCaption evidence={fact} context={context} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </Chapter>
+          <div className="reader-report__decision-item">
+            <h4>{copy.readerQuestionsHeading}</h4>
+            <QuestionList
+              questions={reader.reliability.questions.slice(0, 2)}
+              language={language}
+            />
+          </div>
 
-      <Chapter
-        number={2}
-        section="reliability"
-        headingId={`${id}-reliability`}
-        heading={copy.readerReliabilityHeading}
-        availability={reader.reliability.availability}
-        language={language}
-      >
-        <StatusBlock status={reader.reliability.status} language={language} />
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerReliabilityReasons}</h4>
-          <SignalList signals={reader.reliability.signals} context={context} />
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerQuestionsHeading}</h4>
-          <QuestionList
-            questions={reader.reliability.questions}
-            language={language}
-          />
-        </div>
-      </Chapter>
+          {quickCommands.length > 0 ? (
+            <div className="reader-report__decision-item">
+              <h4>{copy.readerQuickStartHeading}</h4>
+              <ul className="reader-report__quick-commands">
+                {quickCommands.map((fact) => (
+                  <li
+                    key={fact.kind}
+                    data-command-disposition={fact.disposition}
+                  >
+                    <strong>{copy[COMMAND_KEYS[fact.kind]]}</strong>
+                    <code>{fact.command}</code>
+                    {fact.disposition === "review" ? (
+                      <p>{copy.readerCommandReview}</p>
+                    ) : null}
+                    <ReaderReportSource evidence={fact} {...context} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
 
-      <Chapter
-        number={3}
-        section="architecture"
-        headingId={`${id}-architecture`}
-        heading={copy.readerArchitectureHeading}
-        availability={reader.architecture.availability}
-        language={language}
-      >
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerArchitectureEvidence}</h4>
-          {reader.architecture.excerpts.length === 0 ? (
+        <Chapter
+          number={1}
+          section="project-fit-cautions"
+          headingId={READER_SECTION_IDS.purpose}
+          heading={copy.readerPurposeHeading}
+          language={language}
+        >
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerScenariosHeading}</h4>
+            {scenarios.length === 0 ? (
+              <p>{copy.readerScenariosMissing}</p>
+            ) : (
+              <div className="reader-report__fact-list">
+                {scenarios.map((fact, index) => (
+                  <TextFact
+                    key={`${fact.path ?? fact.source}:${canonicalFactKey(fact.text)}:${String(index)}`}
+                    fact={fact}
+                    context={context}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerKindsHeading}</h4>
+            {projectKinds.length === 0 ? (
+              <p>{copy.projectBriefKindUnknown}</p>
+            ) : (
+              <ul className="reader-report__evidence-list">
+                {projectKinds.map((fact) => (
+                  <li key={fact.kind}>
+                    <strong>{copy[KIND_KEYS[fact.kind]]}</strong>
+                    <ReaderEvidenceCaption evidence={fact} context={context} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerCautionsHeading}</h4>
+            {report.projectBrief.cautions.length === 0 ? (
+              <p>{copy.projectBriefNoCautions}</p>
+            ) : (
+              <ul className="reader-report__evidence-list">
+                {report.projectBrief.cautions.map((fact) => (
+                  <li key={fact.caution}>
+                    <span>{copy[CAUTION_KEYS[fact.caution]]}</span>
+                    <ReaderEvidenceCaption evidence={fact} context={context} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Chapter>
+
+        <Chapter
+          number={2}
+          section="reliability"
+          headingId={READER_SECTION_IDS.reliability}
+          heading={copy.readerReliabilityHeading}
+          availability={reader.reliability.availability}
+          language={language}
+        >
+          <StatusBlock status={reader.reliability.status} language={language} />
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerReliabilityReasons}</h4>
+            <SignalList
+              signals={reader.reliability.signals}
+              context={context}
+            />
+          </div>
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerQuestionsHeading}</h4>
+            <QuestionList
+              questions={reader.reliability.questions}
+              language={language}
+            />
+          </div>
+        </Chapter>
+
+        <Chapter
+          number={3}
+          section="architecture"
+          headingId={READER_SECTION_IDS.architecture}
+          heading={copy.readerArchitectureHeading}
+          availability={reader.architecture.availability}
+          language={language}
+        >
+          {!hasBroadArchitectureEvidence ? (
             <p>{copy.readerUnavailable}</p>
-          ) : (
-            <div className="reader-report__fact-list">
-              {reader.architecture.excerpts.map((fact, index) => (
-                <TextFact
-                  key={`${fact.path ?? fact.source}:${String(index)}`}
-                  fact={fact}
-                  context={context}
-                />
-              ))}
+          ) : null}
+          {reader.architecture.excerpts.length > 0 ? (
+            <div className="reader-report__chapter-group">
+              <h4>{copy.readerArchitectureEvidence}</h4>
+              <div className="reader-report__fact-list">
+                {reader.architecture.excerpts.map((fact, index) => (
+                  <TextFact
+                    key={`${fact.path ?? fact.source}:${String(index)}`}
+                    fact={fact}
+                    context={context}
+                  />
+                ))}
+              </div>
             </div>
-          )}
-        </div>
-      </Chapter>
+          ) : null}
+          {architectureDocuments.length > 0 ? (
+            <div className="reader-report__chapter-group">
+              <h4>{copy.readerArchitectureDocuments}</h4>
+              <ul className="reader-report__path-list">
+                {architectureDocuments.map((path) => (
+                  <li key={path}>
+                    <ReaderReportSource
+                      evidence={{ source: "documentation", path }}
+                      {...context}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {reader.architecture.sourceAreas.length > 0 ? (
+            <div className="reader-report__chapter-group">
+              <h4>{copy.readerArchitectureSourceAreas}</h4>
+              <ul className="reader-report__path-list">
+                {reader.architecture.sourceAreas.map((path) => (
+                  <li key={path}>
+                    <ReaderReportSource
+                      evidence={{ source: "tree", path }}
+                      linkKind="tree"
+                      {...context}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {reader.architecture.ecosystems.length > 0 ? (
+            <div className="reader-report__chapter-group">
+              <h4>{copy.readerArchitectureEcosystems}</h4>
+              <ul className="reader-report__evidence-list">
+                {reader.architecture.ecosystems.map((ecosystem) => (
+                  <li key={ecosystem}>
+                    <strong>{copy[ECOSYSTEM_KEYS[ecosystem]]}</strong>
+                  </li>
+                ))}
+              </ul>
+              <DeterministicAnalysisSource language={language} />
+            </div>
+          ) : null}
+        </Chapter>
 
-      <Chapter
-        number={4}
-        section="getting-started"
-        headingId={`${id}-getting-started`}
-        heading={copy.readerGettingStartedHeading}
-        availability={reader.gettingStarted.availability}
-        language={language}
-      >
-        <h4>{copy.readerGettingStartedCommands}</h4>
-        <Commands report={report} context={context} />
-      </Chapter>
+        <Chapter
+          number={4}
+          section="getting-started"
+          headingId={READER_SECTION_IDS.gettingStarted}
+          heading={copy.readerGettingStartedHeading}
+          availability={reader.gettingStarted.availability}
+          language={language}
+        >
+          {reader.readme.dependencies.length > 0 ? (
+            <div className="reader-report__chapter-group">
+              <h4>{copy.readerGettingStartedRequirements}</h4>
+              <div className="reader-report__fact-list">
+                {reader.readme.dependencies.map((fact, index) => (
+                  <TextFact
+                    key={`${fact.path ?? fact.source}:${String(index)}`}
+                    fact={fact}
+                    context={context}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerGettingStartedCommands}</h4>
+            <Commands report={report} context={context} />
+          </div>
+        </Chapter>
 
-      <Chapter
-        number={5}
-        section="security-privacy"
-        headingId={`${id}-security`}
-        heading={copy.readerSecurityHeading}
-        availability={reader.securityPrivacy.availability}
-        language={language}
-      >
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerSecurityObserved}</h4>
-          <SignalList
-            signals={reader.securityPrivacy.signals}
-            context={context}
-          />
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerSecurityDeclarations}</h4>
-          {reader.securityPrivacy.declarations.length === 0 ? (
-            <p>{copy.readerNotEstablished}</p>
-          ) : (
-            <div className="reader-report__fact-list">
-              {reader.securityPrivacy.declarations.map((fact, index) => (
-                <TextFact
-                  key={`${fact.path ?? fact.source}:${String(index)}`}
-                  fact={fact}
-                  context={context}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-        <p className="reader-report__security-boundary">
-          {copy.readerSecurityBoundary}
-          <span className="reader-report__analysis-source">
-            {copy.readerSourceDeterministicAnalysis}
-          </span>
-        </p>
-      </Chapter>
+        <Chapter
+          number={5}
+          section="security-privacy"
+          headingId={READER_SECTION_IDS.security}
+          heading={copy.readerSecurityHeading}
+          availability={reader.securityPrivacy.availability}
+          language={language}
+        >
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerSecurityObserved}</h4>
+            <SignalList
+              signals={reader.securityPrivacy.signals}
+              context={context}
+            />
+          </div>
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerSecurityDeclarations}</h4>
+            {reader.securityPrivacy.declarations.length === 0 ? (
+              <p>{copy.readerNotEstablished}</p>
+            ) : (
+              <div className="reader-report__fact-list">
+                {reader.securityPrivacy.declarations.map((fact, index) => (
+                  <TextFact
+                    key={`${fact.path ?? fact.source}:${String(index)}`}
+                    fact={fact}
+                    context={context}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          <p className="reader-report__security-boundary">
+            {copy.readerSecurityBoundary}
+            <span className="reader-report__analysis-source">
+              {copy.readerSourceDeterministicAnalysis}
+            </span>
+          </p>
+        </Chapter>
 
-      <Chapter
-        number={6}
-        section="maintenance-alternatives"
-        headingId={`${id}-maintenance`}
-        heading={copy.readerMaintenanceHeading}
-        availability={reader.maintenance.availability}
-        language={language}
-      >
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerMaintenanceFacts}</h4>
-          <dl className="reader-report__maintenance-facts">
-            <div>
-              <dt>{copy.readerArchivedLabel}</dt>
-              <dd>
-                {report.repository.archived ? copy.readerYes : copy.readerNo}
-                <span className="reader-report__metadata-source">
-                  {copy.projectBriefSourceMetadata}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>
-                {formatMessage(language, "readerLastPush", {
-                  date: formatDate(report.repository.pushedAt, language),
-                })}
-              </dt>
-              <dd>
-                {formatMessage(language, "readerActivity", {
-                  days: reader.maintenance.activity.elapsedUtcDays,
-                  band: copy[
-                    ACTIVITY_BAND_KEYS[reader.maintenance.activity.band]
-                  ],
-                })}
-                <span className="reader-report__metadata-source">
-                  {copy.projectBriefSourceMetadata}
-                </span>
-                <span className="reader-report__analysis-source">
-                  {copy.readerSourceDeterministicAnalysis}
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>
-                {formatMessage(language, "readerOpenIssues", {
-                  count: reader.maintenance.openIssuesCount,
-                })}
-              </dt>
-              <dd>{copy.projectBriefSourceMetadata}</dd>
-            </div>
-          </dl>
-        </div>
-        <div className="reader-report__chapter-group">
-          <h4>{copy.readerMaintenanceEvidence}</h4>
-          <SignalList signals={reader.maintenance.signals} context={context} />
-        </div>
-        <AlternativeComparison report={report} language={language} />
-      </Chapter>
+        <Chapter
+          number={6}
+          section="maintenance-alternatives"
+          headingId={READER_SECTION_IDS.maintenance}
+          heading={copy.readerMaintenanceHeading}
+          availability={reader.maintenance.availability}
+          language={language}
+        >
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerMaintenanceFacts}</h4>
+            <dl className="reader-report__maintenance-facts">
+              <div>
+                <dt>{copy.readerArchivedLabel}</dt>
+                <dd>
+                  {report.repository.archived ? copy.readerYes : copy.readerNo}
+                  <span className="reader-report__metadata-source">
+                    {copy.projectBriefSourceMetadata}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  {formatMessage(language, "readerLastPush", {
+                    date: formatDate(report.repository.pushedAt, language),
+                  })}
+                </dt>
+                <dd>
+                  {formatMessage(language, "readerActivity", {
+                    days: reader.maintenance.activity.elapsedUtcDays,
+                    band: copy[
+                      ACTIVITY_BAND_KEYS[reader.maintenance.activity.band]
+                    ],
+                  })}
+                  <span className="reader-report__metadata-source">
+                    {copy.projectBriefSourceMetadata}
+                  </span>
+                  <span className="reader-report__analysis-source">
+                    {copy.readerSourceDeterministicAnalysis}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  {formatMessage(language, "readerOpenIssues", {
+                    count: reader.maintenance.openIssuesCount,
+                  })}
+                </dt>
+                <dd>{copy.projectBriefSourceMetadata}</dd>
+              </div>
+            </dl>
+          </div>
+          <div className="reader-report__chapter-group">
+            <h4>{copy.readerMaintenanceEvidence}</h4>
+            <SignalList
+              signals={reader.maintenance.signals}
+              context={context}
+            />
+          </div>
+          <AlternativeComparison report={report} language={language} />
+        </Chapter>
+      </div>
     </div>
   );
 }

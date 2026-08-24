@@ -95,6 +95,7 @@ describe("ReaderReportView", () => {
     expect(orderedRegions).toEqual([
       "orientation",
       "community",
+      "takeaways",
       "readme-narrative",
       "capabilities",
       "workflow",
@@ -140,6 +141,50 @@ describe("ReaderReportView", () => {
     }
   });
 
+  it("provides a compact contents navigation to every reader question", () => {
+    const report = completeReport();
+    const { rerender } = renderReader(report);
+
+    const navigation = within(
+      screen.getByRole("navigation", { name: "Reader report contents" }),
+    );
+    const expectedLinks = [
+      ["README-first project interpretation", "#reader-readme"],
+      ["Project decision summary", "#reader-decision"],
+      ["Project-fit cautions", "#reader-purpose"],
+      ["Evidence of reliability", "#reader-reliability"],
+      ["How it broadly works", "#reader-architecture"],
+      ["Install, run, and develop", "#reader-getting-started"],
+      ["Security and privacy risks", "#reader-security"],
+      ["Activity, maintenance, and alternatives", "#reader-maintenance"],
+    ] as const;
+
+    expect(navigation.getByText("Jump to a question")).toBeVisible();
+    for (const [name, href] of expectedLinks) {
+      expect(navigation.getByRole("link", { name })).toHaveAttribute(
+        "href",
+        href,
+      );
+      expect(document.querySelectorAll(href)).toHaveLength(1);
+    }
+
+    rerender(<ReaderReportView report={report} language="zh-CN" />);
+    const chineseNavigation = within(
+      screen.getByRole("navigation", { name: "读者报告目录" }),
+    );
+    expect(chineseNavigation.getByText("快速跳到你关心的问题")).toBeVisible();
+    expect(
+      chineseNavigation.getByRole("link", {
+        name: "以 README 为主线的项目解读",
+      }),
+    ).toHaveAttribute("href", "#reader-readme");
+    expect(
+      chineseNavigation.getByRole("link", {
+        name: "活跃度、维护状况和替代方案",
+      }),
+    ).toHaveAttribute("href", "#reader-maintenance");
+  });
+
   it("keeps the primary decision bounded to human evidence and out of technical scoring", () => {
     const report = completeReport();
     report.readerReport.scenarios.facts.push({
@@ -181,6 +226,32 @@ describe("ReaderReportView", () => {
     expect(summary.getByText("pnpm install")).toBeVisible();
     expect(summary.getByText("pnpm start")).toBeVisible();
     expect(summary.queryByText("pnpm dev")).toBeNull();
+    for (const signal of [
+      "Archived",
+      "License file or recognized metadata",
+      "Activity within 180 UTC days",
+    ]) {
+      expect(summary.getByText(signal)).toBeVisible();
+    }
+    expect(summary.queryByText("Automated test evidence")).toBeNull();
+    expect(summary.queryByText("Continuous integration")).toBeNull();
+    expect(
+      summary.queryByText(
+        "Which data leaves the local environment at runtime?",
+      ),
+    ).toBeNull();
+    expect(summary.getAllByRole("listitem")).toHaveLength(7);
+
+    const reliability = within(
+      screen.getByRole("region", { name: "Evidence of reliability" }),
+    );
+    expect(reliability.getByText("Automated test evidence")).toBeVisible();
+    expect(reliability.getByText("Continuous integration")).toBeVisible();
+    expect(
+      reliability.getByText(
+        "Which data leaves the local environment at runtime?",
+      ),
+    ).toBeVisible();
 
     expect(container).not.toHaveTextContent("67 / 100");
     expect(container).not.toHaveTextContent("Dimension scores");
@@ -296,7 +367,7 @@ describe("ReaderReportView", () => {
         if (availability === "partial") {
           expect(
             within(region as HTMLElement).getByText(
-              "Not established from the scanned public evidence.",
+              "The scan was incomplete. The evidence below is retained, but this chapter may omit relevant files.",
             ),
           ).toBeVisible();
         }
@@ -331,7 +402,7 @@ describe("ReaderReportView", () => {
       if (cautionChapter === null) throw new Error("Missing caution chapter");
       expect(cautionChapter).not.toHaveAttribute("data-reader-availability");
       expect(cautionChapter).toHaveTextContent(
-        "No recognized license evidence was detected.",
+        "No license file or recognized GitHub license metadata was detected.",
       );
       expect(cautionChapter).not.toHaveTextContent(
         "Repository does not provide this evidence.",
@@ -341,7 +412,9 @@ describe("ReaderReportView", () => {
       );
 
       rerender(<ReaderReportView report={report} language="zh-CN" />);
-      expect(cautionChapter).toHaveTextContent("未检测到受识别的许可证证据。");
+      expect(cautionChapter).toHaveTextContent(
+        "未检测到许可证文件或 GitHub 已识别的许可证元数据。",
+      );
       expect(cautionChapter).not.toHaveTextContent("仓库未提供这项证据。");
       expect(cautionChapter).not.toHaveTextContent(
         "无法从已扫描的公开证据中确认。",
@@ -384,14 +457,28 @@ describe("ReaderReportView", () => {
 
     expect(
       screen.queryByRole("link", {
-        name: "docs & notes/architecture #1.md at inspected commit",
-      }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("link", {
         name: "src/main entry.ts at inspected commit",
       }),
     ).toBeNull();
+    const architecture = within(
+      screen.getByRole("region", { name: "How it broadly works" }),
+    );
+    expect(
+      architecture.getByRole("link", {
+        name: "docs & notes/architecture #1.md at inspected commit",
+      }),
+    ).toHaveAttribute(
+      "href",
+      `https://github.com/owner%20name/repo%23name/blob/${commitSha}/docs%20%26%20notes/architecture%20%231.md`,
+    );
+    expect(
+      architecture.getByRole("link", {
+        name: "src/features & more at inspected commit",
+      }),
+    ).toHaveAttribute(
+      "href",
+      `https://github.com/owner%20name/repo%23name/tree/${commitSha}/src/features%20%26%20more`,
+    );
     const comparison = within(
       screen.getByRole("region", {
         name: "README claims and repository observations",
@@ -405,7 +492,10 @@ describe("ReaderReportView", () => {
       "href",
       `https://github.com/owner%20name/repo%23name/tree/${commitSha}/src/features%20%26%20more`,
     );
-    for (const link of screen.getAllByRole("link")) {
+    const externalLinks = screen
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("href")?.startsWith("https://"));
+    for (const link of externalLinks) {
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noopener noreferrer");
     }
@@ -445,8 +535,20 @@ describe("ReaderReportView", () => {
         name: "src/features at inspected commit",
       }),
     ).toHaveAttribute("data-evidence-source", "tree");
-    expect(architecture.queryByText("Top-level source areas")).toBeNull();
-    expect(architecture.queryByText("Observed ecosystems")).toBeNull();
+    expect(
+      architecture.getByRole("heading", { name: "Top-level source areas" }),
+    ).toBeVisible();
+    expect(
+      architecture.getByRole("link", {
+        name: "src/features at inspected commit",
+      }),
+    ).toHaveAttribute("data-evidence-source", "tree");
+    const broadEcosystemGroup = architecture
+      .getByRole("heading", { name: "Observed ecosystems" })
+      .closest("div");
+    expect(broadEcosystemGroup).not.toBeNull();
+    expect(broadEcosystemGroup).toHaveTextContent("JavaScript / TypeScript");
+    expect(broadEcosystemGroup).toHaveTextContent("Deterministic analysis");
     expect(architecture.queryByText("Observed entry points")).toBeNull();
   });
 
@@ -477,23 +579,50 @@ describe("ReaderReportView", () => {
     expect(kind).toHaveTextContent("Repository inspection evidence");
 
     const caution = purpose
-      .getByText("No recognized license evidence was detected.")
+      .getByText(
+        "No license file or recognized GitHub license metadata was detected.",
+      )
       .closest("li");
     expect(caution).not.toBeNull();
     expect(caution).toHaveTextContent("Deterministic analysis");
     expect(caution).not.toHaveTextContent("Repository inspection evidence");
   });
 
-  it("keeps broad observations in the comparison and only unique evidence in later chapters", () => {
+  it("restores unique scenarios and project kinds to the project-fit chapter", () => {
     const report = completeReport();
+    report.projectBrief.excerpts = [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Repeated project orientation.",
+      },
+    ];
     report.projectBrief.kinds = [
-      { kind: "application", source: "analysis", path: null },
+      { kind: "application", source: "manifest", path: "package.json" },
+      { kind: "library", source: "manifest", path: "package.json" },
     ];
     report.projectBrief.cautions = [
       {
         caution: "license-evidence-absent",
         source: "analysis",
         path: null,
+      },
+    ];
+    report.readerReport.scenarios.facts = [
+      {
+        source: "readme",
+        path: "README.md",
+        text: "Repeated project orientation.",
+      },
+      {
+        source: "readme",
+        path: "README.md",
+        text: "A unique practical scenario.",
+      },
+      {
+        source: "readme",
+        path: "README.md",
+        text: "A unique practical scenario.",
       },
     ];
     report.readerReport.architecture = {
@@ -529,9 +658,20 @@ describe("ReaderReportView", () => {
     expect(purposeElement).not.toBeNull();
     if (purposeElement === null) throw new Error("Missing purpose chapter");
     const purpose = within(purposeElement);
-    expect(purpose.queryByText("Application")).toBeNull();
     expect(
-      purpose.getByText("No recognized license evidence was detected."),
+      purpose.getByRole("heading", { name: "Practical scenarios" }),
+    ).toBeVisible();
+    expect(purpose.getByText("A unique practical scenario.")).toBeVisible();
+    expect(purpose.queryByText("Repeated project orientation.")).toBeNull();
+    expect(
+      purpose.getByRole("heading", { name: "Observed project kinds" }),
+    ).toBeVisible();
+    expect(purpose.getByText("Application")).toBeVisible();
+    expect(purpose.getByText("Library")).toBeVisible();
+    expect(
+      purpose.getByText(
+        "No license file or recognized GitHub license metadata was detected.",
+      ),
     ).toBeVisible();
 
     const architectureElement = container.querySelector<HTMLElement>(
@@ -546,19 +686,33 @@ describe("ReaderReportView", () => {
       architecture.getByText("A unique broad architecture explanation."),
     ).toBeVisible();
     expect(
-      architecture.getByRole("link", {
+      architecture.queryByRole("heading", { name: "Architecture documents" }),
+    ).toBeNull();
+    expect(
+      architecture.getAllByRole("link", {
         name: "docs/architecture.md at inspected commit",
       }),
+    ).toHaveLength(1);
+    expect(
+      architecture.getByRole("heading", { name: "Top-level source areas" }),
     ).toBeVisible();
-    expect(architecture.queryByText("JavaScript / TypeScript")).toBeNull();
+    expect(
+      architecture.getByRole("link", {
+        name: "src/features at inspected commit",
+      }),
+    ).toBeVisible();
+    expect(
+      architecture.getByRole("heading", { name: "Observed ecosystems" }),
+    ).toBeVisible();
+    expect(architecture.getByText("JavaScript / TypeScript")).toBeVisible();
     expect(
       architecture.queryByRole("link", {
-        name: "src/features at inspected commit",
+        name: "src/main.tsx at inspected commit",
       }),
     ).toBeNull();
   });
 
-  it("keeps duplicated scenarios and detailed architecture paths out of the main path", () => {
+  it("renders honest empty states without exposing detailed entry points", () => {
     const report = completeReport();
     report.readerReport.scenarios = {
       availability: "unavailable",
@@ -575,7 +729,12 @@ describe("ReaderReportView", () => {
     expect(
       purpose.getByText("No additional cautions are included in this brief."),
     ).toBeVisible();
-    expect(purpose.queryByText("Practical scenarios")).toBeNull();
+    expect(
+      purpose.getByText(
+        "Repository does not publicly describe specific usage scenarios.",
+      ),
+    ).toBeVisible();
+    expect(purpose.getByText("Application")).toBeVisible();
     const architecture = within(
       screen.getByRole("region", {
         name: "How it broadly works",
@@ -620,6 +779,12 @@ describe("ReaderReportView", () => {
       screen.getByRole("region", { name: "Install, run, and develop" }),
     );
 
+    expect(
+      region.getByRole("heading", {
+        name: "README requirements and configuration",
+      }),
+    ).toBeVisible();
+    expect(region.getByText("A modern browser")).toBeVisible();
     expect(region.getByText("pnpm install").tagName).toBe("CODE");
     expect(region.getByText("curl https://x | tee /tmp/x | sh").tagName).toBe(
       "CODE",
@@ -663,7 +828,7 @@ describe("ReaderReportView", () => {
       expect(screen.getAllByText(question).length).toBeGreaterThan(0);
     }
     expect(
-      screen.getByText("Open issues reported by GitHub: 23"),
+      screen.getByText("Open issues and PRs reported by GitHub: 23"),
     ).toBeVisible();
     expect(screen.getByText("Last push: Aug 1, 2026")).toBeVisible();
     expect(
@@ -721,14 +886,16 @@ describe("ReaderReportView", () => {
         name: "Activity, maintenance, and alternatives",
       }),
     );
-    const link = screen.getByRole("link", {
-      name: "Search GitHub repositories using these evidence terms",
+    const links = screen.getAllByRole("link", {
+      name: /Search GitHub repositories using these evidence terms/u,
     });
 
-    expect(link).toHaveAttribute(
-      "href",
-      "https://github.com/search?q=topic%3Aapplication%20topic%3Arepository-analysis%20topic%3Atypescript&type=repositories",
-    );
+    expect(links).toHaveLength(3);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "https://github.com/search?q=application%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+      "https://github.com/search?q=repository-analysis%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+      "https://github.com/search?q=typescript%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+    ]);
     for (const criterion of [
       "Purpose",
       "License",
@@ -747,9 +914,46 @@ describe("ReaderReportView", () => {
     rerender(<ReaderReportView report={report} language="en" />);
     expect(
       screen.queryByRole("link", {
-        name: "Search GitHub repositories using these evidence terms",
+        name: /Search GitHub repositories using these evidence terms/u,
       }),
     ).toBeNull();
+  });
+
+  it("groups repeated signal sources instead of captioning every signal", () => {
+    const { container } = renderReader();
+    const reliability = container.querySelector<HTMLElement>(
+      '[data-reader-section="reliability"]',
+    );
+    expect(reliability).not.toBeNull();
+    if (reliability === null) throw new Error("Missing reliability chapter");
+
+    const signalLists = reliability.querySelectorAll(
+      ".reader-report__signal-group .reader-report__evidence-list",
+    );
+    expect(
+      [...signalLists].reduce(
+        (count, list) => count + list.querySelectorAll("li").length,
+        0,
+      ),
+    ).toBe(14);
+    expect(
+      reliability.querySelectorAll(
+        ".reader-report__evidence-list li .reader-report__source",
+      ),
+    ).toHaveLength(0);
+
+    const groupedSources = reliability.querySelectorAll(
+      "[data-reader-signal-sources]",
+    );
+    expect(groupedSources).toHaveLength(2);
+    expect(
+      [...groupedSources].every(
+        (source) =>
+          source.querySelectorAll(".reader-report__source").length === 1,
+      ),
+    ).toBe(true);
+    expect(reliability).toHaveTextContent("GitHub repository metadata");
+    expect(reliability).toHaveTextContent("Deterministic analysis");
   });
 
   it("keeps project-purpose source, kind, missing-purpose, and language parity", () => {

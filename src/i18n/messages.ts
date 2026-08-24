@@ -26,6 +26,7 @@ const baseEn = {
   repositoryError:
     "Enter a public GitHub repository URL like https://github.com/owner/repository.",
   analyzeRepository: "Analyze repository",
+  viewReport: "View report",
   analysisRunning: "Analysis running",
   examplesLabel: "Try a public example",
   methodology: "Read methodology 1.0.0",
@@ -106,11 +107,13 @@ const baseEn = {
   projectCautionInsufficientExplanation:
     "The public description and README do not explain the project clearly enough.",
   projectCautionLicenseEvidenceAbsent:
-    "No recognized license evidence was detected.",
+    "No license file or recognized GitHub license metadata was detected.",
   projectCautionEntryPointEvidenceAbsent:
     "No structured or conventional entry point was detected.",
   readerDecisionIndex: "REPOSITORY DECISION",
   readerDecisionHeading: "Project decision summary",
+  readerNavigationLabel: "Reader report contents",
+  readerNavigationHeading: "Jump to a question",
   readerStatusContinue: "Sufficient evidence to continue evaluation",
   readerStatusVerify: "Key gaps require verification before use",
   readerStatusInsufficient: "Public evidence is insufficient to judge",
@@ -124,6 +127,45 @@ const baseEn = {
   readerInterpretationTitle: "README-first project interpretation",
   readerOrientationHeading: "Project orientation",
   readerCommunityHeading: "Community and maintenance facts",
+  readerTakeawaysHeading: "Reader takeaways",
+  readerTakeawayCapabilitiesHeading: "Capability shape",
+  readerTakeawayCapabilities:
+    "The README groups {count}: {labels}. This is documented scope, not verified behavior.",
+  readerTakeawayCapabilitiesMissing:
+    "The README does not provide a bounded capability list.",
+  readerTakeawayWorkflowHeading: "Typical path",
+  readerTakeawayWorkflow:
+    "The README documents {steps}, and repository evidence exposes {commands}. Review each command and environment before running it.",
+  readerTakeawayWorkflowMissing:
+    "No ordered README workflow or reusable onboarding command was established.",
+  readerTakeawayArchitectureHeading: "Implementation outline",
+  readerTakeawayArchitecture:
+    "Repository structure shows {kinds}; {ecosystems}; and {areas}. This is a broad implementation outline, not runtime control flow.",
+  readerTakeawayArchitectureDocumented:
+    "The repository provides {references}. They outline components or responsibilities, but do not prove runtime control flow.",
+  readerTakeawayArchitectureMissing:
+    "The scan does not establish a broad implementation outline.",
+  readerTakeawayRiskHeading: "Adoption boundary",
+  readerTakeawayRisk:
+    "Public evidence marks the license {license}, security policy {security}, and configuration {configuration}; the README declares {dependencies}. Runtime data flow, permissions, and retention still need verification.",
+  readerCountCapabilityGroup: "{count} capability area",
+  readerCountCapabilityGroups: "{count} capability areas",
+  readerCountEvidenceCapabilityGroup: "{count} capability group",
+  readerCountEvidenceCapabilityGroups: "{count} capability groups",
+  readerCountWorkflowStep: "{count} ordered step",
+  readerCountWorkflowSteps: "{count} ordered steps",
+  readerCountOnboardingCommand: "{count} onboarding command type",
+  readerCountOnboardingCommands: "{count} onboarding command types",
+  readerCountSourceArea: "{count} named source area",
+  readerCountSourceAreas: "{count} named source areas",
+  readerCountArchitectureReference: "{count} architecture reference",
+  readerCountArchitectureReferences: "{count} architecture references",
+  readerCountRequirement: "{count} external requirement",
+  readerCountRequirements: "{count} external requirements",
+  readerCountCitedStatement: "{count} cited statement",
+  readerCountCitedStatements: "{count} cited statements",
+  readerCountDocumentedStep: "{count} documented step",
+  readerCountDocumentedSteps: "{count} documented steps",
   readerReadmeNarrativeHeading: "What the README says",
   readerCapabilitiesHeading: "Core capabilities",
   readerWorkflowHeading: "Documented workflow",
@@ -132,19 +174,21 @@ const baseEn = {
   readerOrientationIntro:
     "Start with the project's own public description. The cited lines below are retained as repository evidence, not rewritten as fact.",
   readerCommunityStars: "Stars",
-  readerCommunityWatch: "Watch",
+  readerCommunityWatch: "Watchers",
   readerCommunityForks: "Forks",
-  readerCommunityOpenIssues: "Open issues",
+  readerCommunityOpenIssues: "Open issues and PRs",
   readerCommunityLastPush: "Last push",
   readerCommunityLicense: "License",
   readerCommunityPopularity:
     "Popularity reflects attention, not proof of quality or safety.",
-  readerLicensePresent: "Recognized",
+  readerLicensePresent: "Evidence found",
   readerLicenseAbsent: "Not present",
   readerLicenseUnknown: "Not established",
   readerReadmeMissing: "No README interpretation is available.",
   readerReadmePartial:
     "README interpretation is partial; scan coverage may explain omissions.",
+  readerPartialEvidence:
+    "The scan was incomplete. The evidence below is retained, but this chapter may omit relevant files.",
   readerReadmeSectionMissing:
     "The scanned README evidence does not establish this section.",
   readerReadmeOverviewSubheading: "Project overview",
@@ -158,7 +202,7 @@ const baseEn = {
     "The scanned README does not establish a bounded capability list.",
   readerWorkflowMissing:
     "The scanned README does not establish an ordered workflow.",
-  readerComparisonClaimsHeading: "The README states",
+  readerComparisonClaimsHeading: "README evidence map",
   readerComparisonObservationsHeading: "Repository structure shows",
   readerComparisonKindsHeading: "Broad project kinds",
   readerComparisonEcosystemsHeading: "Observed ecosystems",
@@ -173,29 +217,31 @@ const baseEn = {
   readerCommentaryMissing:
     "The scanned evidence does not produce additional README commentary.",
   readerCommentarySubstantialOverview:
-    "The README provides a substantial project overview.",
+    "The README explains enough of the project position to support a first-pass fit check; its claims still need to be tested against your use case.",
   readerCommentaryAudience:
-    "The README identifies an audience or concrete use cases.",
+    "The README identifies an audience or concrete use cases, so compare those stated situations with the work you actually need to complete.",
   readerCommentaryCapabilities:
-    "The README documents a bounded set of project capabilities.",
-  readerCommentaryWorkflow: "The README describes an ordered workflow.",
+    "The README organizes capabilities into a bounded scope; use those groups as a trial checklist rather than proof that every path works.",
+  readerCommentaryWorkflow:
+    "The ordered README workflow gives a practical trial path; verify checkpoints, failure recovery, and required services as you follow it.",
   readerCommentaryOnboarding:
-    "The README documents an onboarding path for installing, running, or developing the project.",
-  readerCommentaryLimitations: "The README states project limitations.",
+    "The README documents an onboarding path for installing, running, or developing the project; review repository-provided commands before execution.",
+  readerCommentaryLimitations:
+    "The README states project limitations; compare them with the boundaries and failure modes that matter to your deployment.",
   readerCommentaryMaturity:
-    "The README includes maturity or project-status information.",
+    "The README includes maturity or project-status information; confirm release compatibility and unresolved issues before depending on it.",
   readerCommentaryCorroboration:
     "The repository's broad structure corroborates the README description.",
   readerCommentarySecurityGap:
-    "The scanned evidence does not establish the runtime security or data flow.",
+    "Runtime security and data flow are not established. Before providing keys, accounts, or private content, confirm destinations, permissions, and retention.",
   readerCommentaryLimitationsGap:
-    "The scanned README evidence does not establish project limitations.",
+    "The README does not establish project limitations. Trial the failure paths and operating boundaries that matter to you.",
   readerCommentaryMaturityGap:
-    "The scanned README evidence does not establish project maturity.",
+    "The README does not establish project maturity. Check releases, issue history, and compatibility before long-term adoption.",
   readerCommentaryStructureVerification:
     "A broad README structure claim still needs verification against the repository tree.",
   readerCommentaryDependencies:
-    "The README declares external requirements or dependencies that matter in practice.",
+    "The README declares external requirements or dependencies; include their access, cost, availability, and data handling in the adoption decision.",
   readerUnavailable: "Repository does not provide this evidence.",
   readerStepUnavailable: "Repository does not provide this step.",
   readerNotEstablished: "Not established from the scanned public evidence.",
@@ -220,6 +266,7 @@ const baseEn = {
   readerArchitectureEntryPoints: "Observed entry points",
   readerArchitectureSourceAreas: "Top-level source areas",
   readerArchitectureEcosystems: "Observed ecosystems",
+  readerGettingStartedRequirements: "README requirements and configuration",
   readerGettingStartedCommands: "Repository-provided steps",
   readerSecurityObserved: "Observed security and privacy signals",
   readerSecurityDeclarations: "Repository declarations",
@@ -237,7 +284,7 @@ const baseEn = {
   readerSignalArchived: "Archived",
   readerSignalInstall: "Installation path",
   readerSignalRun: "Start or run path",
-  readerSignalLicense: "Recognized license evidence",
+  readerSignalLicense: "License file or recognized metadata",
   readerSignalRecentActivity: "Activity within 180 UTC days",
   readerSignalTests: "Automated test evidence",
   readerSignalCi: "Continuous integration",
@@ -281,7 +328,7 @@ const baseEn = {
   readerActivityWithin180: "within 180 days",
   readerActivity181To365: "more than 180 and up to 365 days",
   readerActivityOver365: "over 365 days",
-  readerOpenIssues: "Open issues reported by GitHub: {count}",
+  readerOpenIssues: "Open issues and PRs reported by GitHub: {count}",
   readerComparisonPurpose: "Purpose",
   readerComparisonLicense: "License",
   readerComparisonOnboarding: "Onboarding",
@@ -577,6 +624,7 @@ const baseZh = {
   repositoryError:
     "请输入公开 GitHub 项目网址，例如 https://github.com/owner/repository。",
   analyzeRepository: "分析项目",
+  viewReport: "查看报告",
   analysisRunning: "正在分析",
   examplesLabel: "试用公开示例",
   methodology: "查看方法说明 1.0.0",
@@ -655,10 +703,13 @@ const baseZh = {
   projectCautionArchived: "此仓库已归档。",
   projectCautionInsufficientExplanation:
     "公开说明和 README 未能足够清楚地解释这个项目。",
-  projectCautionLicenseEvidenceAbsent: "未检测到受识别的许可证证据。",
+  projectCautionLicenseEvidenceAbsent:
+    "未检测到许可证文件或 GitHub 已识别的许可证元数据。",
   projectCautionEntryPointEvidenceAbsent: "未检测到结构化或约定式入口。",
   readerDecisionIndex: "项目决策",
   readerDecisionHeading: "项目决策摘要",
+  readerNavigationLabel: "读者报告目录",
+  readerNavigationHeading: "快速跳到你关心的问题",
   readerStatusContinue: "有较充分证据，可以继续评估",
   readerStatusVerify: "存在关键缺口，使用前需要核实",
   readerStatusInsufficient: "公开证据不足，暂时无法判断",
@@ -672,6 +723,43 @@ const baseZh = {
   readerInterpretationTitle: "以 README 为主线的项目解读",
   readerOrientationHeading: "项目定位",
   readerCommunityHeading: "社区与维护事实",
+  readerTakeawaysHeading: "读者结论",
+  readerTakeawayCapabilitiesHeading: "能力轮廓",
+  readerTakeawayCapabilities:
+    "README 将能力整理为 {count}：{labels}。这是文档声明的范围，不是已经验证的行为。",
+  readerTakeawayCapabilitiesMissing: "README 没有提供有边界的能力列表。",
+  readerTakeawayWorkflowHeading: "典型路径",
+  readerTakeawayWorkflow:
+    "README 记录了 {steps}，仓库证据还提供 {commands}。运行前仍需检查每条命令和环境。",
+  readerTakeawayWorkflowMissing:
+    "没有确认到有序的 README 工作流或可复用的上手命令。",
+  readerTakeawayArchitectureHeading: "实现轮廓",
+  readerTakeawayArchitecture:
+    "仓库结构显示 {kinds}、{ecosystems}，并有 {areas}。这是宽泛的实现轮廓，不是对运行调用链的证明。",
+  readerTakeawayArchitectureDocumented:
+    "仓库提供了 {references}，可用于理解组件或职责，但不能证明实际运行调用链。",
+  readerTakeawayArchitectureMissing: "本次扫描无法形成宽泛的实现轮廓。",
+  readerTakeawayRiskHeading: "采用边界",
+  readerTakeawayRisk:
+    "公开证据中，许可证{license}、安全政策{security}、配置示例{configuration}；README 声明 {dependencies}。实际数据流向、权限与留存策略仍需核实。",
+  readerCountCapabilityGroup: "{count} 个能力分组",
+  readerCountCapabilityGroups: "{count} 个能力分组",
+  readerCountEvidenceCapabilityGroup: "{count} 个能力分组",
+  readerCountEvidenceCapabilityGroups: "{count} 个能力分组",
+  readerCountWorkflowStep: "{count} 个有序步骤",
+  readerCountWorkflowSteps: "{count} 个有序步骤",
+  readerCountOnboardingCommand: "{count} 类上手命令",
+  readerCountOnboardingCommands: "{count} 类上手命令",
+  readerCountSourceArea: "{count} 个主要源码区域",
+  readerCountSourceAreas: "{count} 个主要源码区域",
+  readerCountArchitectureReference: "{count} 条架构参考",
+  readerCountArchitectureReferences: "{count} 条架构参考",
+  readerCountRequirement: "{count} 项外部要求",
+  readerCountRequirements: "{count} 项外部要求",
+  readerCountCitedStatement: "{count} 条引用声明",
+  readerCountCitedStatements: "{count} 条引用声明",
+  readerCountDocumentedStep: "{count} 个文档步骤",
+  readerCountDocumentedSteps: "{count} 个文档步骤",
   readerReadmeNarrativeHeading: "README 如何介绍项目",
   readerCapabilitiesHeading: "核心能力",
   readerWorkflowHeading: "README 中的工作流程",
@@ -679,18 +767,20 @@ const baseZh = {
   readerCommentaryHeading: "RepoScope 解读",
   readerOrientationIntro:
     "先从项目自己的公开说明读起。下方引用保留为仓库证据，不会被改写成既定事实。",
-  readerCommunityStars: "星标",
-  readerCommunityWatch: "关注",
-  readerCommunityForks: "派生",
-  readerCommunityOpenIssues: "未关闭 Issue",
+  readerCommunityStars: "Stars（星标）",
+  readerCommunityWatch: "Watchers（关注）",
+  readerCommunityForks: "Forks（派生）",
+  readerCommunityOpenIssues: "未关闭 Issue 与 PR",
   readerCommunityLastPush: "最近推送",
   readerCommunityLicense: "许可证",
   readerCommunityPopularity: "流行度反映关注程度，不能证明项目质量或安全性。",
-  readerLicensePresent: "已识别",
+  readerLicensePresent: "发现证据",
   readerLicenseAbsent: "未发现",
   readerLicenseUnknown: "无法确认",
   readerReadmeMissing: "没有可用的 README 解读。",
   readerReadmePartial: "README 解读不完整；扫描覆盖范围可能造成遗漏。",
+  readerPartialEvidence:
+    "本次扫描未覆盖完整；以下证据仍然有效，但本节可能遗漏相关文件。",
   readerReadmeSectionMissing: "已扫描的 README 证据无法确认这一部分。",
   readerReadmeOverviewSubheading: "项目概述",
   readerReadmeAudienceSubheading: "目标读者",
@@ -701,7 +791,7 @@ const baseZh = {
   readerReadmeMaturitySubheading: "成熟度说明",
   readerCapabilitiesMissing: "已扫描的 README 未形成有界的能力列表。",
   readerWorkflowMissing: "已扫描的 README 未说明有先后顺序的工作流程。",
-  readerComparisonClaimsHeading: "README 声明",
+  readerComparisonClaimsHeading: "README 证据地图",
   readerComparisonObservationsHeading: "仓库结构显示",
   readerComparisonKindsHeading: "宽泛的项目类型",
   readerComparisonEcosystemsHeading: "观察到的技术生态",
@@ -714,20 +804,31 @@ const baseZh = {
   readerCommentaryVerifyHeading: "依赖前需要核实",
   readerCommentaryPracticalHeading: "对实际使用意味着什么",
   readerCommentaryMissing: "已扫描的证据没有产生更多 README 解读。",
-  readerCommentarySubstantialOverview: "README 对项目作了较充分的概述。",
-  readerCommentaryAudience: "README 说明了目标读者或具体使用场景。",
-  readerCommentaryCapabilities: "README 记录了有界的项目能力。",
-  readerCommentaryWorkflow: "README 描述了有先后顺序的工作流程。",
-  readerCommentaryOnboarding: "README 记录了安装、运行或参与开发的上手路径。",
-  readerCommentaryLimitations: "README 明确说明了项目限制。",
-  readerCommentaryMaturity: "README 提供了成熟度或项目状态信息。",
+  readerCommentarySubstantialOverview:
+    "README 对项目定位的说明足以支持第一轮适配判断；其中的项目声明仍需结合你的场景试用。",
+  readerCommentaryAudience:
+    "README 说明了目标读者或具体使用场景，可以直接拿这些预期场景与你真正要完成的工作对照。",
+  readerCommentaryCapabilities:
+    "README 把能力整理成有边界的范围；可把这些分组当作试用清单，而不是每条路径已经可用的证明。",
+  readerCommentaryWorkflow:
+    "README 的有序流程给出了可操作的试用路径；执行时仍要核实检查点、失败恢复和外部服务。",
+  readerCommentaryOnboarding:
+    "README 记录了安装、运行或参与开发的上手路径；执行仓库命令前仍需逐条检查。",
+  readerCommentaryLimitations:
+    "README 明确说明了项目限制；还应与你的部署边界和关键失败方式逐项对照。",
+  readerCommentaryMaturity:
+    "README 提供了成熟度或项目状态信息；长期依赖前仍要确认版本兼容性和未解决问题。",
   readerCommentaryCorroboration: "仓库的宽泛结构与 README 描述相互印证。",
-  readerCommentarySecurityGap: "已扫描的证据无法确认运行时安全性或数据流向。",
-  readerCommentaryLimitationsGap: "已扫描的 README 证据无法确认项目限制。",
-  readerCommentaryMaturityGap: "已扫描的 README 证据无法确认项目成熟度。",
+  readerCommentarySecurityGap:
+    "运行时安全与数据流向尚未确认。提供密钥、账号或未公开内容前，应先核实发送目标、权限范围与留存策略。",
+  readerCommentaryLimitationsGap:
+    "README 没有说明项目限制。试用时应主动验证与你有关的失败路径和运行边界。",
+  readerCommentaryMaturityGap:
+    "README 没有说明项目成熟度。长期采用前应检查发布记录、Issue 历史和兼容范围。",
   readerCommentaryStructureVerification:
     "README 中的宽泛结构声明仍需结合仓库目录核实。",
-  readerCommentaryDependencies: "README 声明了会影响实际使用的外部要求或依赖。",
+  readerCommentaryDependencies:
+    "README 声明了外部要求或依赖；采用时还要把访问条件、成本、可用性和数据处理方式算进去。",
   readerUnavailable: "仓库未提供这项证据。",
   readerStepUnavailable: "仓库未提供这一步骤。",
   readerNotEstablished: "无法从已扫描的公开证据中确认。",
@@ -751,6 +852,7 @@ const baseZh = {
   readerArchitectureEntryPoints: "观察到的入口",
   readerArchitectureSourceAreas: "顶层源码区域",
   readerArchitectureEcosystems: "观察到的技术生态",
+  readerGettingStartedRequirements: "README 环境要求与配置",
   readerGettingStartedCommands: "仓库提供的步骤",
   readerSecurityObserved: "观察到的安全与隐私信号",
   readerSecurityDeclarations: "仓库声明",
@@ -767,7 +869,7 @@ const baseZh = {
   readerSignalArchived: "已归档",
   readerSignalInstall: "安装路径",
   readerSignalRun: "启动或运行路径",
-  readerSignalLicense: "受识别的许可证证据",
+  readerSignalLicense: "许可证文件或已识别元数据",
   readerSignalRecentActivity: "180 个 UTC 日内有活动",
   readerSignalTests: "自动化测试证据",
   readerSignalCi: "持续集成",
@@ -807,7 +909,7 @@ const baseZh = {
   readerActivityWithin180: "180 日以内",
   readerActivity181To365: "超过 180 日且不超过 365 日",
   readerActivityOver365: "超过 365 日",
-  readerOpenIssues: "GitHub 报告的未关闭 Issue 数：{count}",
+  readerOpenIssues: "GitHub 报告的未关闭 Issue 与 PR 数：{count}",
   readerComparisonPurpose: "用途",
   readerComparisonLicense: "许可证",
   readerComparisonOnboarding: "上手流程",

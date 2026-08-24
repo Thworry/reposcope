@@ -74,17 +74,18 @@ function renderInterpretation(
 }
 
 describe("ReadmeInterpretationView", () => {
-  it("renders the seven editorial regions in their approved order", () => {
+  it("renders the eight editorial regions in their reading order", () => {
     const { container } = renderInterpretation();
 
     expect(
       [...container.querySelectorAll<HTMLElement>("[data-readme-region]")].map(
         (region) =>
-          within(region).getByRole("heading", { level: 3 }).textContent,
+          within(region).getByRole("heading", { level: 4 }).textContent,
       ),
     ).toEqual([
       "Project orientation",
       "Community and maintenance facts",
+      "Reader takeaways",
       "What the README says",
       "Core capabilities",
       "Documented workflow",
@@ -100,8 +101,43 @@ describe("ReadmeInterpretationView", () => {
     expect(screen.queryByRole("img", { name: /radar/iu })).toBeNull();
   });
 
-  it("renders one semantic community definition list with exact accessible facts", () => {
+  it("turns validated evidence into bounded human-readable takeaways", () => {
     renderInterpretation();
+
+    const region = screen.getByRole("region", { name: "Reader takeaways" });
+    expect(within(region).getAllByRole("listitem")).toHaveLength(4);
+    expect(region).toHaveTextContent("1 capability area");
+    expect(region).toHaveTextContent("Reader report");
+    expect(region).toHaveTextContent("2 ordered steps");
+    expect(region).toHaveTextContent("5 onboarding command types");
+    expect(region).toHaveTextContent("Application");
+    expect(region).toHaveTextContent("JavaScript / TypeScript");
+    expect(region).toHaveTextContent("2 named source areas");
+    expect(region).toHaveTextContent("license Present");
+    expect(region).toHaveTextContent("security policy Present");
+    expect(region).toHaveTextContent("1 external requirement");
+    expect(region).toHaveTextContent("not verified behavior");
+    expect(region).toHaveTextContent("not runtime control flow");
+  });
+
+  it("renders equivalent Chinese takeaways without translating repository labels", () => {
+    renderInterpretation(completeReport(), "zh-CN");
+
+    const region = screen.getByRole("region", { name: "读者结论" });
+    expect(region).toHaveTextContent("1 个能力分组");
+    expect(region).toHaveTextContent("Reader report");
+    expect(region).toHaveTextContent("2 个有序步骤");
+    expect(region).toHaveTextContent("5 类上手命令");
+    expect(region).toHaveTextContent("应用程序");
+    expect(region).toHaveTextContent("JavaScript / TypeScript");
+    expect(region).toHaveTextContent("2 个主要源码区域");
+    expect(region).toHaveTextContent("许可证存在");
+    expect(region).toHaveTextContent("不是对运行调用链的证明");
+  });
+
+  it("renders one semantic community definition list with exact accessible facts", () => {
+    const report = completeReport();
+    const { rerender } = renderInterpretation(report);
     const region = screen.getByRole("region", {
       name: "Community and maintenance facts",
     });
@@ -109,9 +145,9 @@ describe("ReadmeInterpretationView", () => {
     expect(region.querySelectorAll("dl")).toHaveLength(1);
     for (const label of [
       "Stars",
-      "Watch",
+      "Watchers",
       "Forks",
-      "Open issues",
+      "Open issues and PRs",
       "Last push",
       "License",
     ]) {
@@ -121,17 +157,33 @@ describe("ReadmeInterpretationView", () => {
       within(region).getByRole("definition", { name: "Stars: 1,284" }),
     ).toHaveAttribute("data-exact-value", "1284");
     expect(
-      within(region).getByRole("definition", { name: "Watch: 37" }),
+      within(region).getByRole("definition", { name: "Watchers: 37" }),
     ).toHaveAttribute("data-exact-value", "37");
     expect(
       within(region).getByRole("definition", { name: "Forks: 146" }),
     ).toHaveAttribute("data-exact-value", "146");
     expect(
-      within(region).getByRole("definition", { name: "Open issues: 0" }),
+      within(region).getByRole("definition", {
+        name: "Open issues and PRs: 0",
+      }),
     ).toHaveAttribute("data-exact-value", "0");
     expect(region).toHaveTextContent(
       "Popularity reflects attention, not proof of quality or safety.",
     );
+
+    rerender(<ReadmeInterpretationView report={report} language="zh-CN" />);
+    const chineseRegion = screen.getByRole("region", {
+      name: "社区与维护事实",
+    });
+    for (const label of [
+      "Stars（星标）",
+      "Watchers（关注）",
+      "Forks（派生）",
+    ]) {
+      expect(
+        within(chineseRegion).getByText(label, { selector: "dt" }),
+      ).toBeVisible();
+    }
   });
 
   it("keeps hostile, duplicate, long CJK, punctuation, links, and bidi prose inert and byte-preserved", () => {
@@ -276,6 +328,82 @@ describe("ReadmeInterpretationView", () => {
       "示例：整理发布说明",
       "最后一个示例",
     ]);
+  });
+
+  it("summarizes README coverage without repeating raw narrative excerpts", () => {
+    const report = completeReport();
+    renderInterpretation(report);
+
+    const narrative = screen.getByRole("region", {
+      name: "What the README says",
+    });
+    const comparison = screen.getByRole("region", {
+      name: "README claims and repository observations",
+    });
+
+    expect(
+      within(narrative).getByText("A bounded project overview."),
+    ).toBeVisible();
+    expect(
+      within(comparison).queryByText("A bounded project overview."),
+    ).toBeNull();
+    expect(
+      within(comparison).queryByText(
+        "Evaluate a public project before adoption",
+      ),
+    ).toBeNull();
+    expect(within(comparison).queryByText("A modern browser")).toBeNull();
+    expect(comparison).toHaveTextContent("README evidence map");
+    expect(comparison).toHaveTextContent("1 cited statement");
+    expect(comparison).toHaveTextContent("1 capability group");
+    expect(comparison).not.toHaveTextContent("Reader report");
+    expect(comparison).toHaveTextContent("2 documented steps");
+    expect(
+      within(comparison).getAllByRole("link", {
+        name: "README.md at inspected commit",
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("uses honest fallback takeaways while retaining documented architecture references", () => {
+    const report = completeReport();
+    report.projectBrief.kinds = [];
+    report.readerReport.readme.capabilityGroups = [];
+    report.readerReport.readme.workflow = [];
+    report.readerReport.readme.dependencies = [];
+    report.readerReport.architecture.ecosystems = [];
+    report.readerReport.architecture.sourceAreas = [];
+    report.readerReport.gettingStarted.commands = [];
+    renderInterpretation(report);
+
+    const region = screen.getByRole("region", { name: "Reader takeaways" });
+    expect(region).toHaveTextContent(
+      "The README does not provide a bounded capability list.",
+    );
+    expect(region).toHaveTextContent(
+      "No ordered README workflow or reusable onboarding command was established.",
+    );
+    expect(region).toHaveTextContent(
+      "The repository provides 2 architecture references.",
+    );
+    expect(region).not.toHaveTextContent(
+      "The scan does not establish a broad implementation outline.",
+    );
+  });
+
+  it("uses the architecture fallback only when structure and references are absent", () => {
+    const report = completeReport();
+    report.projectBrief.kinds = [];
+    report.readerReport.architecture.ecosystems = [];
+    report.readerReport.architecture.sourceAreas = [];
+    report.readerReport.architecture.excerpts = [];
+    report.readerReport.architecture.documents = [];
+    renderInterpretation(report);
+
+    const region = screen.getByRole("region", { name: "Reader takeaways" });
+    expect(region).toHaveTextContent(
+      "The scan does not establish a broad implementation outline.",
+    );
   });
 
   it.each([
@@ -424,6 +552,9 @@ describe("ReadmeInterpretationView", () => {
     );
     expect(css).toMatch(
       /\.readme-interpretation__workflow\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)[^}]*list-style:\s*none/su,
+    );
+    expect(css).toMatch(
+      /\.readme-interpretation__takeaways\s*\{[^}]*display:\s*grid[^}]*list-style:\s*none/su,
     );
     expect(css).toMatch(
       /@media\s*\(min-width:\s*64rem\)[\s\S]*?\.readme-interpretation__workflow\[data-workflow-columns="4"\]\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)[\s\S]*?\.readme-interpretation__comparison\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/su,

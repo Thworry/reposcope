@@ -16,10 +16,11 @@ import {
   VERIFY_IDS,
   WORTH_NOTING_IDS,
 } from "../features/analysis/reader-report-policy";
-import { messages, type AppMessageKey } from "../i18n/messages";
+import { formatMessage, messages, type AppMessageKey } from "../i18n/messages";
 import { ReaderReportSource } from "./reader-report-source";
 
 interface ReadmeInterpretationViewProps {
+  id?: string;
   report: AnalysisReport;
   language: Language;
 }
@@ -73,6 +74,32 @@ const COMMENTARY_KEYS = Object.freeze({
   "readme-external-dependencies-declared": "readerCommentaryDependencies",
 } as const satisfies Record<ReaderCommentaryId, AppMessageKey>);
 
+type TakeawaySignalId = "license" | "security-policy" | "configuration";
+
+const SIGNAL_STATE_KEYS = {
+  present: "readerSignalStatePresent",
+  absent: "readerSignalStateAbsent",
+  unknown: "readerSignalStateUnknown",
+} as const satisfies Record<ReaderSignalState, AppMessageKey>;
+
+function listFormat(values: readonly string[], language: Language): string {
+  if (values.length === 0) return messages[language].readerNotEstablished;
+
+  return new Intl.ListFormat(language, {
+    style: "short",
+    type: "conjunction",
+  }).format([...values]);
+}
+
+function countCopy(
+  language: Language,
+  count: number,
+  singular: AppMessageKey,
+  plural: AppMessageKey,
+): string {
+  return formatMessage(language, count === 1 ? singular : plural, { count });
+}
+
 function DossierRegion({
   id,
   region,
@@ -91,7 +118,7 @@ function DossierRegion({
       aria-labelledby={id}
       data-readme-region={region}
     >
-      <h3 id={id}>{heading}</h3>
+      <h4 id={id}>{heading}</h4>
       {children}
     </section>
   );
@@ -311,6 +338,145 @@ function CommunityFacts({
   );
 }
 
+function ReaderTakeaways({
+  report,
+  context,
+  headingId,
+}: {
+  report: AnalysisReport;
+  context: SourceContext;
+  headingId: string;
+}): ReactElement {
+  const copy = messages[context.language];
+  const reader = report.readerReport;
+  const capabilityLabels = reader.readme.capabilityGroups.map(
+    ({ label }) => label,
+  );
+  const workflowSteps = reader.readme.workflow.length;
+  const commandTypes = reader.gettingStarted.commands.length;
+  const kinds = report.projectBrief.kinds.map(
+    ({ kind }) => copy[KIND_KEYS[kind]],
+  );
+  const ecosystems = reader.architecture.ecosystems.map(
+    (ecosystem) => copy[ECOSYSTEM_KEYS[ecosystem]],
+  );
+  const sourceAreas = reader.architecture.sourceAreas.length;
+  const architectureReferences =
+    reader.architecture.excerpts.length + reader.architecture.documents.length;
+  const dependencies = reader.readme.dependencies.length;
+  const signalState = (signal: TakeawaySignalId): string =>
+    copy[
+      SIGNAL_STATE_KEYS[
+        reader.reliability.signals.find((fact) => fact.signal === signal)
+          ?.state ?? "unknown"
+      ]
+    ];
+  const hasArchitectureStructure =
+    kinds.length > 0 || ecosystems.length > 0 || sourceAreas > 0;
+
+  const items = [
+    {
+      heading: copy.readerTakeawayCapabilitiesHeading,
+      text:
+        capabilityLabels.length === 0
+          ? copy.readerTakeawayCapabilitiesMissing
+          : formatMessage(context.language, "readerTakeawayCapabilities", {
+              count: countCopy(
+                context.language,
+                capabilityLabels.length,
+                "readerCountCapabilityGroup",
+                "readerCountCapabilityGroups",
+              ),
+              labels: listFormat(capabilityLabels, context.language),
+            }),
+    },
+    {
+      heading: copy.readerTakeawayWorkflowHeading,
+      text:
+        workflowSteps === 0 && commandTypes === 0
+          ? copy.readerTakeawayWorkflowMissing
+          : formatMessage(context.language, "readerTakeawayWorkflow", {
+              steps: countCopy(
+                context.language,
+                workflowSteps,
+                "readerCountWorkflowStep",
+                "readerCountWorkflowSteps",
+              ),
+              commands: countCopy(
+                context.language,
+                commandTypes,
+                "readerCountOnboardingCommand",
+                "readerCountOnboardingCommands",
+              ),
+            }),
+    },
+    {
+      heading: copy.readerTakeawayArchitectureHeading,
+      text: hasArchitectureStructure
+        ? formatMessage(context.language, "readerTakeawayArchitecture", {
+            kinds: listFormat(kinds, context.language),
+            ecosystems: listFormat(ecosystems, context.language),
+            areas: countCopy(
+              context.language,
+              sourceAreas,
+              "readerCountSourceArea",
+              "readerCountSourceAreas",
+            ),
+          })
+        : architectureReferences > 0
+          ? formatMessage(
+              context.language,
+              "readerTakeawayArchitectureDocumented",
+              {
+                references: countCopy(
+                  context.language,
+                  architectureReferences,
+                  "readerCountArchitectureReference",
+                  "readerCountArchitectureReferences",
+                ),
+              },
+            )
+          : copy.readerTakeawayArchitectureMissing,
+    },
+    {
+      heading: copy.readerTakeawayRiskHeading,
+      text: formatMessage(context.language, "readerTakeawayRisk", {
+        license: signalState("license"),
+        security: signalState("security-policy"),
+        configuration: signalState("configuration"),
+        dependencies: countCopy(
+          context.language,
+          dependencies,
+          "readerCountRequirement",
+          "readerCountRequirements",
+        ),
+      }),
+    },
+  ];
+
+  return (
+    <DossierRegion
+      id={headingId}
+      region="takeaways"
+      heading={copy.readerTakeawaysHeading}
+    >
+      <ol className="readme-interpretation__takeaways">
+        {items.map((item, index) => (
+          <li key={item.heading}>
+            <span className="readme-interpretation__takeaway-index">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <div>
+              <h5>{item.heading}</h5>
+              <p>{item.text}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </DossierRegion>
+  );
+}
+
 function NarrativeGroup({
   heading,
   facts,
@@ -324,7 +490,7 @@ function NarrativeGroup({
 
   return (
     <section className="readme-interpretation__annotation">
-      <h4>{heading}</h4>
+      <h5>{heading}</h5>
       <EvidenceList facts={facts} context={context} />
     </section>
   );
@@ -436,7 +602,7 @@ function CapabilityGroups({
               className="readme-interpretation__capability"
               key={`${group.label}:${String(groupIndex)}`}
             >
-              <h4>{group.label}</h4>
+              <h5>{group.label}</h5>
               <EvidenceList facts={group.facts} context={context} />
             </section>
           ))}
@@ -513,11 +679,33 @@ function ClaimObservationComparison({
   headingId: string;
 }): ReactElement {
   const copy = messages[context.language];
-  const claims = [
-    ...report.readerReport.readme.overview,
-    ...report.readerReport.readme.useCases,
-    ...report.readerReport.readme.dependencies,
+  const readme = report.readerReport.readme;
+  const allEvidenceMap: Array<readonly [string, number]> = [
+    [copy.readerReadmeOverviewSubheading, readme.overview.length],
+    [copy.readerReadmeAudienceSubheading, readme.audiences.length],
+    [copy.readerReadmeProblemsSubheading, readme.problems.length],
+    [copy.readerReadmeUseCasesSubheading, readme.useCases.length],
+    [copy.readerReadmeDependenciesSubheading, readme.dependencies.length],
+    [copy.readerReadmeLimitationsSubheading, readme.limitations.length],
+    [copy.readerReadmeMaturitySubheading, readme.maturity.length],
   ];
+  const evidenceMap = allEvidenceMap.filter(([, count]) => count > 0);
+  const capabilityLabels = readme.capabilityGroups.map(({ label }) => label);
+  const firstReadmeEvidence = [
+    ...readme.overview,
+    ...readme.audiences,
+    ...readme.problems,
+    ...readme.useCases,
+    ...readme.capabilityGroups.flatMap(({ facts }) => facts),
+    ...readme.workflow,
+    ...readme.dependencies,
+    ...readme.limitations,
+    ...readme.maturity,
+  ][0];
+  const hasReadmeMap =
+    evidenceMap.length > 0 ||
+    capabilityLabels.length > 0 ||
+    readme.workflow.length > 0;
   const hasObservations =
     report.projectBrief.kinds.length > 0 ||
     report.readerReport.architecture.ecosystems.length > 0 ||
@@ -531,22 +719,70 @@ function ClaimObservationComparison({
     >
       <div className="readme-interpretation__comparison">
         <section>
-          <h4>{copy.readerComparisonClaimsHeading}</h4>
-          {claims.length === 0 ? (
+          <h5>{copy.readerComparisonClaimsHeading}</h5>
+          {!hasReadmeMap ? (
             <p className="readme-interpretation__empty">
               {copy.readerComparisonClaimsMissing}
             </p>
           ) : (
-            <EvidenceList facts={claims} context={context} />
+            <>
+              <dl className="readme-interpretation__evidence-map">
+                {evidenceMap.map(([label, count]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>
+                      {countCopy(
+                        context.language,
+                        count,
+                        "readerCountCitedStatement",
+                        "readerCountCitedStatements",
+                      )}
+                    </dd>
+                  </div>
+                ))}
+                {capabilityLabels.length > 0 ? (
+                  <div>
+                    <dt>{copy.readerCapabilitiesHeading}</dt>
+                    <dd>
+                      {countCopy(
+                        context.language,
+                        capabilityLabels.length,
+                        "readerCountEvidenceCapabilityGroup",
+                        "readerCountEvidenceCapabilityGroups",
+                      )}
+                    </dd>
+                  </div>
+                ) : null}
+                {readme.workflow.length > 0 ? (
+                  <div>
+                    <dt>{copy.readerWorkflowHeading}</dt>
+                    <dd>
+                      {countCopy(
+                        context.language,
+                        readme.workflow.length,
+                        "readerCountDocumentedStep",
+                        "readerCountDocumentedSteps",
+                      )}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+              {firstReadmeEvidence === undefined ? null : (
+                <ReaderReportSource
+                  evidence={firstReadmeEvidence}
+                  {...context}
+                />
+              )}
+            </>
           )}
         </section>
         <section>
-          <h4>{copy.readerComparisonObservationsHeading}</h4>
+          <h5>{copy.readerComparisonObservationsHeading}</h5>
           {hasObservations ? (
             <div className="readme-interpretation__observations">
               {report.projectBrief.kinds.length > 0 ? (
                 <section>
-                  <h5>{copy.readerComparisonKindsHeading}</h5>
+                  <h6>{copy.readerComparisonKindsHeading}</h6>
                   <ul>
                     {report.projectBrief.kinds.map((fact, index) => (
                       <li key={`${fact.kind}:${String(index)}`}>
@@ -559,7 +795,7 @@ function ClaimObservationComparison({
               ) : null}
               {report.readerReport.architecture.ecosystems.length > 0 ? (
                 <section>
-                  <h5>{copy.readerComparisonEcosystemsHeading}</h5>
+                  <h6>{copy.readerComparisonEcosystemsHeading}</h6>
                   <ul>
                     {report.readerReport.architecture.ecosystems.map(
                       (ecosystem) => (
@@ -574,7 +810,7 @@ function ClaimObservationComparison({
               ) : null}
               {report.readerReport.architecture.sourceAreas.length > 0 ? (
                 <section>
-                  <h5>{copy.readerComparisonSourceAreasHeading}</h5>
+                  <h6>{copy.readerComparisonSourceAreasHeading}</h6>
                   <ul>
                     {report.readerReport.architecture.sourceAreas.map(
                       (path) => (
@@ -618,7 +854,7 @@ function CommentaryGroup({
 
   return (
     <section>
-      <h4>{heading}</h4>
+      <h5>{heading}</h5>
       <ul>
         {commentary.map((id) => (
           <li key={id}>{messages[language][COMMENTARY_KEYS[id]]}</li>
@@ -678,10 +914,11 @@ function Commentary({
 }
 
 export function ReadmeInterpretationView({
+  id,
   report,
   language,
 }: ReadmeInterpretationViewProps): ReactElement {
-  const id = useId();
+  const headingPrefix = useId();
   const copy = messages[language];
   const readme = report.readerReport.readme;
   const context: SourceContext = {
@@ -693,15 +930,19 @@ export function ReadmeInterpretationView({
 
   return (
     <section
+      id={id}
       className="readme-interpretation"
-      aria-labelledby={`${id}-title`}
+      aria-labelledby={`${headingPrefix}-title`}
       data-readme-availability={readme.availability}
     >
       <header className="readme-interpretation__header">
         <p className="section-index">{copy.readerInterpretationIndex}</p>
-        <p className="readme-interpretation__title" id={`${id}-title`}>
+        <h3
+          className="readme-interpretation__title"
+          id={`${headingPrefix}-title`}
+        >
           {copy.readerInterpretationTitle}
-        </p>
+        </h3>
         {readme.availability === "unavailable" ? (
           <p className="readme-interpretation__availability">
             {copy.readerReadmeMissing}
@@ -716,37 +957,42 @@ export function ReadmeInterpretationView({
       <Orientation
         report={report}
         context={context}
-        headingId={`${id}-orientation`}
+        headingId={`${headingPrefix}-orientation`}
       />
       <CommunityFacts
         report={report}
         context={context}
-        headingId={`${id}-community`}
+        headingId={`${headingPrefix}-community`}
+      />
+      <ReaderTakeaways
+        report={report}
+        context={context}
+        headingId={`${headingPrefix}-takeaways`}
       />
       <ReadmeNarrative
         report={report}
         context={context}
-        headingId={`${id}-narrative`}
+        headingId={`${headingPrefix}-narrative`}
       />
       <CapabilityGroups
         report={report}
         context={context}
-        headingId={`${id}-capabilities`}
+        headingId={`${headingPrefix}-capabilities`}
       />
       <Workflow
         report={report}
         context={context}
-        headingId={`${id}-workflow`}
+        headingId={`${headingPrefix}-workflow`}
       />
       <ClaimObservationComparison
         report={report}
         context={context}
-        headingId={`${id}-comparison`}
+        headingId={`${headingPrefix}-comparison`}
       />
       <Commentary
         report={report}
         context={context}
-        headingId={`${id}-commentary`}
+        headingId={`${headingPrefix}-commentary`}
       />
     </section>
   );
