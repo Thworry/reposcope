@@ -54,11 +54,11 @@ describe("ScanProgress", () => {
       />,
     );
     for (const label of [
-      "验证项目网址",
-      "获取项目结构",
-      "规划检查范围",
-      "下载公开文本",
-      "解析并评分",
+      "检查仓库地址",
+      "读取仓库目录",
+      "确定读取范围",
+      "读取公开文本",
+      "整理信息并评分",
     ]) {
       expect(screen.getByText(label)).toBeVisible();
     }

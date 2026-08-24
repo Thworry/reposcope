@@ -74,8 +74,6 @@ const COMMENTARY_KEYS = Object.freeze({
   "readme-external-dependencies-declared": "readerCommentaryDependencies",
 } as const satisfies Record<ReaderCommentaryId, AppMessageKey>);
 
-type TakeawaySignalId = "license" | "security-policy" | "configuration";
-
 const SIGNAL_STATE_KEYS = {
   present: "readerSignalStatePresent",
   absent: "readerSignalStateAbsent",
@@ -231,7 +229,14 @@ function NumericCommunityFact({
   return (
     <div>
       <dt>{label}</dt>
-      <dd aria-label={`${label}: ${exact}`} data-exact-value={String(value)}>
+      <dd
+        aria-label={formatMessage(
+          context.language,
+          "readerCommunityFactAccessible",
+          { label, value: exact },
+        )}
+        data-exact-value={String(value)}
+      >
         <strong aria-hidden="true">
           {compactInteger(value, context.language)}
         </strong>
@@ -260,7 +265,14 @@ function TextCommunityFact({
   return (
     <div>
       <dt>{label}</dt>
-      <dd aria-label={`${label}: ${value}`} data-exact-value={exactValue}>
+      <dd
+        aria-label={formatMessage(
+          context.language,
+          "readerCommunityFactAccessible",
+          { label, value },
+        )}
+        data-exact-value={exactValue}
+      >
         <strong aria-hidden="true">{value}</strong>
         <ReaderReportSource evidence={evidence} {...context} />
       </dd>
@@ -364,15 +376,77 @@ function ReaderTakeaways({
   const architectureReferences =
     reader.architecture.excerpts.length + reader.architecture.documents.length;
   const dependencies = reader.readme.dependencies.length;
-  const signalState = (signal: TakeawaySignalId): string =>
-    copy[
-      SIGNAL_STATE_KEYS[
-        reader.reliability.signals.find((fact) => fact.signal === signal)
-          ?.state ?? "unknown"
-      ]
-    ];
-  const hasArchitectureStructure =
-    kinds.length > 0 || ecosystems.length > 0 || sourceAreas > 0;
+  const workflowDetails = [
+    workflowSteps > 0
+      ? countCopy(
+          context.language,
+          workflowSteps,
+          "readerCountWorkflowStep",
+          "readerCountWorkflowSteps",
+        )
+      : null,
+    commandTypes > 0
+      ? countCopy(
+          context.language,
+          commandTypes,
+          "readerCountOnboardingCommand",
+          "readerCountOnboardingCommands",
+        )
+      : null,
+  ].filter((detail): detail is string => detail !== null);
+  const architectureDetails = [
+    kinds.length > 0
+      ? formatMessage(context.language, "readerTakeawayArchitectureKinds", {
+          kinds: listFormat(kinds, context.language),
+        })
+      : null,
+    ecosystems.length > 0
+      ? formatMessage(
+          context.language,
+          "readerTakeawayArchitectureEcosystems",
+          { ecosystems: listFormat(ecosystems, context.language) },
+        )
+      : null,
+    sourceAreas > 0
+      ? formatMessage(context.language, "readerTakeawayArchitectureAreas", {
+          areas: countCopy(
+            context.language,
+            sourceAreas,
+            "readerCountSourceArea",
+            "readerCountSourceAreas",
+          ),
+        })
+      : null,
+  ].filter((detail): detail is string => detail !== null);
+  const riskSignalDetail = (
+    signal: "license" | "security-policy" | "configuration",
+    key:
+      | "readerTakeawayRiskLicense"
+      | "readerTakeawayRiskSecurity"
+      | "readerTakeawayRiskConfiguration",
+  ): string | null => {
+    const fact = reader.reliability.signals.find(
+      (candidate) => candidate.signal === signal,
+    );
+    return fact === undefined
+      ? null
+      : formatMessage(context.language, key, {
+          state: copy[SIGNAL_STATE_KEYS[fact.state]],
+        });
+  };
+  const riskDetails = [
+    riskSignalDetail("license", "readerTakeawayRiskLicense"),
+    riskSignalDetail("security-policy", "readerTakeawayRiskSecurity"),
+    riskSignalDetail("configuration", "readerTakeawayRiskConfiguration"),
+    dependencies > 0
+      ? countCopy(
+          context.language,
+          dependencies,
+          "readerCountRequirement",
+          "readerCountRequirements",
+        )
+      : null,
+  ].filter((detail): detail is string => detail !== null);
 
   const items = [
     {
@@ -393,64 +467,42 @@ function ReaderTakeaways({
     {
       heading: copy.readerTakeawayWorkflowHeading,
       text:
-        workflowSteps === 0 && commandTypes === 0
+        workflowDetails.length === 0
           ? copy.readerTakeawayWorkflowMissing
           : formatMessage(context.language, "readerTakeawayWorkflow", {
-              steps: countCopy(
-                context.language,
-                workflowSteps,
-                "readerCountWorkflowStep",
-                "readerCountWorkflowSteps",
-              ),
-              commands: countCopy(
-                context.language,
-                commandTypes,
-                "readerCountOnboardingCommand",
-                "readerCountOnboardingCommands",
-              ),
+              details: listFormat(workflowDetails, context.language),
             }),
     },
     {
       heading: copy.readerTakeawayArchitectureHeading,
-      text: hasArchitectureStructure
-        ? formatMessage(context.language, "readerTakeawayArchitecture", {
-            kinds: listFormat(kinds, context.language),
-            ecosystems: listFormat(ecosystems, context.language),
-            areas: countCopy(
-              context.language,
-              sourceAreas,
-              "readerCountSourceArea",
-              "readerCountSourceAreas",
-            ),
-          })
-        : architectureReferences > 0
-          ? formatMessage(
-              context.language,
-              "readerTakeawayArchitectureDocumented",
-              {
-                references: countCopy(
-                  context.language,
-                  architectureReferences,
-                  "readerCountArchitectureReference",
-                  "readerCountArchitectureReferences",
-                ),
-              },
-            )
-          : copy.readerTakeawayArchitectureMissing,
+      text:
+        architectureDetails.length > 0
+          ? formatMessage(context.language, "readerTakeawayArchitecture", {
+              details: listFormat(architectureDetails, context.language),
+            })
+          : architectureReferences > 0
+            ? formatMessage(
+                context.language,
+                "readerTakeawayArchitectureDocumented",
+                {
+                  references: countCopy(
+                    context.language,
+                    architectureReferences,
+                    "readerCountArchitectureReference",
+                    "readerCountArchitectureReferences",
+                  ),
+                },
+              )
+            : copy.readerTakeawayArchitectureMissing,
     },
     {
       heading: copy.readerTakeawayRiskHeading,
-      text: formatMessage(context.language, "readerTakeawayRisk", {
-        license: signalState("license"),
-        security: signalState("security-policy"),
-        configuration: signalState("configuration"),
-        dependencies: countCopy(
-          context.language,
-          dependencies,
-          "readerCountRequirement",
-          "readerCountRequirements",
-        ),
-      }),
+      text:
+        riskDetails.length === 0
+          ? copy.readerNotEstablished
+          : formatMessage(context.language, "readerTakeawayRisk", {
+              details: listFormat(riskDetails, context.language),
+            }),
     },
   ];
 
@@ -473,6 +525,9 @@ function ReaderTakeaways({
           </li>
         ))}
       </ol>
+      <p className="readme-interpretation__takeaway-boundary">
+        {copy.readerTakeawayBoundary}
+      </p>
     </DossierRegion>
   );
 }

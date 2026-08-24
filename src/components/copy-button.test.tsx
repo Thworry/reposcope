@@ -111,8 +111,10 @@ describe("CopyButton", () => {
     expect(english).not.toContain("sourceText");
     expect(chinese).toContain("# RepoScope 改进清单");
     expect(chinese).toContain("项目：owner/repo");
-    expect(chinese).not.toContain("高可信度");
-    expect(chinese).toContain("低可信度");
+    expect(chinese).not.toContain("把握较高");
+    expect(chinese).toContain("把握较低");
+    expect(chinese).toContain("初步报告；选取");
+    expect(chinese).not.toContain("初步报告; ");
   });
 
   it("serializes overlapping clipboard outcomes and resets only the newest status", async () => {

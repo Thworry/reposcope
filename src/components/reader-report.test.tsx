@@ -170,17 +170,17 @@ describe("ReaderReportView", () => {
 
     rerender(<ReaderReportView report={report} language="zh-CN" />);
     const chineseNavigation = within(
-      screen.getByRole("navigation", { name: "读者报告目录" }),
+      screen.getByRole("navigation", { name: "项目解读目录" }),
     );
-    expect(chineseNavigation.getByText("快速跳到你关心的问题")).toBeVisible();
+    expect(chineseNavigation.getByText("快速查看你关心的内容")).toBeVisible();
     expect(
       chineseNavigation.getByRole("link", {
-        name: "以 README 为主线的项目解读",
+        name: "从 README 开始了解项目",
       }),
     ).toHaveAttribute("href", "#reader-readme");
     expect(
       chineseNavigation.getByRole("link", {
-        name: "活跃度、维护状况和替代方案",
+        name: "项目还在维护吗",
       }),
     ).toHaveAttribute("href", "#reader-maintenance");
   });
@@ -227,14 +227,14 @@ describe("ReaderReportView", () => {
     expect(summary.getByText("pnpm start")).toBeVisible();
     expect(summary.queryByText("pnpm dev")).toBeNull();
     for (const signal of [
-      "Archived",
-      "License file or recognized metadata",
-      "Activity within 180 UTC days",
+      "Archived: Not present",
+      "License file or recognized metadata: Present",
+      "Activity within 180 UTC days: Present",
     ]) {
       expect(summary.getByText(signal)).toBeVisible();
     }
-    expect(summary.queryByText("Automated test evidence")).toBeNull();
-    expect(summary.queryByText("Continuous integration")).toBeNull();
+    expect(summary.queryByText("Automated test evidence: Present")).toBeNull();
+    expect(summary.queryByText("Continuous integration: Present")).toBeNull();
     expect(
       summary.queryByText(
         "Which data leaves the local environment at runtime?",
@@ -245,8 +245,12 @@ describe("ReaderReportView", () => {
     const reliability = within(
       screen.getByRole("region", { name: "Evidence of reliability" }),
     );
-    expect(reliability.getByText("Automated test evidence")).toBeVisible();
-    expect(reliability.getByText("Continuous integration")).toBeVisible();
+    expect(
+      reliability.getByText("Automated test evidence: Present"),
+    ).toBeVisible();
+    expect(
+      reliability.getByText("Continuous integration: Present"),
+    ).toBeVisible();
     expect(
       reliability.getByText(
         "Which data leaves the local environment at runtime?",
@@ -264,17 +268,17 @@ describe("ReaderReportView", () => {
     [
       "continue-evaluation",
       "Sufficient evidence to continue evaluation",
-      "有较充分证据，可以继续评估",
+      "信息较完整，可以继续了解",
     ],
     [
       "verify-before-use",
       "Key gaps require verification before use",
-      "存在关键缺口，使用前需要核实",
+      "还有重要问题，使用前需要确认",
     ],
     [
       "insufficient-evidence",
       "Public evidence is insufficient to judge",
-      "公开证据不足，暂时无法判断",
+      "公开信息太少，暂时无法判断",
     ],
   ])("localizes the %s status", (status, english, chinese) => {
     const report = completeReport();
@@ -319,15 +323,17 @@ describe("ReaderReportView", () => {
 
     rerender(<ReaderReportView report={report} language="zh-CN" />);
     for (const heading of [
-      "项目决策摘要",
-      "项目适用性注意事项",
-      "是否靠谱",
-      "整体如何运作",
-      "安装、运行和二次开发",
-      "安全与隐私风险",
-      "活跃度、维护状况和替代方案",
+      "是否值得继续了解",
+      "这个项目适合做什么",
+      "项目是否靠谱",
+      "代码大致怎么组织",
+      "如何安装、运行和二次开发",
+      "是否存在安全或隐私风险",
+      "项目还在维护吗",
     ]) {
-      expect(screen.getByRole("heading", { name: heading })).toBeVisible();
+      expect(
+        screen.getByRole("heading", { level: 3, name: heading }),
+      ).toBeVisible();
     }
     expect(screen.getAllByText("English purpose — 中文用途。")).toHaveLength(1);
     expect(
@@ -335,6 +341,34 @@ describe("ReaderReportView", () => {
     ).toHaveLength(2);
     expect(screen.getAllByText("应用程序").length).toBeGreaterThan(0);
     expect(screen.queryByText("Application")).toBeNull();
+  });
+
+  it("uses complete Chinese templates for signal states and alternative searches", () => {
+    const report = completeReport();
+    report.readerReport.reliability.signals = [
+      {
+        signal: "install",
+        state: "present",
+        source: "analysis",
+        path: null,
+      },
+    ];
+    report.readerReport.alternatives.searchTerms = ["novel writing assistant"];
+    const { container } = renderReader(report, "zh-CN");
+
+    expect(screen.getByText("安装说明：已找到")).toBeVisible();
+    const search = screen.getByRole("link", {
+      name: "在 GitHub 搜索“novel writing assistant”",
+    });
+    expect(search).toHaveAttribute(
+      "href",
+      "https://github.com/search?q=novel%20writing%20assistant%20in%3Aname%2Cdescription%2Creadme%20archived%3Afalse&type=repositories",
+    );
+    for (const signal of container.querySelectorAll(
+      ".reader-report__signal-list li span",
+    )) {
+      expect(signal.textContent).not.toMatch(/[—–]/u);
+    }
   });
 
   it.each<ReaderAvailability>(["available", "partial", "unavailable"])(
@@ -413,12 +447,12 @@ describe("ReaderReportView", () => {
 
       rerender(<ReaderReportView report={report} language="zh-CN" />);
       expect(cautionChapter).toHaveTextContent(
-        "未检测到许可证文件或 GitHub 已识别的许可证元数据。",
+        "没有找到许可证文件，也没有看到 GitHub 识别出的许可证信息。",
       );
-      expect(cautionChapter).not.toHaveTextContent("仓库未提供这项证据。");
       expect(cautionChapter).not.toHaveTextContent(
-        "无法从已扫描的公开证据中确认。",
+        "本次分析没有找到这方面的信息。",
       );
+      expect(cautionChapter).not.toHaveTextContent("现有公开信息还无法确认。");
     },
   );
 
@@ -860,7 +894,7 @@ describe("ReaderReportView", () => {
 
     rerender(<ReaderReportView report={report} language="zh-CN" />);
     expect(
-      screen.getByText("已过 180.5 个 UTC 日（超过 180 日且不超过 365 日）"),
+      screen.getByText("距今 180.5 天（已有半年至一年未更新）"),
     ).toBeVisible();
 
     report.readerReport.maintenance.activity = {
@@ -887,7 +921,7 @@ describe("ReaderReportView", () => {
       }),
     );
     const links = screen.getAllByRole("link", {
-      name: /Search GitHub repositories using these evidence terms/u,
+      name: /Search GitHub for:/u,
     });
 
     expect(links).toHaveLength(3);
@@ -914,7 +948,7 @@ describe("ReaderReportView", () => {
     rerender(<ReaderReportView report={report} language="en" />);
     expect(
       screen.queryByRole("link", {
-        name: /Search GitHub repositories using these evidence terms/u,
+        name: /Search GitHub for:/u,
       }),
     ).toBeNull();
   });
@@ -998,7 +1032,7 @@ describe("ReaderReportView", () => {
     rerender(<ReaderReportView report={report} language="zh-CN" />);
     expect(screen.getAllByText("命令行工具").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText("公开仓库证据不足，无法可靠说明这个项目的用途。")
+      screen.getAllByText("目前找到的公开信息还不足以说明这个项目的用途。")
         .length,
     ).toBeGreaterThan(0);
   });

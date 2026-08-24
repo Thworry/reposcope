@@ -7,6 +7,7 @@ import type {
   DeepStatement,
 } from "../features/deep-analysis/model";
 import { messages, type AppMessageKey } from "../i18n/messages";
+import { ExpertEvidenceLabel } from "./expert-evidence";
 import { ExpertStatement } from "./expert-statement";
 
 interface ExpertReportProps {
@@ -82,7 +83,7 @@ function Subsection({
 }
 
 function formatDate(value: string | null, language: Language): string {
-  if (value === null) return "—";
+  if (value === null) return messages[language].deepValueUnavailable;
   const date = new Date(value);
   return Number.isFinite(date.getTime())
     ? new Intl.DateTimeFormat(language, {
@@ -119,7 +120,10 @@ function communityFacts(
       label: copy.deepCommunityArchived,
       value: community.archived ? copy.readerYes : copy.readerNo,
     },
-    { label: copy.deepCommunityLicense, value: community.license ?? "—" },
+    {
+      label: copy.deepCommunityLicense,
+      value: community.license ?? copy.deepValueUnavailable,
+    },
   ];
 }
 
@@ -418,7 +422,9 @@ export function ExpertReport({ report, language }: ExpertReportProps) {
           {report.evidence.map((item) => (
             <li key={item.id}>
               <span className="expert-evidence-drawer__id">{item.id}</span>
-              <span>{item.label}</span>
+              <span>
+                <ExpertEvidenceLabel evidence={item} language={language} />
+              </span>
               {item.url === null ? (
                 <span>{copy.deepEvidenceUnavailable}</span>
               ) : (
