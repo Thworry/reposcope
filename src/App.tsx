@@ -70,6 +70,7 @@ export function App() {
   );
   const sharedStarted = useRef(false);
   const pendingManual = useRef<RepoRef | null>(null);
+  const focusReportOnSuccess = useRef(false);
 
   useEffect(() => {
     if (sharedRef === null) return;
@@ -78,6 +79,7 @@ export function App() {
     queueMicrotask(() => {
       if (!active || sharedStarted.current) return;
       sharedStarted.current = true;
+      focusReportOnSuccess.current = true;
       void analysis.analyze(sharedRef);
     });
 
@@ -113,8 +115,29 @@ export function App() {
     pendingManual.current = null;
   }, [analysis.report, analysis.status]);
 
+  useEffect(() => {
+    if (analysis.status === "error" || analysis.status === "idle") {
+      focusReportOnSuccess.current = false;
+      return;
+    }
+    if (
+      analysis.status !== "success" ||
+      analysis.report === null ||
+      !focusReportOnSuccess.current
+    ) {
+      return;
+    }
+
+    const reportTitle = document.getElementById("report-title");
+    if (reportTitle instanceof HTMLElement) {
+      reportTitle.focus();
+      focusReportOnSuccess.current = false;
+    }
+  }, [analysis.report, analysis.status]);
+
   function analyzeManual(ref: RepoRef): void {
     pendingManual.current = { owner: ref.owner, repo: ref.repo };
+    focusReportOnSuccess.current = true;
     void analysis.analyze(ref);
   }
 
@@ -143,7 +166,10 @@ export function App() {
       </header>
 
       <main id="main-content" aria-label={copy.main}>
-        <section className="landing" aria-labelledby="landing-title">
+        <section
+          className={`landing${analysis.report === null ? "" : " landing--compact"}`}
+          aria-labelledby="landing-title"
+        >
           <p className="section-index">01 / {copy.landingIndex}</p>
           <div className="landing__intro">
             <h1 id="landing-title">{copy.heroTitle}</h1>
@@ -156,6 +182,12 @@ export function App() {
             initialValue={initialValue}
             onAnalyze={analyzeManual}
           />
+
+          {analysis.report === null ? null : (
+            <a className="landing__report-link" href="#report-title">
+              {copy.viewReport}
+            </a>
+          )}
 
           <aside
             className="privacy-note"

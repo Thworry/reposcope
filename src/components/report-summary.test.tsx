@@ -99,4 +99,20 @@ describe("ReportSummary", () => {
       screen.getByRole("link", { name: "Open repository on GitHub" }),
     ).toBeVisible();
   });
+
+  it("offers a controlled line break between owner and repository", () => {
+    const { container } = render(
+      <ReportSummary report={report} language="en" />,
+    );
+    const heading = screen.getByRole("heading", {
+      level: 2,
+      name: "owner/repo",
+    });
+
+    expect(heading.querySelector("wbr")).not.toBeNull();
+    expect(
+      [...heading.querySelectorAll("span")].map((part) => part.textContent),
+    ).toEqual(["owner", "/", "repo"]);
+    expect(container.querySelector("script, img, iframe")).toBeNull();
+  });
 });

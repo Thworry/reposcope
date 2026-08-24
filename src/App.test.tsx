@@ -346,11 +346,22 @@ describe("App", () => {
       refresh: refreshMock,
     };
 
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(
       screen.getByRole("heading", { level: 2, name: "owner/repo" }),
-    ).toBeVisible();
+    ).toHaveAttribute("tabindex", "-1");
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Understand a public project before you depend on it.",
+      }),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".landing")).toHaveClass("landing--compact");
+    expect(screen.getByRole("link", { name: "View report" })).toHaveAttribute(
+      "href",
+      "#report-title",
+    );
     expect(document.querySelectorAll("#methodology")).toHaveLength(1);
     expect(screen.getAllByRole("region", { name: "Methodology" })).toHaveLength(
       1,
@@ -359,6 +370,32 @@ describe("App", () => {
       screen.getByRole("button", { name: "Refresh public data" }),
     );
     expect(refreshMock).toHaveBeenCalledOnce();
+  });
+
+  it("moves focus to a newly completed manual report", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<App />);
+
+    await user.type(
+      screen.getByRole("textbox"),
+      "https://github.com/owner/repo",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Analyze repository" }),
+    );
+
+    controller = {
+      ...controller,
+      status: "success",
+      report: validReport({ owner: "owner", repo: "repo" }),
+    };
+    rerender(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { level: 2, name: "owner/repo" }),
+      ).toHaveFocus();
+    });
   });
 
   it("shows a safe refresh error and stale timestamp without clearing the prior report or URL", () => {

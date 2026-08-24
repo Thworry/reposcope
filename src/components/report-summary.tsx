@@ -36,7 +36,12 @@ export function ReportSummary({ report, language }: ReportSummaryProps) {
     >
       <p className="section-index">01 / {copy.reportIndex}</p>
       <div className="report-summary__heading">
-        <h2 id="report-title">{report.repository.fullName}</h2>
+        <h2 id="report-title" tabIndex={-1}>
+          <span>{report.repository.owner}</span>
+          <span>/</span>
+          <wbr />
+          <span>{report.repository.repo}</span>
+        </h2>
         <a
           href={repositoryHref(report)}
           target="_blank"
