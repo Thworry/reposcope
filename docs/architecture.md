@@ -126,7 +126,7 @@ The reader-report path is deliberately split into bounded extraction, determinis
 - `src/features/analysis/guards.ts` strictly validates the full report, frozen vocabularies, caps, source provenance, safety boundaries, and recomputed reader states.
 - `src/features/cache/report-cache.ts` serializes, reparses, and validates a snapshot before storing the bounded report in `sessionStorage`.
 - `src/components/reader-report.tsx` renders repository prose as React text with immutable source captions and inert command blocks.
-- `src/components/readme-interpretation.tsx` renders the seven-region README evidence dossier, semantic community facts, ordered workflow, claim-versus-observation comparison, and canonical commentary.
+- `src/components/readme-interpretation.tsx` renders the eight-region README evidence dossier, including reader takeaways, semantic community facts, ordered workflow, claim-versus-observation comparison, and canonical commentary.
 - `src/components/technical-appendix.tsx` owns the default-closed scoring and methodology disclosure.
 - `src/features/deep-analysis` owns the optional API origin, authorization and NDJSON client, strict browser guard, independent hook state, cancellation, and stale-result isolation.
 - `server/github` re-verifies the already-inspected commit and acquires only bounded public evidence with the visitor's in-memory OAuth token.

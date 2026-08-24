@@ -343,18 +343,21 @@ describe("open-source repository contract", () => {
     const chinese = read("README.zh-CN.md");
 
     for (const statement of [
-      "seven-region README-first evidence dossier",
+      "eight-region README-first evidence dossier",
       "Project orientation",
       "Community and maintenance facts",
+      "Reader takeaways",
       "What the README says",
       "Core capabilities",
+      "up to nine capability areas",
       "Documented workflow",
       "README claims and repository observations",
       "RepoScope commentary",
       "Worth noting",
       "Verify before relying on it",
       "What this means in practice",
-      "`subscribers_count` is labeled **Watch**",
+      "`subscribers_count` is labeled **Watchers**",
+      "`open_issues_count` includes both issues and pull requests",
       "Popularity is not proof of quality or safety.",
       "does not use AI",
       "partial README interpretation",
@@ -364,18 +367,21 @@ describe("open-source repository contract", () => {
       expect(english).toContain(statement);
     }
     for (const statement of [
-      "由七个区域组成的 README 优先证据档案",
+      "由八个区域组成的 README 优先证据档案",
       "项目定位",
       "社区与维护事实",
+      "读者结论",
       "README 如何介绍项目",
       "核心能力",
+      "最多九个能力分组",
       "README 中的工作流程",
       "README 声明与仓库观察",
       "RepoScope 解读",
       "值得注意",
       "依赖前需要核实",
       "对实际使用意味着什么",
-      "`subscribers_count` 标记为 **Watch**",
+      "`subscribers_count` 标记为 **Watchers**",
+      "`open_issues_count` 同时包含 Issue 与 PR",
       "流行度不能证明项目质量或安全性。",
       "不使用 AI",
       "README 解读会标记为部分可用",
@@ -403,9 +409,12 @@ describe("open-source repository contract", () => {
 
     for (const statement of [
       "README interpretation is deterministic and does not use AI.",
-      "`subscribers_count` is the GitHub source for **Watch**",
+      "The dossier presents eight regions in this order: project orientation; community and maintenance facts; reader takeaways",
+      "`subscribers_count` is the GitHub source for **Watchers**",
+      "GitHub `open_issues_count` combines issues and pull requests",
+      "This signal records evidence existence, not license compatibility",
       "Popularity is attention evidence, not quality or safety evidence.",
-      "overview 4; audiences 4; problems 4; use cases 4; capability groups 6 with 6 facts each; workflow 8; dependencies 8; limitations 6; maturity 6",
+      "overview 4; audiences 4; problems 4; use cases 4; capability groups 9 with 6 facts each; workflow 8; dependencies 8; limitations 6; maturity 6",
       "**Worth noting**",
       "**Verify before relying on it**",
       "**What this means in practice**",
@@ -432,6 +441,7 @@ describe("open-source repository contract", () => {
       "the isolated scoring input is scored without community popularity counts or reader evidence",
       "the complete report is strictly cloned and validated",
       "the README evidence dossier renders before the decision summary and six reader chapters",
+      "the eight-region README evidence dossier",
       "src/components/readme-interpretation.tsx",
     ]) {
       expect(architecture).toContain(statement);

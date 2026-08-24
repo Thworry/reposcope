@@ -27,17 +27,18 @@ See the complete [ruleset `1.0.0` methodology](docs/methodology.md), [architectu
 
 ## README-first evidence dossier
 
-Completed reports begin with a seven-region README-first evidence dossier for people evaluating an unfamiliar project:
+Completed reports begin with an eight-region README-first evidence dossier for people evaluating an unfamiliar project:
 
 1. **Project orientation** presents the public repository description and bounded project brief with source captions.
-2. **Community and maintenance facts** shows exact Stars, Watch, Forks, open issues, last push, and license evidence in one semantic definition list.
-3. **What the README says** organizes bounded README overview, audience, problem, use-case, dependency, limitation, and maturity statements without rewriting repository prose.
-4. **Core capabilities** groups the capabilities documented by the repository.
-5. **Documented workflow** presents the repository's ordered process as text that remains understandable without its connecting line.
-6. **README claims and repository observations** separates repository claims from broad project-kind, ecosystem, and source-area observations. It does not expose rule or function-level scoring detail.
-7. **RepoScope commentary** groups deterministic notes under **Worth noting**, **Verify before relying on it**, and **What this means in practice**.
+2. **Community and maintenance facts** shows exact Stars, Watchers, Forks, open issues and pull requests, last push, and license evidence in one semantic definition list.
+3. **Reader takeaways** summarizes the documented capability shape, typical path, broad implementation outline, and adoption boundary before the longer evidence sections.
+4. **What the README says** organizes bounded README overview, audience, problem, use-case, dependency, limitation, and maturity statements without rewriting repository prose.
+5. **Core capabilities** groups up to nine capability areas documented by the repository.
+6. **Documented workflow** presents the repository's ordered process as text that remains understandable without its connecting line.
+7. **README claims and repository observations** separates repository claims from broad project-kind, ecosystem, and source-area observations. It does not expose rule or function-level scoring detail.
+8. **RepoScope commentary** groups deterministic notes under **Worth noting**, **Verify before relying on it**, and **What this means in practice**.
 
-GitHub's `stargazers_count`, `subscribers_count`, and `forks_count` supply Stars, Watch, and Forks respectively; `subscribers_count` is labeled **Watch**. These figures describe public attention. Popularity is not proof of quality or safety.
+GitHub's `stargazers_count`, `subscribers_count`, and `forks_count` supply Stars, Watchers, and Forks respectively; `subscribers_count` is labeled **Watchers**. GitHub's `open_issues_count` includes both issues and pull requests. These figures describe public attention. Popularity is not proof of quality or safety.
 
 Repository-authored prose stays in its source language when the interface switches language. README interpretation is deterministic and does not use AI; neither does the rest of the deterministic scan. If no preferred README is found, the dossier says so. If a preferred README is known but was not fetched, the UI presents a partial README interpretation instead of filling gaps. Optional expert mode is a second, clearly labeled interpretation layer and never changes these deterministic facts or scores.
 
