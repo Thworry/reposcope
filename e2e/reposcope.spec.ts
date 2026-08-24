@@ -274,21 +274,21 @@ const ENGLISH_READER_HEADINGS = [
 ] as const;
 
 const CHINESE_READER_HEADINGS = [
-  "项目定位",
-  "社区与维护事实",
-  "读者结论",
-  "README 如何介绍项目",
-  "核心能力",
-  "README 中的工作流程",
-  "README 声明与仓库观察",
-  "RepoScope 解读",
-  "项目决策摘要",
-  "项目适用性注意事项",
-  "是否靠谱",
-  "整体如何运作",
-  "安装、运行和二次开发",
-  "安全与隐私风险",
-  "活跃度、维护状况和替代方案",
+  "项目是做什么的",
+  "社区热度与维护数据",
+  "先看重点",
+  "README 里怎么说",
+  "主要功能",
+  "README 给出的使用流程",
+  "README 的说法与仓库情况",
+  "RepoScope 怎么看",
+  "是否值得继续了解",
+  "这个项目适合做什么",
+  "项目是否靠谱",
+  "代码大致怎么组织",
+  "如何安装、运行和二次开发",
+  "是否存在安全或隐私风险",
+  "项目还在维护吗",
 ] as const;
 
 function readerSection(page: Page, section: string) {
@@ -336,7 +336,9 @@ async function expectAppendixClosed(
   const appendix = technicalAppendix(page);
   await expect(appendix).not.toHaveAttribute("open", "");
   await expect(appendix.locator(":scope > summary")).toHaveText(
-    language === "en" ? "Technical evidence and methodology" : "技术证据与方法",
+    language === "en"
+      ? "Technical evidence and methodology"
+      : "技术附录与分析方法",
   );
   await expect(page.locator(".technical-overview__score strong")).toBeHidden();
 }
@@ -348,7 +350,9 @@ async function openTechnicalAppendix(page: Page, language: "en" | "zh" = "en") {
   }
   await expect(appendix).toHaveAttribute("open", "");
   await expect(appendix.locator(":scope > summary")).toHaveText(
-    language === "en" ? "Technical evidence and methodology" : "技术证据与方法",
+    language === "en"
+      ? "Technical evidence and methodology"
+      : "技术附录与分析方法",
   );
   return appendix;
 }
@@ -738,16 +742,16 @@ const ENGLISH_EXPERT_CHAPTERS = [
 ] as const;
 
 const CHINESE_EXPERT_CHAPTERS = [
-  "30 秒看懂项目",
-  "适合谁 / 不适合谁",
-  "具体使用场景",
-  "能力与使用流程",
-  "大体如何工作",
-  "安装、运行与二次开发",
-  "可靠性、安全与隐私",
-  "维护状态与社区",
-  "值得对比的替代项目",
-  "专家结论",
+  "30 秒了解项目",
+  "适合谁，不适合谁",
+  "可以用在哪些场景",
+  "主要功能和使用流程",
+  "代码大致怎么组织",
+  "如何安装、运行和二次开发",
+  "是否可靠，有哪些安全和隐私风险",
+  "项目还在维护吗",
+  "还可以对比哪些项目",
+  "综合判断",
 ] as const;
 
 async function expectExpertChapterOrder(
@@ -838,11 +842,11 @@ test("Chinese reader report persists and switching language does not refetch", a
   await gotoLanding(page);
   await page.getByRole("button", { name: "简体中文" }).click();
   await page.reload();
-  await expect(page.getByLabel("公开 GitHub 项目网址")).toBeVisible();
+  await expect(page.getByLabel("公开 GitHub 仓库地址")).toBeVisible();
   await page
-    .getByLabel("公开 GitHub 项目网址")
+    .getByLabel("公开 GitHub 仓库地址")
     .fill("https://github.com/owner/repo");
-  await page.getByRole("button", { name: "分析项目" }).click();
+  await page.getByRole("button", { name: "开始解读" }).click();
   await expectReport(page);
   await expectReaderStructure(page, "zh");
   const orientation = readmeRegion(page, "orientation");
@@ -851,6 +855,35 @@ test("Chinese reader report persists and switching language does not refetch", a
   ).toBeVisible();
   await expect(
     orientation.getByText(TYPESCRIPT_PURPOSE, { exact: true }),
+  ).toBeVisible();
+  const community = readmeRegion(page, "community");
+  expect(
+    await community.locator("dl > div").evaluateAll((facts) =>
+      facts.slice(0, 3).map((fact) => ({
+        term: fact.querySelector("dt")?.textContent,
+        accessibleValue: fact.querySelector("dd")?.getAttribute("aria-label"),
+        exactValue: fact.querySelector("dd")?.getAttribute("data-exact-value"),
+      })),
+    ),
+  ).toEqual([
+    {
+      term: "Star 数",
+      accessibleValue: "Star 数：1,284",
+      exactValue: "1284",
+    },
+    {
+      term: "Watch 数",
+      accessibleValue: "Watch 数：37",
+      exactValue: "37",
+    },
+    {
+      term: "Fork 数",
+      accessibleValue: "Fork 数：146",
+      exactValue: "146",
+    },
+  ]);
+  await expect(
+    page.getByRole("region", { name: "是否值得继续了解", exact: true }),
   ).toBeVisible();
   await expect(page.getByText(COMMIT_SHA, { exact: true })).toBeVisible();
   await expectAppendixClosed(page, "zh");
@@ -1145,7 +1178,7 @@ test("Fiction Workbench exposes the complete README-first human dossier", async 
     `https://github.com/owner/repo/blob/${COMMIT_SHA}/SECURITY.md`,
   );
   const alternatives = page.getByRole("link", {
-    name: "Search GitHub repositories using these evidence terms",
+    name: /^Search GitHub for:/u,
   });
   await expect(alternatives).toHaveCount(3);
   expect(
@@ -1587,7 +1620,7 @@ test("hostile repository strings stay inert text", async ({
     page,
     "maintenance-alternatives",
   ).getByRole("link", {
-    name: "Search GitHub repositories using these evidence terms",
+    name: "Search GitHub for: application",
   });
   const controlledAlternativeHref =
     await controlledAlternative.getAttribute("href");
@@ -1821,9 +1854,9 @@ test("ready expert mode renders a sourced bilingual ten-chapter briefing without
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.getByRole("button", { name: "简体中文" }).click();
   await expect(
-    page.getByRole("button", { name: "生成专家解读" }),
+    page.getByRole("button", { name: "生成深入解读" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "生成专家解读" }).click();
+  await page.getByRole("button", { name: "生成深入解读" }).click();
   await expect(
     page.getByRole("heading", { level: 2, name: "项目简报" }),
   ).toBeVisible();
@@ -1835,7 +1868,7 @@ test("ready expert mode renders a sourced bilingual ten-chapter briefing without
   });
   await expectNoSeriousAxeViolations(page);
 
-  await page.getByRole("button", { name: "退出专家模式" }).click();
+  await page.getByRole("button", { name: "退出深入解读" }).click();
   await expect.poll(() => expert.signOutRequests().length).toBe(1);
   const signOut = expert.signOutRequests()[0];
   expect(signOut?.method).toBe("POST");

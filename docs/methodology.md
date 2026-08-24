@@ -18,9 +18,9 @@ The dossier presents eight regions in this order: project orientation; community
 
 Canonical reader signals cover archived state, installation, run path, a license file or recognized GitHub license metadata, recent activity, automated tests, continuous integration, coverage, security policy, version history, contribution guidance, issue or pull-request templates, dependency updates, and configuration examples. This signal records evidence existence, not license compatibility. Missing evidence remains `Not present` or `Not established`; it is never invented from a repository name or guessed ecosystem command.
 
-Activity uses the same raw elapsed UTC-day calculation as maintenance scoring. A non-archived repository is recent through 180 exact UTC days; more than 180 and up to 365 days is the middle activity band; more than 365 days is stale. The Chinese interface describes the middle band equivalently as **超过 180 日且不超过 365 日**. An archived repository is never classified as recently active. Incomplete tree or fetch coverage makes reader sections partial rather than complete.
+Activity uses the same raw elapsed UTC-day calculation as maintenance scoring. A non-archived repository is recent through 180 exact UTC days; more than 180 and up to 365 days is the middle activity band; more than 365 days is stale. The Chinese interface labels these exact bands **近 180 天有更新**, **已有半年至一年未更新**, and **已超过一年未更新**. An archived repository is never classified as recently active. Incomplete tree or fetch coverage makes reader sections partial rather than complete.
 
-Human-facing excerpts are bounded, deduplicated repository prose from recognized README or documentation sections. Repository language is preserved. HTML blocks, link destinations, raw URLs, credentials, control text, unsafe paths, and malformed constructs fail closed. Commands are inert text capped by kind and length; dangerous or remote-pipe shapes are labeled for review, and commands that fail the safe-text boundary are withheld. Source captions point to the inspected commit, while computed structural evidence is labeled **Deterministic analysis**.
+Human-facing excerpts are bounded, deduplicated repository prose from recognized README or documentation sections. Repository-authored text remains in its original language. RepoScope-authored Simplified Chinese is written directly for Chinese readers rather than produced by runtime translation. HTML blocks, link destinations, raw URLs, credentials, control text, unsafe paths, and malformed constructs fail closed. Commands are inert text capped by kind and length; dangerous or remote-pipe shapes are labeled for review, and commands that fail the safe-text boundary are withheld. Source captions point to the inspected commit, while computed structural evidence is labeled **Deterministic analysis**.
 
 README profile caps are exact: overview 4; audiences 4; problems 4; use cases 4; capability groups 9 with 6 facts each; workflow 8; dependencies 8; limitations 6; maturity 6. Purpose excerpts and all earlier narrative groups participate in canonical NFKC deduplication before later groups and caps, preserving the first safe spelling and source order. Capability candidate storage is separately hard bounded; overflow fails closed for capability groups while other profile sections remain available.
 
@@ -47,10 +47,10 @@ The overall score is the weighted mean of applicable dimension percentages, norm
 
 Overall labels are:
 
-- 85–100: Strong evidence / 证据较强
-- 70–84: Solid foundation / 基础扎实
-- 50–69: Needs attention / 需要关注
-- 0–49: Limited evidence / 证据有限
+- 85–100: Strong evidence / 依据较充分
+- 70–84: Solid foundation / 基础较扎实
+- 50–69: Needs attention / 有几项需要关注
+- 0–49: Limited evidence / 现有依据有限
 
 These labels describe observed evidence, not project worth or safety.
 
@@ -157,7 +157,7 @@ confidence = 100 × (
 - `eligibleByteCoverage` is successfully decoded eligible bytes divided by eligible bytes declared by the available tree, clamped to [0, 1].
 - `supportedParserCoverage` is successfully parsed JavaScript/TypeScript/Python bytes divided by all eligible source bytes; unsupported-language bytes remain in the denominator. The ratio is clamped to [0, 1].
 
-The displayed integer is rounded to the nearest percent: 80–100 is High / 高可信度, 60–79 is Medium / 中可信度, and 0–59 is Low / 低可信度. Low confidence is preliminary. A truncated tree cannot reach high confidence. A repository without supported-language source can receive a general report but not high confidence.
+The displayed integer is rounded to the nearest percent: 80–100 is High / 把握较高, 60–79 is Medium / 把握一般, and 0–59 is Low / 把握较低. Low confidence is preliminary. A truncated tree cannot reach high confidence. A repository without supported-language source can receive a general report but not high confidence.
 
 ## Applicability, aggregation, and precedence
 

@@ -281,7 +281,7 @@ describe("open-source repository contract", () => {
       "不需要登录",
       "GitHub 令牌",
       "后端",
-      "AI 服务",
+      "AI",
       "不会执行",
       "不会被持久化",
     ]) {
@@ -311,27 +311,27 @@ describe("open-source repository contract", () => {
       ["needs no installation", "无需安装"],
       ["local-only", "仅供本地使用"],
       ["must not be deployed", "不得将它作为公开应用部署"],
-      ["non-normative example", "非规范性示例"],
+      ["non-normative example", "说明报告应该怎么读"],
       ["six dimensions", "六个维度"],
       ["scope and failures", "范围与失败项"],
       ["improvements list", "改进项列表"],
       ["blob/<commit>/path#Lx-Ly", "blob/<commit>/path#Lx-Ly"],
-      ["public commit", "公开提交"],
+      ["public commit", "仓库提交"],
       ["does not execute", "不会执行"],
-      ["authenticate its behavior", "认证项目行为"],
+      ["authenticate its behavior", "验证项目行为"],
       ["certify its correctness", "证明项目正确"],
-      ["reader report", "读者报告"],
+      ["reader report", "便于阅读的报告"],
       [
         "Purpose evidence comes from the public GitHub description and preferred README.",
-        "用途证据来自公开 GitHub 仓库说明和首选 README。",
+        "项目用途主要取自 GitHub 仓库说明和首选 README",
       ],
       [
         "Project-kind evidence comes from bounded structural checks of manifests, topics, and the repository tree.",
-        "项目类型证据来自对清单、主题和仓库文件树的有界结构检查。",
+        "项目类型则根据选定的项目清单文件、GitHub Topics 和仓库目录判断。",
       ],
-      ["source language", "源语言"],
-      ["does not use an AI service", "不使用 AI 服务"],
-      ["not personalized advice", "不是个性化建议"],
+      ["source language", "仓库作者写的内容始终保持原文"],
+      ["does not use an AI service", "基础报告不使用 AI"],
+      ["not personalized advice", "不是针对个人情况给出的建议"],
     ] as const) {
       expect(english).toContain(englishStatement);
       expect(chinese).toContain(chineseStatement);
@@ -367,26 +367,31 @@ describe("open-source repository contract", () => {
       expect(english).toContain(statement);
     }
     for (const statement of [
-      "由八个区域组成的 README 优先证据档案",
-      "项目定位",
-      "社区与维护事实",
-      "读者结论",
-      "README 如何介绍项目",
-      "核心能力",
-      "最多九个能力分组",
-      "README 中的工作流程",
-      "README 声明与仓库观察",
-      "RepoScope 解读",
-      "值得注意",
-      "依赖前需要核实",
-      "对实际使用意味着什么",
-      "`subscribers_count` 标记为 **Watchers**",
-      "`open_issues_count` 同时包含 Issue 与 PR",
+      "报告分为八个部分",
+      "从 README 开始了解项目",
+      "项目是做什么的",
+      "社区热度与维护数据",
+      "先看重点",
+      "README 里怎么说",
+      "主要功能",
+      "最多九组主要功能",
+      "README 给出的使用流程",
+      "README 的说法与仓库情况",
+      "RepoScope 怎么看",
+      "值得留意",
+      "使用前要确认",
+      "实际影响",
+      "Star 数",
+      "Watch 数",
+      "Fork 数",
+      "未关闭的 Issue 和 PR",
+      "`subscribers_count` 是 **Watch 数** 的数据来源",
+      "`open_issues_count` 同时包含 Issue 和 PR",
       "流行度不能证明项目质量或安全性。",
       "不使用 AI",
-      "README 解读会标记为部分可用",
-      "技术证据与方法",
-      "默认关闭",
+      "页面会把解读标为不完整",
+      "技术附录与分析方法",
+      "默认收起",
     ]) {
       expect(chinese).toContain(statement);
     }
@@ -396,12 +401,35 @@ describe("open-source repository contract", () => {
     expect(english).toContain(
       "**What the README says** organizes bounded README overview, audience, problem, use-case",
     );
-    expect(chinese).toContain("**项目定位**：展示公开仓库说明和有界的项目简介");
     expect(chinese).toContain(
-      "**README 如何介绍项目**：按原始语言组织 README 的概览、目标读者、待解决问题、使用场景",
+      "**项目是做什么的**：先用仓库说明和 README 介绍项目",
     );
-    expect(chinese).not.toContain("依赖前请核实");
-    expect(chinese).not.toContain("这在实际中意味着什么");
+    expect(chinese).toContain(
+      "**README 里怎么说**：整理 README 中的项目概览、目标读者、待解决问题和使用场景",
+    );
+    expect(chinese).toContain(
+      "RepoScope 的中文界面直接按中文阅读习惯编写，不会在运行时翻译",
+    );
+    for (const heading of [
+      "是否值得继续了解",
+      "这个项目适合做什么",
+      "项目是否靠谱",
+      "代码大致怎么组织",
+      "如何安装、运行和二次开发",
+      "是否存在安全或隐私风险",
+      "项目还在维护吗",
+    ]) {
+      expect(chinese).toContain(heading);
+    }
+    expect(chinese).not.toContain("由八个区域组成的 README 优先证据档案");
+
+    const readerFacingChinese = chinese.slice(
+      0,
+      chinese.indexOf("## 报告示例解读"),
+    );
+    expect(readerFacingChinese).not.toMatch(
+      /证据档案|有界|宽泛|采用边界|能力轮廓|实现轮廓/u,
+    );
   });
 
   it("documents bounded README interpretation without changing score or assurance claims", () => {
@@ -409,6 +437,8 @@ describe("open-source repository contract", () => {
 
     for (const statement of [
       "README interpretation is deterministic and does not use AI.",
+      "RepoScope-authored Simplified Chinese is written directly for Chinese readers rather than produced by runtime translation.",
+      "Repository-authored text remains in its original language.",
       "installation, run, license evidence, recent activity",
       "The dossier presents eight regions in this order: project orientation; community and maintenance facts; reader takeaways",
       "`subscribers_count` is the GitHub source for **Watchers**",
@@ -459,8 +489,9 @@ describe("open-source repository contract", () => {
     expect(changelog).toMatch(/^## 0\.1\.1 - 2026-08-13$/mu);
     expect(changelog).toMatch(/^## 0\.1\.0 - 2026-08-12$/mu);
     expect(changelog).toContain(
-      "Added a deterministic, evidence-linked README-first evidence dossier with seven ordered interpretation regions, followed by the project decision summary and six human reader chapters; a closed technical appendix keeps full evidence and methodology.",
+      "Added a deterministic, evidence-linked README-first evidence dossier with eight ordered interpretation regions, followed by the project decision summary and six human reader chapters; a closed technical appendix keeps full evidence and methodology.",
     );
+    expect(changelog).not.toContain("seven ordered interpretation regions");
     expect(changelog).not.toContain(
       "decision-first reader report covering purpose",
     );
@@ -520,27 +551,24 @@ describe("open-source repository contract", () => {
     for (const [englishStatement, chineseStatement] of [
       [
         "The deterministic static mode requires no login",
-        "确定性静态模式不需要登录",
+        "默认的基础分析不需要登录",
       ],
       [
         "Optional expert mode adds a TypeScript backend",
         "可选专家模式会增加 TypeScript 后端",
       ],
-      ["explicit first-use consent", "首次使用前必须明确同意"],
+      ["explicit first-use consent", "首次使用专家模式前，你必须明确同意"],
       [
         "GitHub OAuth App with no requested scopes",
-        "不申请任何 scope 的 RepoScope GitHub OAuth App",
+        "不申请额外权限范围（scope）的 RepoScope GitHub OAuth App",
       ],
-      [
-        "their own GitHub Copilot allowance",
-        "访问者自己的 GitHub Copilot 额度",
-      ],
+      ["their own GitHub Copilot allowance", "你自己的 GitHub Copilot 额度"],
       ["does not use GitHub Models", "不使用 GitHub Models"],
       [
         "Repository code and commands remain untrusted text and are never executed",
-        "仓库代码和命令始终是不可信文本，绝不会被执行",
+        "仓库代码和命令始终只作为文本处理",
       ],
-      ["never removes the deterministic report", "确定性报告仍会保留"],
+      ["never removes the deterministic report", "基础报告仍会保留"],
       ["up to 30 days", "最多缓存 30 天"],
       ["up to 24 hours", "最多缓存 24 小时"],
       ["model transcripts, prompts, tokens", "模型会话记录、提示词、令牌"],
@@ -709,7 +737,10 @@ describe("open-source repository contract", () => {
     }
     expect(methodology).toContain("180 exact UTC days");
     expect(methodology).toContain("more than 180 and up to 365 days");
-    expect(methodology).toContain("超过 180 日且不超过 365 日");
+    expect(methodology).toContain("近 180 天有更新");
+    expect(methodology).toContain("已有半年至一年未更新");
+    expect(methodology).toContain("已超过一年未更新");
+    expect(methodology).not.toContain("超过 180 日且不超过 365 日");
     expect(methodology).toContain("more than 365 days");
     expect(methodology).toContain("non-scoring");
     expect(methodology).toContain("does not prove suitability or safety");
