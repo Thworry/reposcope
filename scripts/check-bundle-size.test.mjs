@@ -393,7 +393,7 @@ test("release automation is pinned, least-privileged, and ordered", async () => 
   const ci = String(readFileSync(resolve(".github/workflows/ci.yml")));
   const pages = String(readFileSync(resolve(".github/workflows/pages.yml")));
   const dependabot = String(readFileSync(resolve(".github/dependabot.yml")));
-  const lighthouse = (await import(resolve("lighthouserc.cjs"))).default;
+  const lighthouse = await import(resolve("scripts/check-lighthouse.mjs"));
 
   assert.match(ci, /permissions:\n {2}contents: read\n/u);
   assert.doesNotMatch(ci, /(?:contents|actions|checks|packages): write/u);
@@ -457,23 +457,14 @@ test("release automation is pinned, least-privileged, and ordered", async () => 
   assert.match(dependabot, /package-ecosystem: npm/u);
   assert.match(dependabot, /package-ecosystem: github-actions/u);
 
-  assert.equal(lighthouse.ci.collect.numberOfRuns, 3);
-  assert.deepEqual(lighthouse.ci.collect.url, ["http://127.0.0.1:4173/"]);
-  assert.equal(
-    lighthouse.ci.collect.startServerCommand,
-    "pnpm build && pnpm preview --host 127.0.0.1",
-  );
-  for (const category of [
+  assert.equal(lighthouse.LIGHTHOUSE_RUNS, 3);
+  assert.equal(lighthouse.LIGHTHOUSE_MIN_SCORE, 0.95);
+  assert.deepEqual(lighthouse.LIGHTHOUSE_CATEGORIES, [
     "performance",
     "accessibility",
     "best-practices",
     "seo",
-  ]) {
-    assert.deepEqual(
-      lighthouse.ci.assert.assertions[`categories:${category}`],
-      ["error", { minScore: 0.95 }],
-    );
-  }
+  ]);
 
   const previousBase = process.env.REPOSCOPE_BASE_PATH;
   delete process.env.REPOSCOPE_BASE_PATH;
