@@ -117,10 +117,10 @@ main {
 }
 
 .landing h1 {
-  max-width: 16ch;
+  max-width: 18ch;
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-title);
+  font-size: clamp(2.35rem, 5.8vw, 4.9rem);
   font-weight: 600;
   letter-spacing: -0.04em;
   line-height: var(--line-tight);

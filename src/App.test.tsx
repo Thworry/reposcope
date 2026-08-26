@@ -195,6 +195,9 @@ describe("App", () => {
     expect(appCss).toMatch(
       /\.site-header,\s*\.landing__intro,\s*\.repository-form,\s*\.repository-form__field,\s*\.repository-form__action-row,\s*\.privacy-note,\s*\.related-product,\s*\.scan-progress\s*\{[^}]*min-width:\s*0/isu,
     );
+    expect(appCss).toMatch(
+      /\.landing h1\s*\{[^}]*max-width:\s*18ch[^}]*font-size:\s*clamp\(2\.35rem,\s*5\.8vw,\s*4\.9rem\)/isu,
+    );
   });
 
   it("changes language selection without a transient low-contrast color transition", () => {
