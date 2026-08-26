@@ -27,6 +27,24 @@ describe("extractManifestFacts", () => {
     expect(output).not.toContain("ghp_");
   });
 
+  it("preserves version comparators without allowing tag reconstruction", () => {
+    const text = JSON.stringify({
+      name: "<<script>script>alert",
+      engines: { node: ">=24 <25" },
+    });
+    const output = JSON.stringify(
+      extractManifestFacts({
+        path: "package.json",
+        text,
+        bytes: new TextEncoder().encode(text).byteLength,
+        kind: "manifest",
+      }),
+    );
+
+    expect(output).toContain(">=24 <25");
+    expect(output).not.toMatch(/<\/?script/iu);
+  });
+
   it("extracts allowlisted TOML project, runtime, dependency, and entry-point facts", () => {
     const text = [
       "[project]",

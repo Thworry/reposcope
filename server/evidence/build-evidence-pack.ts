@@ -19,8 +19,11 @@ import type {
   EvidencePack,
   VerifiedAlternativeRepository,
 } from "./model.js";
-import { sanitizeDocumentForModel } from "./safe-document.js";
-import { isCredentialShapedText } from "./safe-document.js";
+import {
+  isCredentialShapedText,
+  sanitizeDocumentForModel,
+  stripHtmlLikeTags,
+} from "./safe-document.js";
 import { sanitizeReadmeForModel } from "./safe-readme.js";
 
 const UNSAFE_TEXT_PATTERN = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/u;
@@ -75,10 +78,12 @@ function safeFactText(value: string, maximum = 640): string | null {
   ) {
     return null;
   }
-  const sanitized = value
-    .replace(/\b(?:https?|ftp):\/\/[^\s"'<>]+/giu, "[link destination omitted]")
-    .replace(/<\/?[A-Za-z][^>\n]*>/gu, "")
-    .trim();
+  const sanitized = stripHtmlLikeTags(
+    value.replace(
+      /\b(?:https?|ftp):\/\/[^\s"'<>]+/giu,
+      "[link destination omitted]",
+    ),
+  ).text.trim();
   return sanitized.length > 0 ? sanitized : null;
 }
 
