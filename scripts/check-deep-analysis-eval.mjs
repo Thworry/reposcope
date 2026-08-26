@@ -21,7 +21,7 @@ const REQUIRED_PROFILES = Object.freeze([
 const CURRENT_VERSIONS = Object.freeze({
   schemaVersion: "1.0.0",
   evidenceSchemaVersion: "1.0.0",
-  promptVersion: "1.0.0",
+  promptVersion: "1.1.0",
 });
 const LANGUAGES = new Set(["en", "zh-CN"]);
 const SAFE_ID = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/u;

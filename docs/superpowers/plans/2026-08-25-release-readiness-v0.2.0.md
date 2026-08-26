@@ -25,11 +25,13 @@
 ### Task 1: Align the expert prompt evaluation contract
 
 **Files:**
+
 - Modify: `evals/deep-analysis/cases.json`
 - Modify: `scripts/check-deep-analysis-eval.mjs`
 - Modify: `scripts/check-deep-analysis-eval.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `PANEL_PROMPT_VERSION = "1.1.0"` from `server/panel/prompts.ts` as the shipped contract.
 - Produces: an evaluator and corpus that reject any scorecard whose `promptVersion` is not `1.1.0`.
 
@@ -62,11 +64,13 @@ Expected: tests and corpus validation PASS; `gate:deep-analysis` FAILS with `sco
 ### Task 2: Make CI match the documented release gate
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yml`
 - Modify: `.github/workflows/pages.yml`
 - Modify: `CONTRIBUTING.md`
 
 **Interfaces:**
+
 - Consumes: existing package scripts `typecheck:server`, `check:deep-analysis-eval`, and `test:e2e`.
 - Produces: the GitHub Actions status context `quality`, covering both Playwright projects and the deterministic expert-evaluation corpus.
 
@@ -97,12 +101,14 @@ Expected: all commands PASS; Playwright reports both desktop and mobile projects
 ### Task 3: Adopt React Hooks 7.1.1 without effect-driven state resets
 
 **Files:**
+
 - Modify: `src/features/deep-analysis/use-deep-analysis.ts`
 - Modify: `src/features/deep-analysis/use-deep-analysis.test.tsx`
 - Modify: `package.json`
 - Modify: `pnpm-lock.yaml`
 
 **Interfaces:**
+
 - Consumes: `originHref: string | null` and asynchronous `getSession(): Promise<DeepSession>`.
 - Produces: `availability` and `session` derived for the current origin, with no synchronous state update inside the session-checking effect.
 
@@ -135,6 +141,7 @@ Expected: all PASS with `react-hooks/set-state-in-effect` still enabled.
 ### Task 4: Tighten README-first positioning and add transparent feedback
 
 **Files:**
+
 - Modify: `src/i18n/messages.ts`
 - Modify: `src/i18n/messages.test.ts`
 - Modify: `src/App.tsx`
@@ -146,6 +153,7 @@ Expected: all PASS with `react-hooks/set-state-in-effect` still enabled.
 - Modify: `SUPPORT.md`
 
 **Interfaces:**
+
 - Consumes: the existing `baseEn`/`baseZh` message objects and landing layout.
 - Produces: an adoption-oriented first viewport plus a secondary DAYU boundary and Discussions feedback link.
 
@@ -187,9 +195,11 @@ Expected: all PASS at desktop and mobile widths with no horizontal overflow or s
 ### Task 5: Review and resolve existing Dependabot pull requests
 
 **Files:**
+
 - Modify through dependency PRs only: `package.json`, `pnpm-lock.yaml`
 
 **Interfaces:**
+
 - Consumes: latest `main` and GitHub Actions `quality` check.
 - Produces: individually reviewed merges for compatible updates and explicit deferral for incompatible updates.
 
@@ -208,11 +218,13 @@ Close or leave #1 unmerged with a clear note that jsdom 30 requires Node 24.15 w
 ### Task 6: Prepare versioned release artifacts
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `src/repository-files.test.ts`
 - Modify: `CHANGELOG.md`
 
 **Interfaces:**
+
 - Consumes: all merged code and dependency decisions.
 - Produces: package version `0.2.0`, dated changelog, and GitHub release notes that describe capabilities and boundaries without claiming expert deployment is enabled.
 
@@ -231,9 +243,11 @@ Cover the README-first dossier, human-readable project chapters, Chinese localiz
 ### Task 7: Apply repository settings and publish only after all gates
 
 **Files:**
+
 - Remote GitHub settings for `Thworry/reposcope`
 
 **Interfaces:**
+
 - Consumes: merged `main`, passing `quality`, successful Pages deployment, and release artifacts.
 - Produces: protected main, supported security automation, Discussions, and an immutable v0.2.0 GitHub release.
 

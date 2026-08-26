@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "evidenceSchemaVersion": "1.0.0",
-  "promptVersion": "1.0.0",
+  "promptVersion": "1.1.0",
   "frozenAt": "2026-08-24",
   "cases": [
     {

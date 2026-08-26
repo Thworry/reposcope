@@ -32,12 +32,14 @@ jobs:
       - run: pnpm exec tsc -b
       - run: pnpm test:coverage
       - run: pnpm test:server
+      - run: pnpm typecheck:server
+      - run: pnpm check:deep-analysis-eval
       - run: pnpm build
         env:
           REPOSCOPE_API_ORIGIN: ${{ vars.REPOSCOPE_API_ORIGIN }}
       - run: pnpm check:bundle
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm exec playwright test --project=desktop-chromium
+      - run: pnpm test:e2e
       - run: pnpm check:lighthouse
       - name: Build Pages artifact
         run: pnpm build
