@@ -28,6 +28,7 @@ import type {
 import {
   useDeepAnalysis,
   type UseDeepAnalysisOptions,
+  type UseDeepAnalysisResult,
 } from "./use-deep-analysis";
 
 const API_ORIGIN = new URL("https://api.example.test/");
@@ -100,6 +101,47 @@ describe("useDeepAnalysis availability", () => {
     );
     expect(result.current.availability).toBe("disabled");
     expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it("derives availability from the current API origin without an effect reset", async () => {
+    const nextSession = deferred<{ status: "signed-out" }>();
+    const getSession = vi
+      .fn()
+      .mockResolvedValueOnce(READY_SESSION)
+      .mockImplementationOnce(() => nextSession.promise);
+    const report = deterministicReport();
+    const { result, rerender } = renderHook<
+      UseDeepAnalysisResult,
+      { apiOrigin: URL | null }
+    >(
+      ({ apiOrigin }: { apiOrigin: URL | null }) =>
+        useDeepAnalysis(
+          { deterministicReport: report, language: "en" },
+          { apiOrigin, getSession },
+        ),
+      { initialProps: { apiOrigin: API_ORIGIN } },
+    );
+
+    await waitFor(() => {
+      expect(result.current.availability).toBe("ready");
+    });
+    expect(getSession).toHaveBeenCalledOnce();
+
+    rerender({ apiOrigin: null });
+    expect(result.current.availability).toBe("disabled");
+    expect(getSession).toHaveBeenCalledOnce();
+
+    rerender({ apiOrigin: new URL("https://other-api.example.test/") });
+    expect(result.current.availability).toBe("checking");
+    await waitFor(() => {
+      expect(getSession).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      nextSession.resolve({ status: "signed-out" });
+      await nextSession.promise;
+    });
+    expect(result.current.availability).toBe("signed-out");
   });
 
   it("distinguishes signed-out from a session-network failure", async () => {

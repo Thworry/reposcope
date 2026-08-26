@@ -80,6 +80,17 @@ interface DeepState {
   error: DeepAnalysisErrorKind | null;
 }
 
+interface DeepSessionRequest {
+  originHref: string | null;
+  getSessionService: UseDeepAnalysisOptions["getSession"];
+}
+
+interface DeepSessionSnapshot {
+  request: DeepSessionRequest;
+  availability: Exclude<DeepAvailability, "checking">;
+  session: ReadyDeepSession | null;
+}
+
 const AUTOMATIC_STORAGE_KEY = "reposcope:deep-analysis";
 
 function pendingSpecialists(): Record<
@@ -171,13 +182,26 @@ export function useDeepAnalysis(
     () => options.storage ?? browserStorage(),
     [options.storage],
   );
+  const getSessionService = options.getSession;
+  const runService = options.runAnalysis;
+  const authorizationService = options.startAuthorization;
+  const signOutService = options.signOutSession;
+  const sessionRequest = useMemo<DeepSessionRequest>(
+    () => ({ originHref, getSessionService }),
+    [getSessionService, originHref],
+  );
   const [automatic, setAutomaticState] = useState(() =>
     storedAutomatic(storage),
   );
-  const [availability, setAvailability] = useState<DeepAvailability>(() =>
-    origin === null ? "disabled" : "checking",
-  );
-  const [session, setSession] = useState<ReadyDeepSession | null>(null);
+  const [sessionSnapshot, setSessionSnapshot] =
+    useState<DeepSessionSnapshot | null>(null);
+  const currentSessionSnapshot =
+    sessionSnapshot?.request === sessionRequest ? sessionSnapshot : null;
+  const availability: DeepAvailability =
+    originHref === null
+      ? "disabled"
+      : (currentSessionSnapshot?.availability ?? "checking");
+  const session = currentSessionSnapshot?.session ?? null;
   const [state, setState] = useState<DeepState>(initialDeepState);
 
   const request = useMemo(
@@ -196,11 +220,6 @@ export function useDeepAnalysis(
   const signingOutRef = useRef(false);
   const handledIdentityRef = useRef(identity);
   const automaticAttemptRef = useRef<string | null>(null);
-
-  const getSessionService = options.getSession;
-  const runService = options.runAnalysis;
-  const authorizationService = options.startAuthorization;
-  const signOutService = options.signOutSession;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -242,14 +261,11 @@ export function useDeepAnalysis(
     let current = true;
     const controller = new AbortController();
     if (originHref === null) {
-      setSession(null);
-      setAvailability("disabled");
       return () => {
         current = false;
       };
     }
 
-    setAvailability("checking");
     const load =
       getSessionService ??
       (() =>
@@ -260,18 +276,19 @@ export function useDeepAnalysis(
     void load().then(
       (nextSession) => {
         if (!current || !mountedRef.current) return;
-        if (nextSession.status === "ready") {
-          setSession(nextSession);
-          setAvailability("ready");
-        } else {
-          setSession(null);
-          setAvailability(nextSession.status);
-        }
+        setSessionSnapshot({
+          request: sessionRequest,
+          availability: nextSession.status,
+          session: nextSession.status === "ready" ? nextSession : null,
+        });
       },
       () => {
         if (!current || !mountedRef.current) return;
-        setSession(null);
-        setAvailability("unavailable");
+        setSessionSnapshot({
+          request: sessionRequest,
+          availability: "unavailable",
+          session: null,
+        });
       },
     );
     return () => {
@@ -280,7 +297,7 @@ export function useDeepAnalysis(
         new DOMException("deep-session-check-replaced", "AbortError"),
       );
     };
-  }, [getSessionService, originHref]);
+  }, [getSessionService, originHref, sessionRequest]);
 
   const cancel = useCallback((): void => {
     requestIdRef.current += 1;
@@ -392,8 +409,11 @@ export function useDeepAnalysis(
         }));
       } else {
         if (kind === "signed-out") {
-          setSession(null);
-          setAvailability("signed-out");
+          setSessionSnapshot({
+            request: sessionRequest,
+            availability: "signed-out",
+            session: null,
+          });
         }
         setState((current) => ({
           ...current,
@@ -409,7 +429,15 @@ export function useDeepAnalysis(
         requestIdRef.current += 1;
       }
     }
-  }, [availability, identity, origin, request, runService, session]);
+  }, [
+    availability,
+    identity,
+    origin,
+    request,
+    runService,
+    session,
+    sessionRequest,
+  ]);
 
   useEffect(() => {
     if (
@@ -434,9 +462,15 @@ export function useDeepAnalysis(
         startGitHubAuthorization({ apiOrigin: origin });
       }
     } catch {
-      setAvailability(origin === null ? "disabled" : "unavailable");
+      if (origin !== null) {
+        setSessionSnapshot({
+          request: sessionRequest,
+          availability: "unavailable",
+          session: null,
+        });
+      }
     }
-  }, [authorizationService, origin]);
+  }, [authorizationService, origin, sessionRequest]);
 
   const setAutomatic = useCallback(
     (enabled: boolean): void => {
@@ -467,16 +501,22 @@ export function useDeepAnalysis(
         await signOutDeepSession(readySession, { apiOrigin: origin });
       }
       if (!mountedRef.current) return;
-      setSession(null);
-      setAvailability("signed-out");
+      setSessionSnapshot({
+        request: sessionRequest,
+        availability: "signed-out",
+        session: null,
+      });
       setAutomatic(false);
     } catch (error) {
       signingOutRef.current = false;
       if (!mountedRef.current) return;
       const kind = errorKind(error);
       if (kind === "signed-out") {
-        setSession(null);
-        setAvailability("signed-out");
+        setSessionSnapshot({
+          request: sessionRequest,
+          availability: "signed-out",
+          session: null,
+        });
         setAutomatic(false);
       }
       setState((current) => ({
@@ -485,7 +525,7 @@ export function useDeepAnalysis(
         error: kind,
       }));
     }
-  }, [cancel, origin, session, setAutomatic, signOutService]);
+  }, [cancel, origin, session, sessionRequest, setAutomatic, signOutService]);
 
   return {
     availability,
