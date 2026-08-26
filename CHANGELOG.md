@@ -4,6 +4,12 @@ All notable changes to RepoScope are documented in this file.
 
 ## [Unreleased]
 
+## 0.2.1 - 2026-08-26
+
+### Security
+
+- Replaced incomplete regular-expression markup filtering with a bounded, single-pass tag scanner that cannot reconstruct active tags, handles malformed script/style closing tags, preserves line accounting and version comparators, and removes active blocks before repository evidence reaches the optional expert service.
+
 ## 0.2.0 - 2026-08-26
 
 ### Added

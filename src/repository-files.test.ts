@@ -504,7 +504,7 @@ describe("open-source repository contract", () => {
     expect(dossierEntry ?? "").not.toMatch(
       /AI|security|scor|ruleset|threshold|weight/iu,
     );
-    expect(packageManifest.version).toBe("0.2.0");
+    expect(packageManifest.version).toBe("0.2.1");
   });
 
   it("isolates instrumented coverage from cross-suite CPU contention", () => {

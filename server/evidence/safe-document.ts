@@ -78,6 +78,250 @@ function preserveNewlines(match: string): string {
   return "\n".repeat(match.split("\n").length - 1);
 }
 
+interface HtmlTagToken {
+  closing: boolean;
+  end: number;
+  name: string | null;
+}
+
+interface HtmlTagScan {
+  incompleteEnd: number | null;
+  token: HtmlTagToken | null;
+}
+
+function isAsciiLetter(character: string | undefined): boolean {
+  if (character === undefined) return false;
+  const code = character.codePointAt(0);
+  return (
+    code !== undefined &&
+    ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a))
+  );
+}
+
+function isTagNameCharacter(character: string | undefined): boolean {
+  if (character === undefined) return false;
+  const code = character.codePointAt(0);
+  return (
+    isAsciiLetter(character) ||
+    (code !== undefined && code >= 0x30 && code <= 0x39) ||
+    character === ":" ||
+    character === "_" ||
+    character === "-"
+  );
+}
+
+function htmlTagAt(value: string, start: number): HtmlTagScan {
+  if (value[start] !== "<") {
+    return { incompleteEnd: null, token: null };
+  }
+  let cursor = start + 1;
+  let closing = false;
+  if (value[cursor] === "/") {
+    closing = true;
+    cursor += 1;
+  }
+
+  let name: string | null = null;
+  if (isAsciiLetter(value[cursor])) {
+    const nameStart = cursor;
+    cursor += 1;
+    while (isTagNameCharacter(value[cursor])) cursor += 1;
+    name = value.slice(nameStart, cursor).toLocaleLowerCase("en-US");
+  } else if (!closing && (value[cursor] === "!" || value[cursor] === "?")) {
+    cursor += 1;
+  } else {
+    return { incompleteEnd: null, token: null };
+  }
+
+  let quote: '"' | "'" | null = null;
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (quote !== null) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return {
+        incompleteEnd: null,
+        token: { closing, end: cursor + 1, name },
+      };
+    }
+    cursor += 1;
+  }
+
+  return { incompleteEnd: value.length, token: null };
+}
+
+function rawTextClosingTagAt(
+  value: string,
+  start: number,
+  name: "script" | "style",
+): HtmlTagScan {
+  if (value[start] !== "<" || value[start + 1] !== "/") {
+    return { incompleteEnd: null, token: null };
+  }
+  let cursor = start + 2;
+  for (const expected of name) {
+    if (value[cursor]?.toLocaleLowerCase("en-US") !== expected) {
+      return { incompleteEnd: null, token: null };
+    }
+    cursor += 1;
+  }
+  const boundary = value[cursor];
+  if (
+    boundary !== ">" &&
+    boundary !== "/" &&
+    boundary !== " " &&
+    boundary !== "\t" &&
+    boundary !== "\n" &&
+    boundary !== "\f" &&
+    boundary !== "\r"
+  ) {
+    return { incompleteEnd: null, token: null };
+  }
+  const end = value.indexOf(">", cursor);
+  if (end < 0) return { incompleteEnd: value.length, token: null };
+  return {
+    incompleteEnd: null,
+    token: { closing: true, end: end + 1, name },
+  };
+}
+
+function shouldNeutralizeTagOpener(value: string, start: number): boolean {
+  const next = value[start + 1];
+  return (
+    isAsciiLetter(next) ||
+    next === "/" ||
+    next === "!" ||
+    next === "?" ||
+    next === "<"
+  );
+}
+
+function appendNeutralizedTagOpeners(
+  chunks: string[],
+  value: string,
+  start: number,
+  end: number,
+): boolean {
+  let changed = false;
+  let cursor = start;
+  while (cursor < end) {
+    const opening = value.indexOf("<", cursor);
+    if (opening < 0 || opening >= end) {
+      chunks.push(value.slice(cursor, end));
+      break;
+    }
+    chunks.push(value.slice(cursor, opening));
+    if (shouldNeutralizeTagOpener(value, opening)) {
+      chunks.push("‹");
+      changed = true;
+    } else {
+      chunks.push("<");
+    }
+    cursor = opening + 1;
+  }
+  return changed;
+}
+
+export function stripHtmlLikeTags(value: string): {
+  text: string;
+  changed: boolean;
+} {
+  const chunks: string[] = [];
+  let changed = false;
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    const opening = value.indexOf("<", cursor);
+    if (opening < 0) {
+      chunks.push(value.slice(cursor));
+      break;
+    }
+    chunks.push(value.slice(cursor, opening));
+    const scan = htmlTagAt(value, opening);
+    if (scan.token !== null) {
+      chunks.push(preserveNewlines(value.slice(opening, scan.token.end)));
+      cursor = scan.token.end;
+      changed = true;
+      continue;
+    }
+    if (scan.incompleteEnd !== null) {
+      changed =
+        appendNeutralizedTagOpeners(
+          chunks,
+          value,
+          opening,
+          scan.incompleteEnd,
+        ) || changed;
+      cursor = scan.incompleteEnd;
+      continue;
+    }
+    chunks.push(shouldNeutralizeTagOpener(value, opening) ? "‹" : "<");
+    changed ||= shouldNeutralizeTagOpener(value, opening);
+    cursor = opening + 1;
+  }
+  return { text: chunks.join(""), changed };
+}
+
+function removeScriptAndStyleBlocks(value: string): {
+  text: string;
+  changed: boolean;
+} {
+  const chunks: string[] = [];
+  let changed = false;
+  let cursor = 0;
+  let activeBlock: "script" | "style" | null = null;
+  let activeStart = 0;
+
+  while (cursor < value.length) {
+    const opening = value.indexOf("<", cursor);
+    if (opening < 0) {
+      chunks.push(value.slice(activeBlock === null ? cursor : activeStart));
+      break;
+    }
+    if (activeBlock === null) chunks.push(value.slice(cursor, opening));
+
+    const scan: HtmlTagScan =
+      activeBlock === null
+        ? htmlTagAt(value, opening)
+        : rawTextClosingTagAt(value, opening, activeBlock);
+    if (scan.token === null) {
+      if (scan.incompleteEnd !== null) {
+        chunks.push(
+          value.slice(
+            activeBlock === null ? opening : activeStart,
+            scan.incompleteEnd,
+          ),
+        );
+        cursor = scan.incompleteEnd;
+      } else {
+        if (activeBlock === null) chunks.push("<");
+        cursor = opening + 1;
+      }
+      continue;
+    }
+
+    if (activeBlock !== null) {
+      if (scan.token.closing && scan.token.name === activeBlock) {
+        chunks.push(preserveNewlines(value.slice(activeStart, scan.token.end)));
+        activeBlock = null;
+        changed = true;
+      }
+    } else if (
+      !scan.token.closing &&
+      (scan.token.name === "script" || scan.token.name === "style")
+    ) {
+      activeBlock = scan.token.name;
+      activeStart = opening;
+    } else {
+      chunks.push(value.slice(opening, scan.token.end));
+    }
+    cursor = scan.token.end;
+  }
+  return { text: chunks.join(""), changed };
+}
+
 function literalReplacement(
   value: string,
   pattern: RegExp,
@@ -113,7 +357,9 @@ function removeActiveMarkup(value: string): {
   };
 
   applyNewlines(/<!--[\s\S]*?(?:-->|$)/gu);
-  applyNewlines(/<(?:script|style)\b[^>]*>[\s\S]*?<\/(?:script|style)\s*>/giu);
+  const activeBlocks = removeScriptAndStyleBlocks(text);
+  text = activeBlocks.text;
+  changed ||= activeBlocks.changed;
   applyLiteral(/^\s{0,3}\[[^\]]+\]:\s*\S+.*$/gmu, "");
   applyLiteral(/!\[([^\]]*)\]\([^\n)]*(?:\([^\n)]*\)[^\n)]*)*\)/gu, "$1");
   applyLiteral(/\[([^\]]+)\]\([^\n)]*(?:\([^\n)]*\)[^\n)]*)*\)/gu, "$1");
@@ -125,9 +371,9 @@ function removeActiveMarkup(value: string): {
     /\b(?:(?:https?|ftp):\/\/|mailto:)[^\s<>"')\]]+/giu,
     "[link destination omitted]",
   );
-  applyNewlines(
-    /<(?:\/?[A-Za-z][A-Za-z0-9:_-]*\b|!\s*DOCTYPE\b|\?xml\b)[^>]*>/giu,
-  );
+  const tags = stripHtmlLikeTags(text);
+  text = tags.text;
+  changed ||= tags.changed;
   return { text, changed };
 }
 

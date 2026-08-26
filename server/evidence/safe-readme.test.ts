@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EvidenceTextFile } from "../github/model.js";
+import { stripHtmlLikeTags } from "./safe-document.js";
 import { sanitizeReadmeForModel } from "./safe-readme.js";
 
 function readme(text: string): EvidenceTextFile {
@@ -167,5 +168,80 @@ describe("sanitizeReadmeForModel", () => {
     expect(output).not.toContain("data-system");
     expect(output).not.toContain("<?xml");
     expect(result.complete).toBe(false);
+  });
+
+  it("removes malformed active blocks and never reconstructs a tag", () => {
+    const result = sanitizeReadmeForModel(
+      readme(
+        [
+          "before",
+          "<script>secret-script-body</script\t\n data-extra>",
+          "<style>secret-style-body</style\n ignored>",
+          "<<script>script>alert('reconstructed')",
+          "after",
+        ].join("\n"),
+      ),
+    );
+    const output = result.blocks.map((block) => block.text).join("\n");
+
+    expect(output).toContain("before");
+    expect(output).toContain("after");
+    expect(output).not.toContain("secret-script-body");
+    expect(output).not.toContain("secret-style-body");
+    expect(output).not.toMatch(/<\/?[A-Za-z]/u);
+    expect(result.complete).toBe(false);
+  });
+
+  it("does not treat closing-tag-shaped attribute text as a block boundary", () => {
+    const result = sanitizeReadmeForModel(
+      readme(
+        '<script data-note="> </script>">secret-script-body</script>after',
+      ),
+    );
+    const output = result.blocks.map((block) => block.text).join("\n");
+
+    expect(output).toContain("after");
+    expect(output).not.toContain("secret-script-body");
+    expect(output).not.toMatch(/<\/?[A-Za-z]/u);
+    expect(result.complete).toBe(false);
+  });
+
+  it.each(["script", "style"] as const)(
+    "finds a raw-text </%s> after tag-like text with an unclosed quote",
+    (name) => {
+      const result = sanitizeReadmeForModel(
+        readme(
+          `<${name}>before-body <div title="unterminated secret-body</${name}>after`,
+        ),
+      );
+      const output = result.blocks.map((block) => block.text).join("\n");
+
+      expect(output).toContain("after");
+      expect(output).not.toContain("before-body");
+      expect(output).not.toContain("secret-body");
+      expect(output).not.toMatch(/<\/?[A-Za-z]/u);
+      expect(result.complete).toBe(false);
+    },
+  );
+
+  it("bounds malformed unclosed tag scanning to one pass", () => {
+    const result = stripHtmlLikeTags("<script".repeat(20_000));
+
+    expect(result.changed).toBe(true);
+    expect(result.text).not.toMatch(/<\/?[A-Za-z]/u);
+  });
+
+  it("keeps shared tag terminators and unclosed quoted attributes linear", () => {
+    const sharedTerminator = `${"<a".repeat(40_000)}>`;
+    const unclosedQuote = `<div title="${"<script".repeat(20_000)}`;
+    const startedAt = performance.now();
+
+    const sanitized = sanitizeReadmeForModel(readme(sharedTerminator));
+    const stripped = stripHtmlLikeTags(unclosedQuote);
+
+    expect(performance.now() - startedAt).toBeLessThan(3_000);
+    expect(sanitized.complete).toBe(false);
+    expect(stripped.changed).toBe(true);
+    expect(stripped.text).not.toMatch(/<\/?[A-Za-z]/u);
   });
 });

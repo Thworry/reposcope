@@ -4,7 +4,7 @@ import { assertRepositoryPath } from "../github/guards.js";
 import type { EvidenceTextFile } from "../github/model.js";
 import { EVIDENCE_LIMITS } from "./model.js";
 import type { EvidenceContentBlockDraft } from "./model.js";
-import { isCredentialShapedText } from "./safe-document.js";
+import { isCredentialShapedText, stripHtmlLikeTags } from "./safe-document.js";
 
 const JSON_MANIFESTS = new Set(["package.json", "deno.json", "composer.json"]);
 const TOML_MANIFESTS = new Set(["pyproject.toml", "cargo.toml"]);
@@ -38,10 +38,12 @@ function safeExtractedText(value: unknown, maximum = 512): string | null {
   ) {
     return null;
   }
-  const sanitized = value
-    .replace(/\b(?:https?|ftp):\/\/[^\s"'<>]+/giu, "[link destination omitted]")
-    .replace(/<\/?[A-Za-z][^>\n]*>/gu, "")
-    .trim();
+  const sanitized = stripHtmlLikeTags(
+    value.replace(
+      /\b(?:https?|ftp):\/\/[^\s"'<>]+/giu,
+      "[link destination omitted]",
+    ),
+  ).text.trim();
   return sanitized.length > 0 ? sanitized : null;
 }
 
