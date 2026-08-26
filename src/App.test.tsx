@@ -156,15 +156,17 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "简体中文" }));
 
     expect(
-      screen.getByText("在依赖一个公开项目之前，先真正看懂它。"),
+      screen.getByRole("heading", {
+        name: "先看懂一个公开项目，再决定要不要用。",
+      }),
     ).toBeVisible();
     expect(
       screen.getByText(
-        "看懂一个公开项目做什么、怎么使用，以及哪些事项必须核实。",
+        "快速了解公开项目的用途、使用方法和采用前需要确认的事项。",
       ),
     ).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "方法说明 1.0.0" }),
+      screen.getByRole("heading", { name: "分析方法 1.0.0" }),
     ).toBeVisible();
     expect(analyzeMock).not.toHaveBeenCalled();
   });

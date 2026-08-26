@@ -97,8 +97,12 @@ describe("RepositoryForm", () => {
 
     await user.click(issueReady);
     expect(
-      screen.getByRole("textbox", { name: "公开 GitHub 项目网址" }),
+      screen.getByRole("textbox", { name: "公开 GitHub 仓库地址" }),
     ).toHaveValue("https://github.com/Thworry/issueready");
+    expect(
+      screen.getByText("例如：https://github.com/owner/repository"),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "开始解读" })).toBeEnabled();
     expect(onAnalyze).not.toHaveBeenCalled();
   });
 

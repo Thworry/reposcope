@@ -9,6 +9,7 @@ import {
   type AnalysisReport,
   type Language,
 } from "../features/analysis/model";
+import { messages } from "../i18n/messages";
 import {
   perfectProjectBrief,
   perfectReaderReport,
@@ -113,26 +114,91 @@ describe("ReadmeInterpretationView", () => {
     expect(region).toHaveTextContent("Application");
     expect(region).toHaveTextContent("JavaScript / TypeScript");
     expect(region).toHaveTextContent("2 named source areas");
-    expect(region).toHaveTextContent("license Present");
-    expect(region).toHaveTextContent("security policy Present");
+    expect(region).toHaveTextContent("License information: Present");
+    expect(region).toHaveTextContent("Security policy: Present");
     expect(region).toHaveTextContent("1 external requirement");
-    expect(region).toHaveTextContent("not verified behavior");
-    expect(region).toHaveTextContent("not runtime control flow");
+    expect(region).toHaveTextContent(messages.en.readerTakeawayBoundary);
+    expect(
+      within(region).getAllByText(messages.en.readerTakeawayBoundary),
+    ).toHaveLength(1);
   });
 
   it("renders equivalent Chinese takeaways without translating repository labels", () => {
     renderInterpretation(completeReport(), "zh-CN");
 
-    const region = screen.getByRole("region", { name: "读者结论" });
-    expect(region).toHaveTextContent("1 个能力分组");
+    const region = screen.getByRole("region", {
+      name: messages["zh-CN"].readerTakeawaysHeading,
+    });
+    expect(region).toHaveTextContent("1 个主要功能分组");
     expect(region).toHaveTextContent("Reader report");
-    expect(region).toHaveTextContent("2 个有序步骤");
-    expect(region).toHaveTextContent("5 类上手命令");
+    expect(region).toHaveTextContent("2 个操作步骤");
+    expect(region).toHaveTextContent("5 类可参考命令");
     expect(region).toHaveTextContent("应用程序");
     expect(region).toHaveTextContent("JavaScript / TypeScript");
-    expect(region).toHaveTextContent("2 个主要源码区域");
-    expect(region).toHaveTextContent("许可证存在");
-    expect(region).toHaveTextContent("不是对运行调用链的证明");
+    expect(region).toHaveTextContent("2 个主要区域");
+    expect(region).toHaveTextContent("已找到许可证文件或 GitHub 识别信息");
+    expect(region).toHaveTextContent(messages["zh-CN"].readerTakeawayBoundary);
+  });
+
+  it("builds Chinese takeaways only from details that are actually available", () => {
+    const report = completeReport();
+    report.projectBrief.kinds = [
+      { kind: "application", source: "manifest", path: "package.json" },
+    ];
+    report.readerReport.readme.workflow = [];
+    report.readerReport.readme.dependencies = [];
+    report.readerReport.gettingStarted.commands = [
+      {
+        kind: "install",
+        command: "pnpm install",
+        disposition: "ready",
+        source: "readme",
+        path: "README.md",
+      },
+    ];
+    report.readerReport.architecture.ecosystems = [];
+    report.readerReport.architecture.sourceAreas = [];
+    report.readerReport.reliability.signals = [
+      {
+        signal: "license",
+        state: "present",
+        source: "analysis",
+        path: null,
+      },
+    ];
+    renderInterpretation(report, "zh-CN");
+
+    const region = screen.getByRole("region", {
+      name: messages["zh-CN"].readerTakeawaysHeading,
+    });
+    expect(region).toHaveTextContent("1 类可参考命令");
+    expect(region).toHaveTextContent("应用程序");
+    expect(region).toHaveTextContent("已找到许可证文件或 GitHub 识别信息");
+    expect(region).not.toHaveTextContent("0 个");
+    expect(region).not.toHaveTextContent("无法确认、");
+    expect(region).not.toHaveTextContent("无法确认，并有");
+    expect(
+      within(region).getAllByText(messages["zh-CN"].readerTakeawayBoundary),
+    ).toHaveLength(1);
+  });
+
+  it("shows the plain unknown copy when no risk detail is available", () => {
+    const report = completeReport();
+    report.readerReport.reliability.signals = [];
+    report.readerReport.readme.dependencies = [];
+    renderInterpretation(report, "zh-CN");
+
+    const region = screen.getByRole("region", {
+      name: messages["zh-CN"].readerTakeawaysHeading,
+    });
+    const riskHeading = within(region).getByRole("heading", {
+      name: messages["zh-CN"].readerTakeawayRiskHeading,
+    });
+    const risk = riskHeading.closest("li");
+    expect(risk).not.toBeNull();
+    if (risk === null) throw new Error("Missing risk takeaway");
+    expect(risk).toHaveTextContent(messages["zh-CN"].readerNotEstablished);
+    expect(risk).not.toHaveTextContent("公开信息显示：现有公开信息");
   });
 
   it("renders one semantic community definition list with exact accessible facts", () => {
@@ -173,17 +239,18 @@ describe("ReadmeInterpretationView", () => {
 
     rerender(<ReadmeInterpretationView report={report} language="zh-CN" />);
     const chineseRegion = screen.getByRole("region", {
-      name: "社区与维护事实",
+      name: messages["zh-CN"].readerCommunityHeading,
     });
-    for (const label of [
-      "Stars（星标）",
-      "Watchers（关注）",
-      "Forks（派生）",
-    ]) {
+    for (const label of ["Star 数", "Watch 数", "Fork 数"]) {
       expect(
         within(chineseRegion).getByText(label, { selector: "dt" }),
       ).toBeVisible();
     }
+    expect(
+      within(chineseRegion).getByRole("definition", {
+        name: "Star 数：1,284",
+      }),
+    ).toHaveAttribute("data-exact-value", "1284");
   });
 
   it("keeps hostile, duplicate, long CJK, punctuation, links, and bidi prose inert and byte-preserved", () => {
@@ -314,10 +381,14 @@ describe("ReadmeInterpretationView", () => {
     renderInterpretation(report, "zh-CN");
 
     const narrative = within(
-      screen.getByRole("region", { name: "README 如何介绍项目" }),
+      screen.getByRole("region", {
+        name: messages["zh-CN"].readerReadmeNarrativeHeading,
+      }),
     );
     const useCases = narrative
-      .getByRole("heading", { name: "描述的使用场景" })
+      .getByRole("heading", {
+        name: messages["zh-CN"].readerReadmeUseCasesSubheading,
+      })
       .closest("section");
     expect(useCases).not.toBeNull();
     if (useCases === null) throw new Error("缺少使用场景区块");
@@ -384,7 +455,7 @@ describe("ReadmeInterpretationView", () => {
       "No ordered README workflow or reusable onboarding command was established.",
     );
     expect(region).toHaveTextContent(
-      "The repository provides 2 architecture references.",
+      "The repository provides 2 architecture references that outline components or responsibilities.",
     );
     expect(region).not.toHaveTextContent(
       "The scan does not establish a broad implementation outline.",

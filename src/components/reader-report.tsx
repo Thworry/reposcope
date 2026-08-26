@@ -310,9 +310,10 @@ function SignalList({
             {group.signals.map((fact) => (
               <li key={fact.signal} data-signal-state={fact.state}>
                 <span>
-                  <strong>{copy[SIGNAL_KEYS[fact.signal]]}</strong>
-                  {" — "}
-                  {copy[SIGNAL_STATE_KEYS[fact.state]]}
+                  {formatMessage(context.language, "readerSignalStateSummary", {
+                    signal: copy[SIGNAL_KEYS[fact.signal]],
+                    state: copy[SIGNAL_STATE_KEYS[fact.state]],
+                  })}
                 </span>
               </li>
             ))}
@@ -438,7 +439,9 @@ function AlternativeComparison({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                {copy.readerAlternativeSearch}: {term}
+                {formatMessage(language, "readerAlternativeSearchTerm", {
+                  term,
+                })}
               </a>
             </li>
           ))}
