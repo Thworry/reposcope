@@ -134,13 +134,20 @@ describe("App", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "Understand a public project before you depend on it.",
+        name: "Understand a public GitHub repository—starting with its README.",
       }),
     ).toBeVisible();
     expect(
       screen.getByText(
-        "Understand what a public project does, how to use it, and what to verify.",
+        "Evidence-backed guidance on what it does, how to run it, where the risks are, and whether it is worth your time.",
       ),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "DAYU" })).toHaveAttribute(
+      "href",
+      "https://github.com/Thworry/dayu",
+    );
+    expect(
+      screen.getByText(/pre-beta reality check focused on repository signals/i),
     ).toBeVisible();
     expect(screen.getByText(/read-only\. no login or token/i)).toBeVisible();
     expect(
@@ -157,14 +164,17 @@ describe("App", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "先看懂一个公开项目，再决定要不要用。",
+        name: "先从 README 看懂一个公开 GitHub 仓库，再决定要不要用。",
       }),
     ).toBeVisible();
     expect(
       screen.getByText(
-        "快速了解公开项目的用途、使用方法和采用前需要确认的事项。",
+        "用可核对的公开信息讲清项目用途、上手方式、风险、维护情况和替代方案。",
       ),
     ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "DAYU（大禹治水）" }),
+    ).toHaveAttribute("href", "https://github.com/Thworry/dayu");
     expect(
       screen.getByRole("heading", { name: "分析方法 1.0.0" }),
     ).toBeVisible();
@@ -183,7 +193,10 @@ describe("App", () => {
       /\.repository-form__action-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/isu,
     );
     expect(appCss).toMatch(
-      /\.site-header,\s*\.landing__intro,\s*\.repository-form,\s*\.repository-form__field,\s*\.repository-form__action-row,\s*\.privacy-note,\s*\.scan-progress\s*\{[^}]*min-width:\s*0/isu,
+      /\.site-header,\s*\.landing__intro,\s*\.repository-form,\s*\.repository-form__field,\s*\.repository-form__action-row,\s*\.privacy-note,\s*\.related-product,\s*\.scan-progress\s*\{[^}]*min-width:\s*0/isu,
+    );
+    expect(appCss).toMatch(
+      /\.landing h1\s*\{[^}]*max-width:\s*18ch[^}]*font-size:\s*clamp\(2\.35rem,\s*5\.8vw,\s*4\.9rem\)/isu,
     );
   });
 
@@ -356,7 +369,7 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Understand a public project before you depend on it.",
+        name: "Understand a public GitHub repository—starting with its README.",
       }),
     ).toBeInTheDocument();
     expect(container.querySelector(".landing")).toHaveClass("landing--compact");

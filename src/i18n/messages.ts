@@ -7,11 +7,15 @@ import type {
 import type { RuleId } from "../features/rules/rules";
 
 const baseEn = {
-  brand: "RepoScope 项目透视",
+  brand: "RepoScope",
   tagline:
-    "Understand what a public project does, how to use it, and what to verify.",
-  heroTitle: "Understand a public project before you depend on it.",
+    "Evidence-backed guidance on what it does, how to run it, where the risks are, and whether it is worth your time.",
+  heroTitle: "Understand a public GitHub repository—starting with its README.",
   landingIndex: "PUBLIC REPOSITORY INSPECTION",
+  relatedProduct:
+    "For a pre-beta reality check focused on repository signals, ratios, and claim-to-substance mismatches, explore",
+  dayuName: "DAYU",
+  relatedProductSuffix: ".",
   english: "English",
   simplifiedChinese: "简体中文",
   languageSwitcher: "Language",
@@ -623,9 +627,14 @@ const baseEn = {
 
 const baseZh = {
   brand: "RepoScope 项目透视",
-  tagline: "快速了解公开项目的用途、使用方法和采用前需要确认的事项。",
-  heroTitle: "先看懂一个公开项目，再决定要不要用。",
+  tagline:
+    "用可核对的公开信息讲清项目用途、上手方式、风险、维护情况和替代方案。",
+  heroTitle: "先从 README 看懂一个公开 GitHub 仓库，再决定要不要用。",
   landingIndex: "公开项目解读",
+  relatedProduct:
+    "如果更关心仓库信号、异常比例，以及公开说法与实际内容是否一致，可以查看研究预览阶段的",
+  dayuName: "DAYU（大禹治水）",
+  relatedProductSuffix: "。",
   english: "English",
   simplifiedChinese: "简体中文",
   languageSwitcher: "语言",

@@ -19,7 +19,7 @@ function validScorecard(score = 4) {
   return {
     schemaVersion: "1.0.0",
     evidenceSchemaVersion: "1.0.0",
-    promptVersion: "1.0.0",
+    promptVersion: "1.1.0",
     evaluatedAt: "2026-08-24",
     cases: corpus.cases.flatMap((item) =>
       item.languages.map((language) => ({
@@ -59,6 +59,9 @@ function expectKind(operation, kind) {
 
 test("validates the frozen diverse corpus without pretending scores exist", () => {
   const result = validateEvaluationCorpus(corpus);
+  assert.equal(result.schemaVersion, "1.0.0");
+  assert.equal(result.evidenceSchemaVersion, "1.0.0");
+  assert.equal(result.promptVersion, "1.1.0");
   assert.equal(result.cases.length, 12);
   assert.ok(result.cases.some((item) => item.profiles.includes("archived")));
   assert.ok(
@@ -118,7 +121,7 @@ test("rejects out-of-range scores, stale versions, and unsafe material", () => {
   );
 
   const stale = validScorecard();
-  stale.promptVersion = "0.9.0";
+  stale.promptVersion = "1.0.0";
   expectKind(
     () => validateEvaluationScorecard(stale, corpus),
     "invalid-scorecard",

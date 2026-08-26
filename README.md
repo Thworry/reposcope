@@ -8,6 +8,8 @@ RepoScope helps people understand an unfamiliar public GitHub repository before 
 
 RepoScope is an evidence inspector, not a verdict. It does not run a repository, prove that its features work, measure runtime test coverage, audit security, find vulnerabilities, or certify that software is safe to use.
 
+**RepoScope and DAYU are different tools.** RepoScope explains a repository for someone deciding whether and how to adopt it. [DAYU](https://github.com/Thworry/dayu) is a pre-beta research reality check focused on public repository signals, unusual ratios, and mismatches between claims and visible substance. Neither treats popularity as proof.
+
 ## Usage
 
 1. Open the [RepoScope site](https://thworry.github.io/reposcope/).
@@ -148,6 +150,10 @@ Do not deploy the development server or add another token input, proxy, analytic
 Issues and pull requests are welcome. Changes that affect rules, thresholds, limits, report meaning, or application-owned copy must update tests and the corresponding English/Chinese or methodology documentation. Please use private vulnerability reporting for security issues; do not put secrets or sensitive data in a public issue.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [SUPPORT.md](SUPPORT.md), [GOVERNANCE.md](GOVERNANCE.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## Feedback
+
+Share usage questions, project-reading examples, and product ideas in [GitHub Discussions](https://github.com/Thworry/reposcope/discussions). Use the structured issue forms for reproducible defects. Security concerns belong in [private vulnerability reporting](https://github.com/Thworry/reposcope/security/advisories/new), never a public discussion or issue. RepoScope does not use analytics or telemetry to infer usage.
 
 ## License
 

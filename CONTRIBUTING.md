@@ -55,6 +55,8 @@ A pull request must update all affected contracts:
 
 Changing the meaning of a published score requires a ruleset-version decision. Do not silently tune a threshold to improve a particular repository's result.
 
+The two-reviewer scorecard is private, local release evidence. It must never contain prompts, transcripts, model output, credentials, private source, or personal data, and it is not uploaded by CI. A missing or failing scorecard blocks only deployment of the optional expert service; it does not block the deterministic, browser-local public application or ordinary contributions to it.
+
 ## Pull requests
 
 Complete the pull-request template, explain the evidence behind the change, and identify any user-visible or compatibility effect. By contributing, you agree that your contribution is licensed under the repository's MIT License and that you will follow the [Code of Conduct](CODE_OF_CONDUCT.md).

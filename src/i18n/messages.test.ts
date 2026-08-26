@@ -31,7 +31,7 @@ describe("bilingual message contract", () => {
 
   it("uses native Chinese copy and stable community terminology", () => {
     expect(messages["zh-CN"]).toMatchObject({
-      heroTitle: "先看懂一个公开项目，再决定要不要用。",
+      heroTitle: "先从 README 看懂一个公开 GitHub 仓库，再决定要不要用。",
       privacy:
         "不需要登录，也不用提供 GitHub 访问令牌。RepoScope 只读取 GitHub 上的公开信息，基础分析直接在当前浏览器中完成，不会发送到 RepoScope 服务器。",
       progressWorking:
@@ -152,8 +152,9 @@ describe("bilingual message contract", () => {
       appendix: messages.en.technicalAppendixHeading,
     }).toEqual({
       tagline:
-        "Understand what a public project does, how to use it, and what to verify.",
-      heroTitle: "Understand a public project before you depend on it.",
+        "Evidence-backed guidance on what it does, how to run it, where the risks are, and whether it is worth your time.",
+      heroTitle:
+        "Understand a public GitHub repository—starting with its README.",
       decision: "Project decision summary",
       continue: "Sufficient evidence to continue evaluation",
       verify: "Key gaps require verification before use",
@@ -196,8 +197,9 @@ describe("bilingual message contract", () => {
       boundary: messages["zh-CN"].readerSecurityBoundary,
       appendix: messages["zh-CN"].technicalAppendixHeading,
     }).toEqual({
-      tagline: "快速了解公开项目的用途、使用方法和采用前需要确认的事项。",
-      heroTitle: "先看懂一个公开项目，再决定要不要用。",
+      tagline:
+        "用可核对的公开信息讲清项目用途、上手方式、风险、维护情况和替代方案。",
+      heroTitle: "先从 README 看懂一个公开 GitHub 仓库，再决定要不要用。",
       decision: "是否值得继续了解",
       continue: "信息较完整，可以继续了解",
       verify: "还有重要问题，使用前需要确认",
