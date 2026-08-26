@@ -201,6 +201,14 @@ export function App() {
           </aside>
 
           {analysis.report === null ? (
+            <p className="related-product">
+              {copy.relatedProduct}{" "}
+              <a href="https://github.com/Thworry/dayu">{copy.dayuName}</a>
+              {copy.relatedProductSuffix}
+            </p>
+          ) : null}
+
+          {analysis.report === null ? (
             <section
               id="methodology"
               className="landing-methodology"

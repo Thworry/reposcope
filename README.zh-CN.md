@@ -8,6 +8,8 @@ RepoScope 帮你在投入时间之前，先看懂一个陌生的公开 GitHub �
 
 RepoScope 只根据仓库中的公开信息帮助你判断，不会替你做最终决定。它不会运行项目、验证功能是否正确、测量运行时测试覆盖率，也不会开展安全审计或查找漏洞。它同样不能证明软件可以安全使用。
 
+**RepoScope 和 DAYU 是两个侧重点不同的工具。** RepoScope 面向准备采用项目的人，帮助看懂项目并判断该如何试用；[DAYU（大禹治水）](https://github.com/Thworry/dayu)仍处于研究预览阶段，主要核对公开仓库信号、异常比例，以及项目说法与可见内容是否一致。两者都不会把热度当作品质证明。
+
 ## 使用
 
 1. 打开 [RepoScope 在线站点](https://thworry.github.io/reposcope/)。
@@ -156,6 +158,10 @@ pnpm check:bundle
 欢迎提交 Issue 和 Pull Request。影响规则、阈值、限制、报告含义或应用自有文案的修改，必须同步更新测试以及对应的中英文文档或方法说明。安全问题请使用私密漏洞报告；不要在公开 Issue 中放入密钥或敏感数据。
 
 请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)、[SECURITY.md](SECURITY.md)、[SUPPORT.md](SUPPORT.md)、[GOVERNANCE.md](GOVERNANCE.md) 和 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+
+## 反馈
+
+使用问题、项目解读案例和产品建议可以发到 [GitHub Discussions](https://github.com/Thworry/reposcope/discussions)。可以稳定复现的缺陷请使用结构化 Issue 表单。安全问题只能通过 [GitHub 私密漏洞报告](https://github.com/Thworry/reposcope/security/advisories/new)提交，不要发到公开讨论或 Issue。RepoScope 不会通过统计脚本或遥测推测使用情况。
 
 ## 许可证
 

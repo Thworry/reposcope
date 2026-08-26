@@ -22,6 +22,7 @@
 .repository-form__field,
 .repository-form__action-row,
 .privacy-note,
+.related-product,
 .scan-progress {
   min-width: 0;
 }
@@ -287,6 +288,22 @@ main {
   font-weight: 700;
 }
 
+.related-product {
+  max-width: 58rem;
+  margin: var(--space-4) 0 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.related-product a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
+  color: var(--color-ink);
+  font-weight: 750;
+}
+
 .landing-methodology {
   max-width: 58rem;
   margin-top: var(--space-7);
@@ -504,6 +521,7 @@ main {
 
   .repository-form,
   .privacy-note,
+  .related-product,
   .landing-methodology {
     margin-left: clamp(0rem, 8vw, 8rem);
   }
