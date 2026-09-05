@@ -32,6 +32,7 @@ const MAX_LINK_SCAN = 2_048;
 const MAX_INLINE_CODE_SPANS = 64;
 const MAX_INLINE_CODE_POINTS = 480;
 const MAX_INLINE_CODE_SOURCE_UNITS = 4_096;
+const MAX_TABLE_COLUMNS = 5;
 
 export const READER_MARKDOWN_PENDING_CAPABILITY_LIMITS = Object.freeze({
   maxGroups: 128,
@@ -282,8 +283,12 @@ function activeLegacySection(
 const BROAD_COMMAND_HEADINGS = new Set([
   "usage",
   "quick start",
+  "quickstart",
+  "getting started",
   "使用",
   "快速开始",
+  "快速上手",
+  "新手入门",
 ]);
 
 function activeCommandContext(
@@ -763,40 +768,58 @@ function tableParts(line: string): string[] | null {
     if (character === "|") {
       parts.push(part);
       part = "";
-      if (parts.length > 2) return null;
+      if (parts.length >= MAX_TABLE_COLUMNS) return null;
       continue;
     }
     part += character;
   }
   parts.push(part);
 
-  return parts.length === 2 ? parts : null;
+  return parts.length >= 2 && parts.length <= MAX_TABLE_COLUMNS ? parts : null;
 }
 
-function isTwoCellTableSeparator(line: string): boolean {
+function isTableSeparator(line: string): boolean {
   const parts = tableParts(line);
   return (
     parts !== null && parts.every((part) => /^\s*:?-{3,}:?\s*$/u.test(part))
   );
 }
 
-function twoCellTableFact(line: string): string | null {
+function readableTableFact(
+  line: string,
+  headers: readonly (string | null)[] | null,
+): string | null {
   const parts = tableParts(line);
-  if (parts === null || isTwoCellTableSeparator(line)) return null;
-  const visible = parts.map(visibleProfileProse);
-  const left = visible[0];
-  const right = visible[1];
-
   if (
-    left === null ||
-    left === undefined ||
-    right === null ||
-    right === undefined
+    parts === null ||
+    isTableSeparator(line) ||
+    (headers !== null && parts.length !== headers.length) ||
+    (headers === null && parts.length !== 2)
   ) {
     return null;
   }
+  const visible = parts.map(visibleProfileProse);
+  if (!visible.every((cell): cell is string => cell !== null)) {
+    return null;
+  }
 
-  return visibleProfileProse(`${left} — ${right}`);
+  if (visible.length === 2) {
+    return visibleProfileProse(visible.join(" — "));
+  }
+  if (headers === null || headers.some((header) => header === null))
+    return null;
+  const chinese = headers.some((header) =>
+    /\p{Script=Han}/u.test(header ?? ""),
+  );
+  const separator = chinese ? "；" : "; ";
+  const colon = chinese ? "：" : ": ";
+  const labeledCells: string[] = [];
+  for (const [index, cell] of visible.entries()) {
+    const header = headers[index];
+    if (typeof header !== "string") return null;
+    labeledCells.push(`${header}${colon}${cell}`);
+  }
+  return visibleProfileProse(labeledCells.join(separator));
 }
 
 function inlineCommands(line: string): string[] {
@@ -1233,7 +1256,7 @@ export function extractReaderMarkdownEvidence(
   let inCdata = false;
   let inProcessingInstruction = false;
   let inDeclaration = false;
-  let inTwoCellTable = false;
+  let tableHeaders: Array<string | null> | null = null;
   let doctype: DoctypeState | null = null;
   let htmlBlock: HtmlBlockState | null = null;
   let malformedBlock = false;
@@ -1563,7 +1586,7 @@ export function extractReaderMarkdownEvidence(
     let line = lines[index] ?? "";
     let trimmed = line.trim();
 
-    if (!isTableLine(line) || line.includes("||")) inTwoCellTable = false;
+    if (!isTableLine(line) || line.includes("||")) tableHeaders = null;
 
     if (fence !== null) {
       if (
@@ -1773,8 +1796,11 @@ export function extractReaderMarkdownEvidence(
       "legacySection" | "profileSection" | "capabilityLabel" | "fallback"
     >;
     const rawTableParts = tableParts(line);
+    const nextTableLine = lines[index + 1] ?? "";
     const beginsTable =
-      rawTableParts !== null && isTwoCellTableSeparator(lines[index + 1] ?? "");
+      rawTableParts !== null &&
+      isTableSeparator(nextTableLine) &&
+      tableParts(nextTableLine)?.length === rawTableParts.length;
     const tableSyntax =
       rawTableParts !== null || (isTableLine(line) && !line.includes("||"));
     const tableCommandDisposition =
@@ -1782,14 +1808,16 @@ export function extractReaderMarkdownEvidence(
     const tableLike =
       tableSyntax &&
       (beginsTable ||
-        inTwoCellTable ||
+        tableHeaders !== null ||
         commandKind === null ||
         tableCommandDisposition === null);
 
     if (tableLike) {
       flushParagraph();
-      if (beginsTable) inTwoCellTable = true;
-      const tableFact = beginsTable ? null : twoCellTableFact(line);
+      if (beginsTable) tableHeaders = rawTableParts.map(visibleProfileProse);
+      const tableFact = beginsTable
+        ? null
+        : readableTableFact(line, tableHeaders);
 
       if (tableFact !== null && profile !== null) {
         addParagraphCandidate(

@@ -69,6 +69,15 @@ describe("README heading lookup", () => {
     ["Important Notes", "important notes", "limitations"],
     ["说明", "说明", "limitations"],
     ["License", "license", "limitations"],
+    ["功能预览", "功能预览", "capabilities"],
+    ["Feature Highlights", "feature highlights", "capabilities"],
+    ["下载安装", "下载安装", "dependencies"],
+    ["Desktop Installation", "desktop installation", "dependencies"],
+    ["Setup", "setup", "dependencies"],
+    ["快速上手", "快速上手", "workflow"],
+    ["Getting Started", "getting started", "workflow"],
+    ["使用教程", "使用教程", "workflow"],
+    ["开发指南", "开发指南", "workflow"],
   ] as const)(
     "normalizes %s for exact profile lookup",
     (heading, normalized, section) => {

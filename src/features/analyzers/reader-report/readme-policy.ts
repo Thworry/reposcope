@@ -294,10 +294,18 @@ export const README_COMMAND_SECTION_HEADINGS = Object.freeze({
     "installation",
     "install dependencies",
     "dependency installation",
+    "installation guide",
+    "download and install",
+    "desktop installation",
     "setup",
     "安装",
     "安装依赖",
     "配置环境",
+    "下载安装",
+    "下载与安装",
+    "安装方式",
+    "安装指南",
+    "客户端安装",
   ] as const),
   run: Object.freeze([
     "usage",
@@ -306,12 +314,23 @@ export const README_COMMAND_SECTION_HEADINGS = Object.freeze({
     "launch",
     "start development",
     "quick start",
+    "quickstart",
+    "getting started",
+    "usage guide",
+    "user guide",
+    "tutorial",
     "使用",
     "运行",
     "启动",
     "启动开发环境",
     "开始使用",
     "快速开始",
+    "快速上手",
+    "使用教程",
+    "使用方法",
+    "用户指南",
+    "操作指南",
+    "新手入门",
   ] as const),
   develop: Object.freeze([
     "development",
@@ -379,6 +398,20 @@ const PROFILE_HEADING_LOOKUP = new Map<string, ReadmeProfileSection>();
 const COMMAND_HEADING_LOOKUP = new Map<string, ReaderCommandKind>();
 const LEGACY_HEADING_LOOKUP = new Map<string, ReadmeLegacySection>();
 
+const PROFILE_HEADING_ALIASES = {
+  "feature preview": "capabilities",
+  "feature overview": "capabilities",
+  "feature highlights": "capabilities",
+  功能预览: "capabilities",
+  功能演示: "capabilities",
+  功能介绍: "capabilities",
+  功能详解: "capabilities",
+  "desktop edition": "dependencies",
+  "desktop app": "dependencies",
+  桌面版: "dependencies",
+  客户端: "dependencies",
+} as const satisfies Readonly<Record<string, ReadmeProfileSection>>;
+
 for (const [section, headings] of Object.entries(
   README_SECTION_HEADINGS,
 ) as Array<[ReadmeProfileSection, readonly string[]]>) {
@@ -387,6 +420,9 @@ for (const [section, headings] of Object.entries(
   }
 }
 PROFILE_HEADING_LOOKUP.set("problems", "problems");
+for (const [heading, section] of Object.entries(PROFILE_HEADING_ALIASES)) {
+  PROFILE_HEADING_LOOKUP.set(heading, section);
+}
 
 for (const [kind, headings] of Object.entries(
   README_COMMAND_SECTION_HEADINGS,
@@ -407,10 +443,16 @@ for (const [section, headings] of Object.entries(
 export function readmeProfileSection(
   normalizedHeading: string,
 ): ReadmeProfileSection | null {
-  return (
-    PROFILE_HEADING_LOOKUP.get(normalizeReadmeHeading(normalizedHeading)) ??
-    null
-  );
+  const heading = normalizeReadmeHeading(normalizedHeading);
+  const section = PROFILE_HEADING_LOOKUP.get(heading);
+  if (section !== undefined) return section;
+
+  // Human onboarding chapters include explanations alongside shell commands.
+  // Keep those explanations even when the chapter only has a command alias.
+  const commandKind = COMMAND_HEADING_LOOKUP.get(heading);
+  if (commandKind === "install") return "dependencies";
+  if (commandKind === "run" || commandKind === "develop") return "workflow";
+  return null;
 }
 
 export function readmeCommandKind(

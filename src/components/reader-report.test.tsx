@@ -547,8 +547,9 @@ describe("ReaderReportView", () => {
     renderReader(report);
 
     const architectureFact = screen
-      .getByText("Observed structure only.")
-      .closest("figure");
+      .getAllByText("Observed structure only.")
+      .map((element) => element.closest("figure"))
+      .find((figure) => figure !== null);
     expect(architectureFact).not.toBeNull();
     expect(architectureFact).toHaveTextContent("Deterministic analysis");
     const architecture = within(

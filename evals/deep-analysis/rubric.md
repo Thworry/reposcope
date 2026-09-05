@@ -30,6 +30,39 @@ transcripts, prompts, or the deterministic technical appendix.
 | Alternative quality | Comparisons are fabricated, irrelevant, or popularity-only. | Candidates are plausible but weakly explained.                     | Candidates are real, relevant starting points with evidence-grounded reasons to compare.          |
 | Reading quality     | The briefing is repetitive, mechanical, or hard to scan.    | It is understandable but still dense or generic.                   | It reads like a concise human review with clear hierarchy and useful explanations.                |
 
+## What a useful explanation contains
+
+For prompt version `1.2.0`, apply these checks when rating usefulness and reading
+quality. They are reading criteria, not extra scorecard fields or a word-count
+target.
+
+- **Purpose and fit:** a reader can explain the problem addressed, the input they
+  provide, and the result they can use. Fit is tied to an actual requirement or
+  tradeoff, rather than a generic audience such as "developers."
+- **Capabilities:** a feature is connected to the task it helps complete, with
+  documented prerequisites or limits that matter to that task. A copied feature
+  heading or technology list alone is not an explanation.
+- **Scenarios:** at least one evidence-supported situation follows an input
+  through meaningful project steps to an output. A possible use case is clearly
+  presented as interpretation; invented workflows do not earn usefulness points.
+- **How it works and how to start:** modules have understandable responsibilities;
+  documented information flow explains their relationship. Using the project is
+  distinguished from developing it, and the first useful result is clear when
+  the documentation establishes one. A path or dependency name alone does not
+  establish runtime behavior.
+- **Practical judgment:** limitations, data handling, external requirements, and
+  follow-up checks describe their effect on a prospective user's task. Generic
+  praise, repeated warnings, or popularity-based judgments add no reading value.
+- **Depth matches evidence:** rich documentation yields several distinct useful
+  explanations, including material details from later README sections. Sparse
+  projects get a proportionate account of specific gaps. Do not reward length
+  produced by repetition or penalize a report for declining to invent detail.
+
+Review these criteria for both applications and other project types, including
+libraries, command-line tools, reference projects, and resource collections.
+Automated prompt and corpus checks validate the contract and its size limits;
+they do not establish that a generated briefing meets these human criteria.
+
 ## Passing policy
 
 - Every frozen case and requested language must receive two independent ratings.

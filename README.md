@@ -33,7 +33,7 @@ Completed reports begin with an eight-region README-first evidence dossier for p
 
 1. **Project orientation** presents the public repository description and bounded project brief with source captions.
 2. **Community and maintenance facts** shows exact Stars, Watchers, Forks, open issues and pull requests, last push, and license evidence in one semantic definition list.
-3. **Reader takeaways** summarizes the documented capability shape, typical path, broad implementation outline, and adoption boundary before the longer evidence sections.
+3. **Reader takeaways** quotes concrete capability, workflow, architecture, and adoption evidence, explains why each item matters to a prospective user, and links directly to the fuller chapter. It does not use extraction counts as a substitute for understanding the project.
 4. **What the README says** organizes bounded README overview, audience, problem, use-case, dependency, limitation, and maturity statements without rewriting repository prose.
 5. **Core capabilities** groups up to nine capability areas documented by the repository.
 6. **Documented workflow** presents the repository's ordered process as text that remains understandable without its connecting line.
@@ -44,6 +44,8 @@ GitHub's `stargazers_count`, `subscribers_count`, and `forks_count` supply Stars
 
 Repository-authored prose stays in its source language when the interface switches language. README interpretation is deterministic and does not use AI; neither does the rest of the deterministic scan. If no preferred README is found, the dossier says so. If a preferred README is known but was not fetched, the UI presents a partial README interpretation instead of filling gaps. Optional expert mode is a second, clearly labeled interpretation layer and never changes these deterministic facts or scores.
 
+Common feature, download, installation, quick-start, usage, and development headings are recognized in both English and Chinese. Useful prose below those headings and meaning from ordinary three-to-five-column Markdown tables are kept within the existing evidence limits. Up to six selected public setup or usage guides may supplement scenarios and commands when the README does not contain them; every item retains its real file source, and README evidence keeps priority.
+
 The dossier is followed by the project decision summary and six numbered, evidence-linked chapters covering project-fit cautions, reliability, broad architecture, installation and development, security and privacy, and maintenance and alternatives.
 
 The evidence status is one of **Sufficient evidence to continue evaluation**, **Key gaps require verification before use**, or **Public evidence is insufficient to judge**. These statuses are deterministic, non-scoring summaries of the inspected public evidence. They do not prove that a project is suitable, correct, secure, private, or safe.
@@ -52,7 +54,7 @@ Repository-authored commands are displayed as inert text and are never run. Comm
 
 ## Optional expert briefing
 
-When configured by the site operator, RepoScope can turn selected public evidence into a longer, human-readable second opinion. Three specialists cover product fit and scenarios, onboarding and broad architecture, and trust and ecosystem. A skeptic challenges unsupported claims before an editor assembles ten evidence-linked chapters. The final briefing emphasizes what the project does, who it is for, how to start, what remains unknown, security/privacy cautions, maintenance signals, and why someone might compare an alternative—not function-by-function code criticism.
+When configured by the site operator, RepoScope can turn selected public evidence into a longer, human-readable second opinion. Three specialists cover product fit and scenarios, onboarding and broad architecture, and trust and ecosystem. A skeptic challenges unsupported claims before an editor assembles ten evidence-linked chapters. The final briefing explains the user's likely input, the documented path, the usable result, why a capability matters, how broad components divide responsibility, and what a limitation changes in practice. It distinguishes using the project from developing it and avoids function-by-function code criticism.
 
 Expert mode requires explicit first-use consent and authorization through a RepoScope GitHub OAuth App with no requested scopes. The service uses the visitor's short-lived in-memory GitHub token and their own GitHub Copilot allowance; it does not use GitHub Models or a project-owned model credential. Selected public README, documentation, manifest, tree, release/activity, and alternative evidence is sent to zero-tool Copilot sessions. Repository code and commands remain untrusted text and are never executed.
 

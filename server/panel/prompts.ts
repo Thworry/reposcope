@@ -15,7 +15,7 @@ import type {
   SkepticalReview,
 } from "./model.js";
 
-export const PANEL_PROMPT_VERSION = "1.1.0" as const;
+export const PANEL_PROMPT_VERSION = "1.2.0" as const;
 export const PANEL_PROMPT_CODE_POINT_LIMIT = PANEL_LIMITS.promptCodePoints;
 export const PANEL_USER_BOUNDARIES = Object.freeze({
   evidenceStart: "<<<BEGIN_VERIFIED_EVIDENCE_PACK>>>",
@@ -44,6 +44,49 @@ const COMMON_BOUNDARY = [
   `Every human-readable claim/statement is at most ${String(DEEP_REPORT_CAPS.textCodePoints)} code points and normalized text must be unique in the output.`,
   "Every evidenceIds entry must be an ID already present in the verified evidence pack.",
   'Every narrative statement has exactly "text", "provenance", "confidence", and "evidenceIds".',
+].join(" ");
+
+const READER_EXPLANATION_GOAL = [
+  "Help a person understand this particular project and decide whether it serves their task.",
+  "Read all admitted README and documentation blocks, including examples, prerequisites, limitations, and later sections, before choosing the material details.",
+  "Explain a concrete capability, user task, prerequisite, or limitation together with its practical meaning; do not merely repeat a heading or list technology names.",
+  "A dependency name, directory path, badge, or section heading alone does not establish a feature, a data flow, or a quality claim.",
+  "Keep project-specific details supported by the cited evidence. Explain unfamiliar concepts through their role in the user's task, using conventional technical names where needed.",
+  "Distinguish a documented use case from your interpretation of a possible use case; do not invent users, integrations, performance, setup steps, or results.",
+  "Match the explanation to the project type: an application, library, CLI, reference implementation, or resource collection need not have the same installation path or architecture.",
+  "Let evidence determine depth. Rich documentation deserves distinct useful explanations; sparse documentation deserves a concise account of what is known and the specific gaps, without generic praise or padding.",
+].join(" ");
+
+const ROLE_READER_TASKS: Readonly<Record<ExpertRole, string>> = Object.freeze({
+  product: [
+    "Explain what problem the project addresses, what a person provides, and what usable result they receive.",
+    "For capabilities, connect each documented feature to a task it helps complete and any documented condition or limit that affects that value.",
+    "For situations, trace a concrete input through the project's documented workflow to an output; describe the intended user and benefit only where the evidence supports them.",
+    "Explain good and poor fit through actual requirements or tradeoffs, rather than generic audiences such as developers or everyone.",
+    "Compare alternatives on the documented problem they address and the choice worth checking; a verified repository description does not justify a detailed feature matrix.",
+  ].join(" "),
+  "onboarding-architecture": [
+    "Explain the shortest documented path to a first useful result: required environment or accounts, documented setup route, expected interaction, and how a reader can recognize the result.",
+    "Separate using the project from developing it. Mention documented configuration, API access, model or service requirements, and costs only when present in the evidence.",
+    "Describe broad modules by responsibility and explain how information moves between them only where documented; avoid file inventories and individual function reviews.",
+    "Connect a technology or architectural concept to what it does for the user, and connect a documented extension point to the kind of change it supports.",
+    "When a setup or runtime detail is missing, identify that specific gap without inventing a conventional command or treating a guessed layout as observed behavior.",
+  ].join(" "),
+  "trust-ecosystem": [
+    "Explain how each documented dependency, permission, external service, storage choice, or project limitation affects someone considering the project.",
+    "Separate documented data handling from what has actually been observed; identify the data or access involved before describing a privacy or security concern.",
+    "Use permitted narrative evidence such as documented support policy, tests, contribution guidance, and release process for maintenance interpretation; never substitute popularity for evidence of maintenance quality.",
+    "Make follow-up checks specific to the user's likely task and the missing evidence. Do not fill the report with generic warnings that could describe any repository.",
+  ].join(" "),
+});
+
+const EDITOR_READER_TASK = [
+  "Turn the accepted findings into a connected explanation a newcomer can read without opening the repository first.",
+  "Use orientation for purpose and the first decision; use capabilities for what each feature enables; use situations and workflow for input, meaningful steps, and output; use architecture for module responsibilities; use onboarding for the documented route to a first result.",
+  "Each section should add useful information rather than paraphrase an earlier section. Group related capabilities by the user's task and retain the documented conditions and limitations that affect choosing the project.",
+  "Expand evidence-rich findings into multiple distinct statements where useful, within the existing caps; the required minimum of one item is not a target length. Do not expand sparse findings with invented details or boilerplate.",
+  "Support explanation with admitted evidence, distinguish repository claims from interpretation, and keep the required unknown sentence form for facts the evidence does not establish.",
+  "End with a practical judgment tied to a specific need, its main tradeoff, and the most useful next check; do not repeat the opening verdict word for word.",
 ].join(" ");
 
 const EXPERT_SCHEMA = [
@@ -193,8 +236,10 @@ export function buildExpertPrompt(
   }
   const system = [
     COMMON_BOUNDARY,
+    READER_EXPLANATION_GOAL,
     `You are the ${role} specialist.`,
     `Assigned sections: ${ROLE_REQUIRED_SECTIONS[role].join(", ")}.`,
+    ROLE_READER_TASKS[role],
     languageInstruction(language),
     EXPERT_SCHEMA,
   ].join(" ");
@@ -210,6 +255,7 @@ export function buildSkepticPrompt(
   const system = [
     COMMON_BOUNDARY,
     "You are the skeptical reviewer. Test accepted findings against the supplied evidence without adding new claims.",
+    "Check whether explanations preserve documented prerequisites and limits, whether scenarios actually follow from the cited capability, and whether architecture descriptions claim behavior from names alone. Do not demand detail that the evidence cannot supply.",
     languageInstruction(language),
     SKEPTIC_SCHEMA,
   ].join(" ");
@@ -243,7 +289,9 @@ export function buildEditorPrompt(
   }
   const system = [
     COMMON_BOUNDARY,
+    READER_EXPLANATION_GOAL,
     "You are the chief editor. Synthesize only accepted evidence, findings, and challenges into the strict narrative draft.",
+    EDITOR_READER_TASK,
     languageInstruction(language),
     EDITOR_SCHEMA,
   ].join(" ");

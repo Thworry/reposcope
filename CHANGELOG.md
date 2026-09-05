@@ -4,6 +4,20 @@ All notable changes to RepoScope are documented in this file.
 
 ## [Unreleased]
 
+## 0.3.0 - 2026-09-05
+
+### Added
+
+- Preserved useful prose under common feature, download, installation, quick-start, usage, and development headings in English and Chinese, plus bounded meaning from ordinary three-to-five-column Markdown tables.
+- Supplemented scenarios and onboarding commands from up to six selected public user guides when the preferred README does not establish them, while keeping README priority and exact file attribution.
+
+### Changed
+
+- Replaced count-led reader takeaways with concrete project evidence, human-readable implications, chapter links, and source captions for capabilities, workflow, broad architecture, and adoption boundaries.
+- Attached relevant evidence sources to deterministic RepoScope commentary so readers can distinguish repository claims from the app's interpretation.
+- Updated the optional expert prompt to version `1.2.0` so briefings explain user input, documented workflow, usable output, capability value, module responsibilities, prerequisites, and practical limitations without drifting into function-by-function review.
+- Isolated the ordinary front-end test run from cross-file CPU contention while retaining the existing per-test performance budget.
+
 ## 0.2.1 - 2026-08-26
 
 ### Security
