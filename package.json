@@ -58,7 +58,7 @@
     "smol-toml": "1.7.1"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.12.1",
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "7.0.1",
