@@ -55,7 +55,7 @@
     "hono": "4.13.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "smol-toml": "1.7.1"
+    "smol-toml": "1.8.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",
