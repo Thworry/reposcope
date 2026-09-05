@@ -106,17 +106,28 @@ describe("ReadmeInterpretationView", () => {
     renderInterpretation();
 
     const region = screen.getByRole("region", { name: "Reader takeaways" });
-    expect(within(region).getAllByRole("listitem")).toHaveLength(4);
-    expect(region).toHaveTextContent("1 capability area");
+    expect(
+      region.querySelectorAll(
+        ":scope > ol.readme-interpretation__takeaways > li",
+      ),
+    ).toHaveLength(4);
     expect(region).toHaveTextContent("Reader report");
-    expect(region).toHaveTextContent("2 ordered steps");
-    expect(region).toHaveTextContent("5 onboarding command types");
+    expect(region).toHaveTextContent("Evidence-backed project interpretation");
+    expect(region).toHaveTextContent("Fetch evidence");
+    expect(region).toHaveTextContent("Interpret README");
     expect(region).toHaveTextContent("Application");
     expect(region).toHaveTextContent("JavaScript / TypeScript");
-    expect(region).toHaveTextContent("2 named source areas");
-    expect(region).toHaveTextContent("License information: Present");
-    expect(region).toHaveTextContent("Security policy: Present");
-    expect(region).toHaveTextContent("1 external requirement");
+    expect(region).toHaveTextContent(
+      "Analysis runs locally in a browser worker from bounded evidence.",
+    );
+    expect(region).toHaveTextContent("Static evidence only");
+    expect(region).toHaveTextContent("A modern browser");
+    expect(region).toHaveTextContent("not a function-by-function code review");
+    expect(
+      within(region).getAllByRole("link", {
+        name: "README.md at inspected commit",
+      }).length,
+    ).toBeGreaterThan(0);
     expect(region).toHaveTextContent(messages.en.readerTakeawayBoundary);
     expect(
       within(region).getAllByText(messages.en.readerTakeawayBoundary),
@@ -129,14 +140,14 @@ describe("ReadmeInterpretationView", () => {
     const region = screen.getByRole("region", {
       name: messages["zh-CN"].readerTakeawaysHeading,
     });
-    expect(region).toHaveTextContent("1 个主要功能分组");
     expect(region).toHaveTextContent("Reader report");
-    expect(region).toHaveTextContent("2 个操作步骤");
-    expect(region).toHaveTextContent("5 类可参考命令");
+    expect(region).toHaveTextContent("Evidence-backed project interpretation");
+    expect(region).toHaveTextContent("Fetch evidence");
+    expect(region).toHaveTextContent("Interpret README");
     expect(region).toHaveTextContent("应用程序");
     expect(region).toHaveTextContent("JavaScript / TypeScript");
-    expect(region).toHaveTextContent("2 个主要区域");
-    expect(region).toHaveTextContent("已找到许可证文件或 GitHub 识别信息");
+    expect(region).toHaveTextContent("Static evidence only");
+    expect(region).toHaveTextContent("只讲模块级结构，不做逐函数点评");
     expect(region).toHaveTextContent(messages["zh-CN"].readerTakeawayBoundary);
   });
 
@@ -171,9 +182,9 @@ describe("ReadmeInterpretationView", () => {
     const region = screen.getByRole("region", {
       name: messages["zh-CN"].readerTakeawaysHeading,
     });
-    expect(region).toHaveTextContent("1 类可参考命令");
+    expect(region).toHaveTextContent("pnpm install");
     expect(region).toHaveTextContent("应用程序");
-    expect(region).toHaveTextContent("已找到许可证文件或 GitHub 识别信息");
+    expect(region).toHaveTextContent("Static evidence only");
     expect(region).not.toHaveTextContent("0 个");
     expect(region).not.toHaveTextContent("无法确认、");
     expect(region).not.toHaveTextContent("无法确认，并有");
@@ -186,6 +197,7 @@ describe("ReadmeInterpretationView", () => {
     const report = completeReport();
     report.readerReport.reliability.signals = [];
     report.readerReport.readme.dependencies = [];
+    report.readerReport.readme.limitations = [];
     renderInterpretation(report, "zh-CN");
 
     const region = screen.getByRole("region", {
@@ -436,7 +448,7 @@ describe("ReadmeInterpretationView", () => {
     ).toHaveLength(1);
   });
 
-  it("uses honest fallback takeaways while retaining documented architecture references", () => {
+  it("uses honest fallbacks while retaining documented architecture evidence", () => {
     const report = completeReport();
     report.projectBrief.kinds = [];
     report.readerReport.readme.capabilityGroups = [];
@@ -455,8 +467,9 @@ describe("ReadmeInterpretationView", () => {
       "No ordered README workflow or reusable onboarding command was established.",
     );
     expect(region).toHaveTextContent(
-      "The repository provides 2 architecture references that outline components or responsibilities.",
+      "Analysis runs locally in a browser worker from bounded evidence.",
     );
+    expect(region).toHaveTextContent("docs/architecture.md");
     expect(region).not.toHaveTextContent(
       "The scan does not establish a broad implementation outline.",
     );

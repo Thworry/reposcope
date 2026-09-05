@@ -775,6 +775,118 @@ Too | Many | Cells
     ]);
   });
 
+  it("keeps desktop setup and quick-start instructions as useful prose", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## 下载安装
+
+### Windows 桌面版
+
+下载压缩包后解压，双击应用程序即可启动，无需安装开发环境。
+
+## 快速上手
+
+1. 在设置页面选择模型服务。
+2. 新建项目，导入已有文稿后开始编辑。
+
+## 开发指南
+
+修改界面后可在本地预览，确认效果再构建发布版本。
+`,
+      ),
+    ).readme;
+
+    expect(result.dependencies).toEqual([
+      fact("下载压缩包后解压，双击应用程序即可启动，无需安装开发环境。"),
+    ]);
+    expect(result.workflow).toEqual([
+      fact("在设置页面选择模型服务。"),
+      fact("新建项目，导入已有文稿后开始编辑。"),
+      fact("修改界面后可在本地预览，确认效果再构建发布版本。"),
+    ]);
+  });
+
+  it("keeps ordinary prose under an existing command heading", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Setup
+
+The desktop edition includes its own runtime.
+
+## Run
+
+Open the application and select a local project folder.
+`,
+      ),
+    ).readme;
+
+    expect(result.dependencies).toEqual([
+      fact("The desktop edition includes its own runtime."),
+    ]);
+    expect(result.workflow).toEqual([
+      fact("Open the application and select a local project folder."),
+    ]);
+  });
+
+  it("retains column meaning in installation tables and skips mismatched rows", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## 安装方式
+
+| 平台 | 安装方式 | 适用情况 |
+| --- | --- | --- |
+| Windows | 解压后双击启动 | 直接使用桌面版 |
+| Linux | 从源码构建 | 需要修改功能 |
+| Missing | A column |
+
+## 功能预览
+
+### 文稿管理
+
+按项目整理章节，并保存每次编辑的历史版本。
+`,
+      ),
+    ).readme;
+
+    expect(result.dependencies).toEqual([
+      fact("平台：Windows；安装方式：解压后双击启动；适用情况：直接使用桌面版"),
+      fact("平台：Linux；安装方式：从源码构建；适用情况：需要修改功能"),
+    ]);
+    expect(result.capabilityGroups).toEqual([
+      group("文稿管理", ["按项目整理章节，并保存每次编辑的历史版本。"]),
+    ]);
+  });
+
+  it("does not carry table headers across a paragraph or accept unbounded tables", () => {
+    const result = extractReaderMarkdownEvidence(
+      fetched(
+        "README.md",
+        `## Requirements
+
+Platform | Memory | Storage
+--- | --- | ---
+Desktop | 8 GB | 1 GB
+
+The application stores documents on the selected device.
+
+Loose | Three | Cells
+
+One | Two | Three | Four | Five | Six
+--- | --- | --- | --- | --- | ---
+A | B | C | D | E | F
+`,
+      ),
+    ).readme;
+
+    expect(result.dependencies).toEqual([
+      fact("Platform: Desktop; Memory: 8 GB; Storage: 1 GB"),
+      fact("The application stores documents on the selected device."),
+    ]);
+  });
+
   it("keeps nested recognized headings inside the nearest capability group", () => {
     const result = extractReaderMarkdownEvidence(
       fetched(

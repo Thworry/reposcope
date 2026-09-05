@@ -1,6 +1,6 @@
 {
   "name": "reposcope",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Bilingual, browser-side quality reports for public GitHub repositories",
   "private": true,
   "license": "MIT",
@@ -30,7 +30,7 @@
     "lint": "eslint . --max-warnings 0",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1 --no-file-parallelism",
     "test:server": "vitest run --config vitest.server.config.ts",
     "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
     "build:server": "tsc -p tsconfig.server.build.json",

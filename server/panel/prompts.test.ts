@@ -179,6 +179,85 @@ function reorderedReview(source: ExpertReview): ExpertReview {
 }
 
 describe("panel prompts", () => {
+  it.each([
+    [
+      "product",
+      [
+        "what problem the project addresses",
+        "what a person provides",
+        "what usable result they receive",
+        "trace a concrete input",
+        "actual requirements or tradeoffs",
+      ],
+    ],
+    [
+      "onboarding-architecture",
+      [
+        "shortest documented path to a first useful result",
+        "Separate using the project from developing it",
+        "broad modules by responsibility",
+        "how information moves between them only where documented",
+        "documented extension point",
+      ],
+    ],
+    [
+      "trust-ecosystem",
+      [
+        "dependency, permission, external service, storage choice",
+        "identify the data or access involved",
+        "permitted narrative evidence",
+        "specific to the user's likely task and the missing evidence",
+      ],
+    ],
+  ] as const)(
+    "gives the %s specialist practical explanation tasks within the evidence boundary",
+    (role, requirements) => {
+      for (const language of ["en", "zh-CN"] as const) {
+        const built = buildExpertPrompt(
+          role,
+          pack("Documented project capabilities and prerequisites."),
+          language,
+        );
+        for (const requirement of requirements) {
+          expect(built.system).toContain(requirement);
+        }
+        expect(built.system).toContain("Read all admitted README");
+        expect(built.system).toContain("later sections");
+        expect(built.system).toContain(
+          "A dependency name, directory path, badge, or section heading alone does not establish a feature",
+        );
+        expect(built.system).toContain(
+          "Match the explanation to the project type",
+        );
+        expect(built.system).toContain("Let evidence determine depth");
+      }
+    },
+  );
+
+  it("asks the editor to add distinct explanations without inventing missing detail", () => {
+    const evidence = pack("Documented project capabilities and prerequisites.");
+    const product = review("product");
+    for (const language of ["en", "zh-CN"] as const) {
+      const built = buildEditorPrompt(
+        evidence,
+        [product, review("onboarding-architecture")],
+        skeptic(product),
+        language,
+      );
+      for (const requirement of [
+        "connected explanation a newcomer can read",
+        "input, meaningful steps, and output",
+        "Each section should add useful information",
+        "documented conditions and limitations",
+        "required minimum of one item is not a target length",
+        "Do not expand sparse findings with invented details or boilerplate",
+        "a specific need, its main tradeoff, and the most useful next check",
+      ]) {
+        expect(built.system).toContain(requirement);
+      }
+    }
+  });
+
   it("requests native Mainland Chinese without weakening uncertainty rules", () => {
     const evidence = pack("repository evidence");
     const product = review("product");
@@ -194,7 +273,7 @@ describe("panel prompts", () => {
       ),
     ];
 
-    expect(PANEL_PROMPT_VERSION).toBe("1.1.0");
+    expect(PANEL_PROMPT_VERSION).toBe("1.2.0");
     for (const built of prompts) {
       expect(built.system).toContain("natural Mainland Simplified Chinese");
       expect(built.system).toContain(

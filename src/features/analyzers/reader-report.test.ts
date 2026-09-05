@@ -1010,6 +1010,75 @@ This is a bounded project explanation.
     expect(report.scenarios.facts).toEqual(report.readme.useCases);
   });
 
+  it("uses fetched user guides to fill scenario and command gaps after the README", () => {
+    const input = completeInput();
+    const readme = readerFile(
+      "README.md",
+      "## Use cases\n\n- Review a public project.\n\n## Run\n\n`pnpm start`",
+    );
+    const guide = readerFile(
+      "docs/getting-started.md",
+      "## Use cases\n\n- Review a public project.\n- Prepare a team onboarding session.\n\n## Install\n\n`pnpm install`\n\n## Run\n\n`pnpm preview`\n\n## Development\n\n`pnpm dev`",
+    );
+    input.files = [readme, guide];
+    input.tree.files = input.files.map(({ path, bytes }) =>
+      treeFile(path, bytes),
+    );
+    const report = analyzeReaderReport(input);
+
+    expect(report.scenarios.facts).toEqual([
+      { source: "readme", path: readme.path, text: "Review a public project." },
+      {
+        source: "documentation",
+        path: guide.path,
+        text: "Prepare a team onboarding session.",
+      },
+    ]);
+    expect(report.gettingStarted.commands).toMatchObject([
+      {
+        source: "documentation",
+        path: guide.path,
+        kind: "install",
+        command: "pnpm install",
+      },
+      {
+        source: "readme",
+        path: readme.path,
+        kind: "run",
+        command: "pnpm start",
+      },
+      {
+        source: "documentation",
+        path: guide.path,
+        kind: "develop",
+        command: "pnpm dev",
+      },
+    ]);
+    expect(report.readme.useCases).toHaveLength(1);
+    expect(JSON.stringify(report.readme)).not.toContain("documentation");
+  });
+
+  it("only supplements from user-guide paths, with deterministic guide precedence", () => {
+    const input = completeInput();
+    input.files = [
+      readerFile("README.md", "## Overview\n\nA local project reader."),
+      readerFile("docs/usage.md", "## Run\n\n`pnpm preview`"),
+      readerFile("docs/getting-started.md", "## Run\n\n`pnpm start`"),
+      readerFile("docs/decisions/old-plan.md", "## Install\n\n`npm install`"),
+      readerFile("docs/installation-history.md", "## Build\n\n`pnpm build`"),
+    ];
+    input.tree.files = input.files.map(({ path, bytes }) =>
+      treeFile(path, bytes),
+    );
+    const report = analyzeReaderReport(input);
+    const reversed = { ...input, files: [...input.files].reverse() };
+
+    expect(report.gettingStarted.commands).toMatchObject([
+      { kind: "run", command: "pnpm start", path: "docs/getting-started.md" },
+    ]);
+    expect(analyzeReaderReport(reversed)).toEqual(report);
+  });
+
   it("removes purpose duplicates before applying the final three-scenario cap", () => {
     const input = completeInput();
     const readme = readerFile(

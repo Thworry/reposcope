@@ -1637,6 +1637,13 @@ test("hostile repository strings stay inert text", async ({
     const href = await anchor.getAttribute("href");
     expect(href).not.toBeNull();
     if (href === controlledAlternativeHref) continue;
+    if (href?.startsWith("#reader-") === true) {
+      await expect(anchor).toHaveClass(/readme-interpretation__takeaway-link/u);
+      expect(href).toMatch(
+        /^#reader-(?:readme|getting-started|architecture|security)$/u,
+      );
+      continue;
+    }
     await expect(anchor).toHaveClass(/reader-report__source/u);
     expect(href).toMatch(
       new RegExp(

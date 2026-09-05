@@ -273,7 +273,12 @@ function TextCommunityFact({
         )}
         data-exact-value={exactValue}
       >
-        <strong aria-hidden="true">{value}</strong>
+        <strong
+          className="readme-interpretation__community-text"
+          aria-hidden="true"
+        >
+          {value}
+        </strong>
         <ReaderReportSource evidence={evidence} {...context} />
       </dd>
     </div>
@@ -361,40 +366,20 @@ function ReaderTakeaways({
 }): ReactElement {
   const copy = messages[context.language];
   const reader = report.readerReport;
-  const capabilityLabels = reader.readme.capabilityGroups.map(
-    ({ label }) => label,
+  const firstCapability = reader.readme.capabilityGroups[0];
+  const capabilityFacts = firstCapability?.facts.slice(0, 2) ?? [];
+  const workflowFacts = reader.readme.workflow.slice(0, 2);
+  const readyCommand = reader.gettingStarted.commands.find(
+    ({ command, disposition }) => command !== null && disposition === "ready",
   );
-  const workflowSteps = reader.readme.workflow.length;
-  const commandTypes = reader.gettingStarted.commands.length;
   const kinds = report.projectBrief.kinds.map(
     ({ kind }) => copy[KIND_KEYS[kind]],
   );
   const ecosystems = reader.architecture.ecosystems.map(
     (ecosystem) => copy[ECOSYSTEM_KEYS[ecosystem]],
   );
-  const sourceAreas = reader.architecture.sourceAreas.length;
-  const architectureReferences =
-    reader.architecture.excerpts.length + reader.architecture.documents.length;
-  const dependencies = reader.readme.dependencies.length;
-  const workflowDetails = [
-    workflowSteps > 0
-      ? countCopy(
-          context.language,
-          workflowSteps,
-          "readerCountWorkflowStep",
-          "readerCountWorkflowSteps",
-        )
-      : null,
-    commandTypes > 0
-      ? countCopy(
-          context.language,
-          commandTypes,
-          "readerCountOnboardingCommand",
-          "readerCountOnboardingCommands",
-        )
-      : null,
-  ].filter((detail): detail is string => detail !== null);
-  const architectureDetails = [
+  const architectureFacts = reader.architecture.excerpts.slice(0, 2);
+  const architectureSummary = [
     kinds.length > 0
       ? formatMessage(context.language, "readerTakeawayArchitectureKinds", {
           kinds: listFormat(kinds, context.language),
@@ -407,102 +392,62 @@ function ReaderTakeaways({
           { ecosystems: listFormat(ecosystems, context.language) },
         )
       : null,
-    sourceAreas > 0
-      ? formatMessage(context.language, "readerTakeawayArchitectureAreas", {
-          areas: countCopy(
-            context.language,
-            sourceAreas,
-            "readerCountSourceArea",
-            "readerCountSourceAreas",
-          ),
-        })
-      : null,
   ].filter((detail): detail is string => detail !== null);
-  const riskSignalDetail = (
-    signal: "license" | "security-policy" | "configuration",
-    key:
-      | "readerTakeawayRiskLicense"
-      | "readerTakeawayRiskSecurity"
-      | "readerTakeawayRiskConfiguration",
-  ): string | null => {
-    const fact = reader.reliability.signals.find(
-      (candidate) => candidate.signal === signal,
-    );
-    return fact === undefined
-      ? null
-      : formatMessage(context.language, key, {
-          state: copy[SIGNAL_STATE_KEYS[fact.state]],
-        });
-  };
-  const riskDetails = [
-    riskSignalDetail("license", "readerTakeawayRiskLicense"),
-    riskSignalDetail("security-policy", "readerTakeawayRiskSecurity"),
-    riskSignalDetail("configuration", "readerTakeawayRiskConfiguration"),
-    dependencies > 0
-      ? countCopy(
-          context.language,
-          dependencies,
-          "readerCountRequirement",
-          "readerCountRequirements",
-        )
-      : null,
-  ].filter((detail): detail is string => detail !== null);
+  const architectureArea = reader.architecture.sourceAreas[0];
+  const boundaryFacts = [
+    ...reader.readme.limitations.slice(0, 1),
+    ...reader.readme.dependencies.slice(0, 1),
+  ];
+  const boundarySignal = reader.reliability.signals.find(
+    ({ signal }) => signal === "security-policy" || signal === "license",
+  );
 
   const items = [
     {
       heading: copy.readerTakeawayCapabilitiesHeading,
-      text:
-        capabilityLabels.length === 0
-          ? copy.readerTakeawayCapabilitiesMissing
-          : formatMessage(context.language, "readerTakeawayCapabilities", {
-              count: countCopy(
-                context.language,
-                capabilityLabels.length,
-                "readerCountCapabilityGroup",
-                "readerCountCapabilityGroups",
-              ),
-              labels: listFormat(capabilityLabels, context.language),
-            }),
+      label: firstCapability?.label ?? null,
+      interpretation: copy.readerTakeawayCapabilitiesInterpretation,
+      facts: capabilityFacts,
+      fallback: copy.readerTakeawayCapabilitiesMissing,
+      href: "#reader-readme",
+      linkLabel: copy.readerTakeawayCapabilitiesLink,
     },
     {
       heading: copy.readerTakeawayWorkflowHeading,
-      text:
-        workflowDetails.length === 0
-          ? copy.readerTakeawayWorkflowMissing
-          : formatMessage(context.language, "readerTakeawayWorkflow", {
-              details: listFormat(workflowDetails, context.language),
-            }),
+      label: null,
+      interpretation: copy.readerTakeawayWorkflowInterpretation,
+      facts: workflowFacts,
+      fallback: copy.readerTakeawayWorkflowMissing,
+      command: readyCommand,
+      href: "#reader-getting-started",
+      linkLabel: copy.readerTakeawayWorkflowLink,
     },
     {
       heading: copy.readerTakeawayArchitectureHeading,
-      text:
-        architectureDetails.length > 0
+      label:
+        architectureSummary.length > 0
           ? formatMessage(context.language, "readerTakeawayArchitecture", {
-              details: listFormat(architectureDetails, context.language),
+              details: architectureSummary.join(
+                context.language === "zh-CN" ? "；" : "; ",
+              ),
             })
-          : architectureReferences > 0
-            ? formatMessage(
-                context.language,
-                "readerTakeawayArchitectureDocumented",
-                {
-                  references: countCopy(
-                    context.language,
-                    architectureReferences,
-                    "readerCountArchitectureReference",
-                    "readerCountArchitectureReferences",
-                  ),
-                },
-              )
-            : copy.readerTakeawayArchitectureMissing,
+          : null,
+      interpretation: copy.readerTakeawayArchitectureInterpretation,
+      facts: architectureFacts,
+      fallback: copy.readerTakeawayArchitectureMissing,
+      architectureArea,
+      href: "#reader-architecture",
+      linkLabel: copy.readerTakeawayArchitectureLink,
     },
     {
       heading: copy.readerTakeawayRiskHeading,
-      text:
-        riskDetails.length === 0
-          ? copy.readerNotEstablished
-          : formatMessage(context.language, "readerTakeawayRisk", {
-              details: listFormat(riskDetails, context.language),
-            }),
+      label: null,
+      interpretation: copy.readerTakeawayRiskInterpretation,
+      facts: boundaryFacts,
+      fallback: copy.readerNotEstablished,
+      signal: boundarySignal,
+      href: "#reader-security",
+      linkLabel: copy.readerTakeawayRiskLink,
     },
   ];
 
@@ -520,7 +465,54 @@ function ReaderTakeaways({
             </span>
             <div>
               <h5>{item.heading}</h5>
-              <p>{item.text}</p>
+              {item.label === null ? null : (
+                <p className="readme-interpretation__takeaway-label">
+                  {item.label}
+                </p>
+              )}
+              {item.facts.length > 0 ? (
+                <EvidenceList
+                  facts={item.facts}
+                  context={context}
+                  className="readme-interpretation__takeaway-evidence"
+                />
+              ) : item.command?.command !== null &&
+                item.command?.command !== undefined ? (
+                <div className="readme-interpretation__takeaway-command">
+                  <code>{item.command.command}</code>
+                  <ReaderReportSource evidence={item.command} {...context} />
+                </div>
+              ) : item.architectureArea !== undefined ? (
+                <div className="readme-interpretation__takeaway-area">
+                  <ReaderReportSource
+                    evidence={{ source: "tree", path: item.architectureArea }}
+                    linkKind="tree"
+                    {...context}
+                  />
+                </div>
+              ) : item.signal !== undefined ? (
+                <p className="readme-interpretation__takeaway-signal">
+                  {formatMessage(
+                    context.language,
+                    "readerTakeawaySignalState",
+                    {
+                      state: copy[SIGNAL_STATE_KEYS[item.signal.state]],
+                    },
+                  )}
+                  <ReaderReportSource evidence={item.signal} {...context} />
+                </p>
+              ) : (
+                <p className="readme-interpretation__empty">{item.fallback}</p>
+              )}
+              <p className="readme-interpretation__takeaway-interpretation">
+                {item.interpretation}
+              </p>
+              <a
+                className="readme-interpretation__takeaway-link"
+                href={item.href}
+              >
+                {item.linkLabel}
+              </a>
             </div>
           </li>
         ))}
@@ -897,23 +889,74 @@ function CommentaryGroup({
   heading,
   ids,
   selected,
-  language,
+  report,
+  context,
 }: {
   heading: string;
   ids: readonly ReaderCommentaryId[];
   selected: ReadonlySet<ReaderCommentaryId>;
-  language: Language;
+  report: AnalysisReport;
+  context: SourceContext;
 }): ReactElement | null {
   const commentary = ids.filter((id) => selected.has(id));
   if (commentary.length === 0) return null;
+
+  const evidenceFor = (
+    id: ReaderCommentaryId,
+  ): ReaderEvidenceSource | undefined => {
+    const readme = report.readerReport.readme;
+
+    switch (id) {
+      case "readme-substantial-overview":
+        return readme.overview[0];
+      case "readme-audience-or-use-cases-documented":
+        return (
+          readme.audiences[0] ??
+          readme.useCases[0] ??
+          report.readerReport.scenarios.facts[0]
+        );
+      case "readme-capabilities-documented":
+        return readme.capabilityGroups[0]?.facts[0];
+      case "readme-workflow-documented":
+        return readme.workflow[0];
+      case "readme-onboarding-documented":
+        return report.readerReport.gettingStarted.commands[0];
+      case "readme-limitations-documented":
+        return readme.limitations[0];
+      case "readme-maturity-documented":
+        return readme.maturity[0];
+      case "readme-broad-structure-corroborated":
+        return (
+          report.readerReport.architecture.excerpts[0] ??
+          (report.readerReport.architecture.sourceAreas[0] === undefined
+            ? undefined
+            : {
+                source: "tree",
+                path: report.readerReport.architecture.sourceAreas[0],
+              })
+        );
+      case "readme-external-dependencies-declared":
+        return readme.dependencies[0];
+      default:
+        return { source: "analysis", path: null };
+    }
+  };
 
   return (
     <section>
       <h5>{heading}</h5>
       <ul>
-        {commentary.map((id) => (
-          <li key={id}>{messages[language][COMMENTARY_KEYS[id]]}</li>
-        ))}
+        {commentary.map((id) => {
+          const evidence = evidenceFor(id);
+          return (
+            <li key={id}>
+              <p>{messages[context.language][COMMENTARY_KEYS[id]]}</p>
+              {evidence === undefined ? null : (
+                <ReaderReportSource evidence={evidence} {...context} />
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -948,19 +991,22 @@ function Commentary({
             heading={copy.readerCommentaryWorthHeading}
             ids={WORTH_NOTING_IDS}
             selected={selected}
-            language={context.language}
+            report={report}
+            context={context}
           />
           <CommentaryGroup
             heading={copy.readerCommentaryVerifyHeading}
             ids={VERIFY_IDS}
             selected={selected}
-            language={context.language}
+            report={report}
+            context={context}
           />
           <CommentaryGroup
             heading={copy.readerCommentaryPracticalHeading}
             ids={PRACTICAL_IDS}
             selected={selected}
-            language={context.language}
+            report={report}
+            context={context}
           />
         </div>
       )}

@@ -51,6 +51,30 @@ const MAX_ARCHITECTURE_EXCERPTS = 8;
 const MAX_ENTRY_POINTS = 4;
 const MAX_SOURCE_AREAS = 5;
 const MAX_SECURITY_DECLARATIONS = 3;
+const MAX_READER_GUIDES = 6;
+const READER_GUIDE_NAMES = new Set([
+  "install",
+  "installation",
+  "setup",
+  "getting-started",
+  "getting_started",
+  "quickstart",
+  "quick-start",
+  "usage",
+  "user-guide",
+  "user_guide",
+  "tutorial",
+  "tutorials",
+  "examples",
+  "development",
+  "contributing",
+  "安装",
+  "安装指南",
+  "快速开始",
+  "使用指南",
+  "使用教程",
+  "开发指南",
+]);
 
 const SECURITY_SIGNAL_IDS = new Set<ReaderSignalId>([
   "license",
@@ -323,6 +347,19 @@ function isSecurityOrPrivacyDocument(path: string): boolean {
   );
 }
 
+function isReaderGuideDocument(path: string): boolean {
+  const document = documentStem(path);
+  if (document === null || !READER_GUIDE_NAMES.has(document.stem)) return false;
+  return (
+    document.directory === "" ||
+    document.directory === ".github" ||
+    document.directory === "docs" ||
+    document.directory.startsWith("docs/") ||
+    document.directory === "doc" ||
+    document.directory.startsWith("doc/")
+  );
+}
+
 function preferredReadmePath(paths: readonly string[]): string | null {
   return (
     paths.filter(isCanonicalReadmePath).sort(compareReadmePaths)[0] ?? null
@@ -519,11 +556,13 @@ function architectureStructure(paths: readonly string[]): {
 
 function mergeCommands(
   readme: readonly ReaderCommandFact[],
+  documentation: readonly ReaderCommandFact[],
   manifest: readonly ReaderCommandFact[],
 ): ReaderCommandFact[] {
   return READER_COMMAND_KINDS.flatMap((kind) => {
     const command =
       readme.find((fact) => fact.kind === kind) ??
+      documentation.find((fact) => fact.kind === kind) ??
       manifest.find((fact) => fact.kind === kind);
 
     return command === undefined ? [] : [command];
@@ -612,14 +651,31 @@ export function analyzeReaderReport(input: ReaderReportInput): ReaderReport {
   const readmeEvidence = extractReaderMarkdownEvidence(readme, {
     scenarioExclusions: purposeKeys,
   });
+  const guideEvidence = fetchedFiles
+    .filter(
+      (file) =>
+        file.category === "documentation" &&
+        file.path !== readme?.path &&
+        isReaderGuideDocument(file.path),
+    )
+    .slice(0, MAX_READER_GUIDES)
+    .map((file) =>
+      extractReaderMarkdownEvidence(file, { scenarioExclusions: purposeKeys }),
+    );
   const commands = mergeCommands(
     readmeEvidence.commands,
+    guideEvidence.flatMap((guide) => guide.commands),
     manifestReaderCommands(input),
   );
   const scenarios = collectTextFacts(
-    [...readmeEvidence.readme.useCases, ...readmeEvidence.scenarios].filter(
-      ({ text }) => !purposeKeys.has(canonicalText(text)),
-    ),
+    [
+      ...readmeEvidence.readme.useCases,
+      ...readmeEvidence.scenarios,
+      ...guideEvidence.flatMap((guide) => [
+        ...guide.readme.useCases,
+        ...guide.scenarios,
+      ]),
+    ].filter(({ text }) => !purposeKeys.has(canonicalText(text))),
     3,
   );
   const recognizedDocuments = fetchedFiles.filter(

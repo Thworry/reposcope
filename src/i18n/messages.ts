@@ -133,14 +133,23 @@ const baseEn = {
   readerCommunityHeading: "Community and maintenance facts",
   readerTakeawaysHeading: "Reader takeaways",
   readerTakeawayCapabilitiesHeading: "Capability shape",
+  readerTakeawayCapabilitiesInterpretation:
+    "Start here to decide whether the project addresses your task; the full section keeps the remaining README claims and their sources together.",
+  readerTakeawayCapabilitiesLink: "Read all documented capabilities",
   readerTakeawayCapabilities: "The README groups {count}: {labels}.",
   readerTakeawayCapabilitiesMissing:
     "The README does not provide a bounded capability list.",
   readerTakeawayWorkflowHeading: "Typical path",
+  readerTakeawayWorkflowInterpretation:
+    "This is the path the authors expect a new user to follow. Check prerequisites and the complete command list before running it.",
+  readerTakeawayWorkflowLink: "See install, run, and development steps",
   readerTakeawayWorkflow: "The README or repository provides {details}.",
   readerTakeawayWorkflowMissing:
     "No ordered README workflow or reusable onboarding command was established.",
   readerTakeawayArchitectureHeading: "Implementation outline",
+  readerTakeawayArchitectureInterpretation:
+    "Use this broad responsibility map to find the likely extension points. It is an orientation aid, not a function-by-function code review.",
+  readerTakeawayArchitectureLink: "See the broad architecture",
   readerTakeawayArchitecture: "The repository suggests {details}.",
   readerTakeawayArchitectureKinds: "Project type: {kinds}",
   readerTakeawayArchitectureEcosystems: "Technology ecosystem: {ecosystems}",
@@ -150,6 +159,10 @@ const baseEn = {
   readerTakeawayArchitectureMissing:
     "The scan does not establish a broad implementation outline.",
   readerTakeawayRiskHeading: "Adoption boundary",
+  readerTakeawayRiskInterpretation:
+    "Treat this as a pre-use check. Public documentation can describe a boundary, but it cannot prove runtime safety or compatibility.",
+  readerTakeawayRiskLink: "Review security and privacy evidence",
+  readerTakeawaySignalState: "Repository signal: {state}.",
   readerTakeawayRisk: "Public evidence shows {details}.",
   readerTakeawayRiskLicense: "License information: {state}",
   readerTakeawayRiskSecurity: "Security policy: {state}",
@@ -748,13 +761,22 @@ const baseZh = {
   readerCommunityHeading: "社区热度与维护数据",
   readerTakeawaysHeading: "先看重点",
   readerTakeawayCapabilitiesHeading: "主要功能",
+  readerTakeawayCapabilitiesInterpretation:
+    "先用这些具体能力判断它能不能解决你的问题；完整功能区会继续列出 README 中的其他说明和出处。",
+  readerTakeawayCapabilitiesLink: "查看 README 中写明的全部功能",
   readerTakeawayCapabilities: "README 把主要功能分成 {count}：{labels}。",
   readerTakeawayCapabilitiesMissing: "README 没有列出清晰的功能分组。",
   readerTakeawayWorkflowHeading: "怎么使用",
+  readerTakeawayWorkflowInterpretation:
+    "这是作者希望新用户采用的路径。真正运行前，还要核对环境要求和完整命令，避免只抄一条命令就开始。",
+  readerTakeawayWorkflowLink: "查看安装、运行与开发步骤",
   readerTakeawayWorkflow: "README 或仓库提供了{details}。",
   readerTakeawayWorkflowMissing:
     "README 没有给出明确的操作步骤或可直接参考的命令。",
   readerTakeawayArchitectureHeading: "代码大致怎么组织",
+  readerTakeawayArchitectureInterpretation:
+    "这张地图用于快速找到主要职责和可能的扩展入口，只讲模块级结构，不做逐函数点评。",
+  readerTakeawayArchitectureLink: "查看整体架构与主要目录",
   readerTakeawayArchitecture: "仓库目录显示：{details}。",
   readerTakeawayArchitectureKinds: "项目类型为{kinds}",
   readerTakeawayArchitectureEcosystems: "主要使用{ecosystems}",
@@ -763,6 +785,10 @@ const baseZh = {
     "仓库提供了 {references}，可以帮助理解模块职责。",
   readerTakeawayArchitectureMissing: "现有目录和文档还不足以说明代码如何组织。",
   readerTakeawayRiskHeading: "使用前还要确认",
+  readerTakeawayRiskInterpretation:
+    "把这里当作使用前检查：公开文档可以说明边界，但不能代替实际运行、安全审计或兼容性验证。",
+  readerTakeawayRiskLink: "查看安全与隐私依据",
+  readerTakeawaySignalState: "仓库信号：{state}。",
   readerTakeawayRisk: "公开信息显示：{details}。",
   readerTakeawayRiskLicense: "{state}许可证文件或 GitHub 识别信息",
   readerTakeawayRiskSecurity: "{state}安全说明",
